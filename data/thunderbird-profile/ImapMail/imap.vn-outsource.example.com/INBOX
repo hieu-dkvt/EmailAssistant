@@ -1,0 +1,277 @@
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+Message-ID: <vn-sprint.1.17331@vn-outsource.example.com>
+Date: Fri, 04 Sep 2026 04:53:00 +0700
+From: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?q?Sprint_12_planning?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+QW5oIEhp4bq/dSwKCkVtIMSR4buBIHh14bqldCBzY29wZSBTcHJpbnQgMTI6IHPhu61hIGzhu5dp
+IHThu5NuIGtobywgbMOgbSBtw6BuIGjDrG5oIHh14bqldCBiw6FvIGPDoW8gc+G7kSA1LgpU4buV
+bmcga2hv4bqjbmcgMzggc3RvcnkgcG9pbnQuCgotLQpOZ3V54buFbiBWxINuIEFuCkRldiBMZWFk
+IHwgVk4gT3V0c291cmNlIENvLiwgTHRkLg==
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+Message-ID: <vn-sprint.3.84341@vn-outsource.example.com>
+Date: Fri, 04 Sep 2026 12:57:00 +0700
+From: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?q?Re=3A_Sprint_12_planning?=
+In-Reply-To: <vn-sprint.2.51347@vn-outsource.example.com>
+References: <vn-sprint.1.17331@vn-outsource.example.com> <vn-sprint.2.51347@vn-outsource.example.com>
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+Anh,
+
+Em nh=E1=BA=ADn r=E1=BB=93i. Em s=E1=BA=BD =C4=91=C6=B0a b=C3=A1o c=C3=A1o =
+s=E1=BB=91 5 xu=E1=BB=91ng cu=E1=BB=91i sprint.
+
+V=C3=A0o 08:44 ng=C3=A0y 04/09/2026, Tr=E1=BA=A7n Hi=E1=BA=BFu <pm@vn-outso=
+urce.example.com> =C4=91=C3=A3 vi=E1=BA=BFt:
+> An,
+>
+> OK. B=C3=A1o c=C3=A1o s=E1=BB=91 5 kh=C3=A1ch v=E1=BB=ABa =C4=91=E1=BB=95=
+i layout, em ch=E1=BB=9D spec m=E1=BB=9Bi nh=C3=A9. =C6=AFu ti=C3=AAn l=E1=
+=BB=97i t=E1=BB=93n kho tr=C6=B0=E1=BB=9Bc.
+>
+> V=C3=A0o 04:53 ng=C3=A0y 04/09/2026, Nguy=E1=BB=85n V=C4=83n An <an.nv@vn=
+-outsource.example.com> =C4=91=C3=A3 vi=E1=BA=BFt:
+> > Anh Hi=E1=BA=BFu,
+> >
+> > Em =C4=91=E1=BB=81 xu=E1=BA=A5t scope Sprint 12: s=E1=BB=ADa l=E1=BB=97=
+i t=E1=BB=93n kho, l=C3=A0m m=C3=A0n h=C3=ACnh xu=E1=BA=A5t b=C3=A1o c=C3=
+=A1o s=E1=BB=91 5.
+> > T=E1=BB=95ng kho=E1=BA=A3ng 38 story point.
+
+--
+Nguy=E1=BB=85n V=C4=83n An
+Dev Lead | VN Outsource Co., Ltd.
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+Message-ID: <vn-sprint.4.95909@vn-outsource.example.com>
+Date: Sat, 05 Sep 2026 01:10:00 +0700
+From: =?utf-8?b?TMOqIFRo4buLIELDrG5o?= <binh.lt@vn-outsource.example.com>
+To: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+Cc: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?q?Re=3A_Sprint_12_planning?=
+In-Reply-To: <vn-sprint.3.84341@vn-outsource.example.com>
+References: <vn-sprint.1.17331@vn-outsource.example.com> <vn-sprint.2.51347@vn-outsource.example.com> <vn-sprint.3.84341@vn-outsource.example.com>
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+QW5oIEhp4bq/dSwgYW5oIEFuLAoKQsOqbiBRQSBj4bqnbiBidWlsZCB0csaw4bubYyBuZ8OgeSAx
+OCDEkeG7gyBr4buLcCByZWdyZXNzaW9uIHRlc3QuCgpWw6BvIDEyOjU3IG5nw6B5IDA0LzA5LzIw
+MjYsIE5ndXnhu4VuIFbEg24gQW4gPGFuLm52QHZuLW91dHNvdXJjZS5leGFtcGxlLmNvbT4gxJHD
+oyB2aeG6v3Q6Cj4gQW5oLAo+Cj4gRW0gbmjhuq1uIHLhu5NpLiBFbSBz4bq9IMSRxrBhIGLDoW8g
+Y8OhbyBz4buRIDUgeHXhu5FuZyBjdeG7kWkgc3ByaW50Lgo+Cj4gVsOgbyAwODo0NCBuZ8OgeSAw
+NC8wOS8yMDI2LCBUcuG6p24gSGnhur91IDxwbUB2bi1vdXRzb3VyY2UuZXhhbXBsZS5jb20+IMSR
+w6Mgdmnhur90Ogo+ID4gQW4sCj4gPgo+ID4gT0suIELDoW8gY8OhbyBz4buRIDUga2jDoWNoIHbh
+u6thIMSR4buVaSBsYXlvdXQsIGVtIGNo4budIHNwZWMgbeG7m2kgbmjDqS4gxq91IHRpw6puIGzh
+u5dpIHThu5NuIGtobyB0csaw4bubYy4KPiA+Cj4gPiBWw6BvIDA0OjUzIG5nw6B5IDA0LzA5LzIw
+MjYsIE5ndXnhu4VuIFbEg24gQW4gPGFuLm52QHZuLW91dHNvdXJjZS5leGFtcGxlLmNvbT4gxJHD
+oyB2aeG6v3Q6Cj4gPiA+IEFuaCBIaeG6v3UsCj4gPiA+Cj4gPiA+IEVtIMSR4buBIHh14bqldCBz
+Y29wZSBTcHJpbnQgMTI6IHPhu61hIGzhu5dpIHThu5NuIGtobywgbMOgbSBtw6BuIGjDrG5oIHh1
+4bqldCBiw6FvIGPDoW8gc+G7kSA1Lgo+ID4gPiBU4buVbmcga2hv4bqjbmcgMzggc3RvcnkgcG9p
+bnQuCgotLQpMw6ogVGjhu4sgQsOsbmgKUUEgRW5naW5lZXIgfCBWTiBPdXRzb3VyY2UgQ28uLCBM
+dGQu
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+Message-ID: <vn-qa.1.42325@vn-outsource.example.com>
+Date: Mon, 21 Sep 2026 02:08:00 +0700
+From: =?utf-8?b?TMOqIFRo4buLIELDrG5o?= <binh.lt@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?b?QsOhbyBjw6FvIGvhur90IHF14bqjIHRlc3QgcmVncmVzc2lvbiBQcm9qZWN0IEE=?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+Anh Hi=E1=BA=BFu,
+
+K=E1=BA=BFt qu=E1=BA=A3 regression: 212 case, pass 205, fail 7.
+Chi ti=E1=BA=BFt 7 case l=E1=BB=97i em li=E1=BB=87t k=C3=AA b=C3=AAn d=C6=
+=B0=E1=BB=9Bi: #31, #58, #77, #90, #121, #150, #188.
+
+--
+L=C3=AA Th=E1=BB=8B B=C3=ACnh
+QA Engineer | VN Outsource Co., Ltd.
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+Message-ID: <vn-qa.3.57447@vn-outsource.example.com>
+Date: Tue, 22 Sep 2026 17:49:00 +0700
+From: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?b?UmU6IELDoW8gY8OhbyBr4bq/dCBxdeG6oyB0ZXN0IHJlZ3Jlc3Npb24gUHJvamVjdCBB?=
+In-Reply-To: <vn-qa.2.86622@vn-outsource.example.com>
+References: <vn-qa.1.42325@vn-outsource.example.com> <vn-qa.2.86622@vn-outsource.example.com>
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+QW5oLAoKRW0geGVtIHLhu5NpOiA1IGNhc2UgbMOgIGzhu5dpIGThu68gbGnhu4d1IHRlc3QsIDIg
+Y2FzZSAoIzc3LCAjMTUwKSBsw6AgbOG7l2kgdGjhuq10LiBFbSBz4butYSB0cm9uZyBow7RtIG5h
+eS4KClbDoG8gMjE6MjQgbmfDoHkgMjEvMDkvMjAyNiwgVHLhuqduIEhp4bq/dSA8cG1Adm4tb3V0
+c291cmNlLmV4YW1wbGUuY29tPiDEkcOjIHZp4bq/dDoKPiBCw6xuaCwKPgo+IEVtIGfhu61pIGFu
+aCBBbiB44butIGzDvSBnacO6cCBhbmguIENhc2UgbsOgbyDhuqNuaCBoxrDhu59uZyByZWxlYXNl
+IHRow6wgYsOhbyBuZ2F5Lgo+Cj4gVsOgbyAwMjowOCBuZ8OgeSAyMS8wOS8yMDI2LCBMw6ogVGjh
+u4sgQsOsbmggPGJpbmgubHRAdm4tb3V0c291cmNlLmV4YW1wbGUuY29tPiDEkcOjIHZp4bq/dDoK
+PiA+IEFuaCBIaeG6v3UsCj4gPgo+ID4gS+G6v3QgcXXhuqMgcmVncmVzc2lvbjogMjEyIGNhc2Us
+IHBhc3MgMjA1LCBmYWlsIDcuCj4gPiBDaGkgdGnhur90IDcgY2FzZSBs4buXaSBlbSBsaeG7h3Qg
+a8OqIGLDqm4gZMaw4bubaTogIzMxLCAjNTgsICM3NywgIzkwLCAjMTIxLCAjMTUwLCAjMTg4LgoK
+LS0KTmd1eeG7hW4gVsSDbiBBbgpEZXYgTGVhZCB8IFZOIE91dHNvdXJjZSBDby4sIEx0ZC4=
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+Message-ID: <vn-qa.4.74686@vn-outsource.example.com>
+Date: Wed, 23 Sep 2026 00:21:00 +0700
+From: =?utf-8?b?TMOqIFRo4buLIELDrG5o?= <binh.lt@vn-outsource.example.com>
+To: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+Subject: =?utf-8?b?UmU6IELDoW8gY8OhbyBr4bq/dCBxdeG6oyB0ZXN0IHJlZ3Jlc3Npb24gUHJvamVjdCBB?=
+In-Reply-To: <vn-qa.3.57447@vn-outsource.example.com>
+References: <vn-qa.1.42325@vn-outsource.example.com> <vn-qa.2.86622@vn-outsource.example.com> <vn-qa.3.57447@vn-outsource.example.com>
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+QW5oIEFuLAoKRW0gcmV0ZXN0ICM3NyB2w6AgIzE1MCBzYXUga2hpIGFuaCBkZXBsb3kgbmjDqS4K
+ClbDoG8gMTc6NDkgbmfDoHkgMjIvMDkvMjAyNiwgTmd1eeG7hW4gVsSDbiBBbiA8YW4ubnZAdm4t
+b3V0c291cmNlLmV4YW1wbGUuY29tPiDEkcOjIHZp4bq/dDoKPiBBbmgsCj4KPiBFbSB4ZW0gcuG7
+k2k6IDUgY2FzZSBsw6AgbOG7l2kgZOG7ryBsaeG7h3UgdGVzdCwgMiBjYXNlICgjNzcsICMxNTAp
+IGzDoCBs4buXaSB0aOG6rXQuIEVtIHPhu61hIHRyb25nIGjDtG0gbmF5Lgo+Cj4gVsOgbyAyMToy
+NCBuZ8OgeSAyMS8wOS8yMDI2LCBUcuG6p24gSGnhur91IDxwbUB2bi1vdXRzb3VyY2UuZXhhbXBs
+ZS5jb20+IMSRw6Mgdmnhur90Ogo+ID4gQsOsbmgsCj4gPgo+ID4gRW0gZ+G7rWkgYW5oIEFuIHjh
+u60gbMO9IGdpw7pwIGFuaC4gQ2FzZSBuw6BvIOG6o25oIGjGsOG7n25nIHJlbGVhc2UgdGjDrCBi
+w6FvIG5nYXkuCj4gPgo+ID4gVsOgbyAwMjowOCBuZ8OgeSAyMS8wOS8yMDI2LCBMw6ogVGjhu4sg
+QsOsbmggPGJpbmgubHRAdm4tb3V0c291cmNlLmV4YW1wbGUuY29tPiDEkcOjIHZp4bq/dDoKPiA+
+ID4gQW5oIEhp4bq/dSwKPiA+ID4KPiA+ID4gS+G6v3QgcXXhuqMgcmVncmVzc2lvbjogMjEyIGNh
+c2UsIHBhc3MgMjA1LCBmYWlsIDcuCj4gPiA+IENoaSB0aeG6v3QgNyBjYXNlIGzhu5dpIGVtIGxp
+4buHdCBrw6ogYsOqbiBkxrDhu5tpOiAjMzEsICM1OCwgIzc3LCAjOTAsICMxMjEsICMxNTAsICMx
+ODguCgotLQpMw6ogVGjhu4sgQsOsbmgKUUEgRW5naW5lZXIgfCBWTiBPdXRzb3VyY2UgQ28uLCBM
+dGQu
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: base64
+Message-ID: <s1.54587@client-b.example.co.jp>
+Date: Fri, 02 Oct 2026 11:18:00 +0900
+From: =?utf-8?b?6Yi05pyoIOS6rg==?= <suzuki@client-b.example.co.jp>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?b?5bm05pyr5bm05aeL44Gu5LyR5qWt5pel44Gu44GK55+l44KJ44Gb?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+6Zai5L+C5ZCE5L2NCgrlvIrnpL7jga8xMi8yOeOBi+OCiTEvM+OBvuOBp+S8kealreOBqOOBleOB
+m+OBpuOBhOOBn+OBoOOBjeOBvuOBmeOAggoKLS0K44K144Oz44OX44OrQuagquW8j+S8muekvgrl
+lrbmpa3kvIHnlLvpg6gg6Yi05pyoIOS6rgpURUw6IDA2LTAwMDAtMDAwMw==
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+Message-ID: <s2.69470@vn-outsource.example.com>
+Date: Mon, 05 Oct 2026 08:46:00 +0700
+From: =?utf-8?b?Tmd1eeG7hW4gVsSDbiBBbg==?= <an.nv@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?b?W0F1dG9dIE91dCBvZiBvZmZpY2U6IE5ndXnhu4VuIFbEg24gQW4=?=
+Auto-Submitted: auto-replied
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+Em =C4=91ang ngh=E1=BB=89 ph=C3=A9p =C4=91=E1=BA=BFn h=E1=BA=BFt 10/9, vui =
+l=C3=B2ng li=C3=AAn h=E1=BB=87 anh Hi=E1=BA=BFu n=E1=BA=BFu g=E1=BA=A5p.
+
+--
+Nguy=E1=BB=85n V=C4=83n An
+Dev Lead | VN Outsource Co., Ltd.
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+Content-Type: multipart/alternative; boundary="===============6338889595656969287=="
+MIME-Version: 1.0
+Message-ID: <s3.44522@vendor-c.example.com>
+Date: Sat, 03 Oct 2026 03:32:00 +0000
+From: Brian Carter <brian@vendor-c.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?q?Vendor_C_product_newsletter_-_October?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+--===============6338889595656969287==
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+
+Hello,
+
+This month: new SDK release, webinar on Oct 22.
+
+--
+Brian Carter
+Account Manager, Vendor C Inc.
+--===============6338889595656969287==
+Content-Type: text/html; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: base64
+
+PGh0bWw+PGJvZHk+PGgxPk5ld3NsZXR0ZXI8L2gxPjxwPkhlbGxvLDxicj48YnI+VGhpcyBtb250
+aDogbmV3IFNESyByZWxlYXNlLCB3ZWJpbmFyIG9uIE9jdCAyMi48L3A+PC9ib2R5PjwvaHRtbD4=
+
+--===============6338889595656969287==--
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: quoted-printable
+Message-ID: <s6.59009@vn-outsource.example.com>
+Date: Thu, 08 Oct 2026 10:34:00 +0700
+From: =?utf-8?b?TMOqIFRo4buLIELDrG5o?= <binh.lt@vn-outsource.example.com>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?utf-8?b?TeG7nWkgdGhhbSBnaWEgYnXhu5VpIGNoaWEgc+G6uyB24buBIGF1dG9tYXRpb24gdGVzdA==?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+Anh Hi=E1=BA=BFu,
+
+Th=E1=BB=A9 6 tu=E1=BA=A7n n=C3=A0y 16h c=C3=B3 bu=E1=BB=95i chia s=E1=BA=
+=BB v=E1=BB=81 automation test. M=E1=BB=9Di anh tham gia.
+
+--
+L=C3=AA Th=E1=BB=8B B=C3=ACnh
+QA Engineer | VN Outsource Co., Ltd.
+
+From MAILER-DAEMON Sun Oct 18 01:45:36 2026
+MIME-Version: 1.0
+Content-Type: text/plain; charset="iso-2022-jp"
+Content-Transfer-Encoding: 7bit
+Message-ID: <s8.12552@client-a.example.jp>
+Date: Mon, 12 Oct 2026 11:59:00 +0900
+From: =?utf-8?b?55Sw5LitIOWBpeS6jA==?= <tanaka@client-a.example.jp>
+To: =?utf-8?b?VHLhuqduIEhp4bq/dQ==?= <pm@vn-outsource.example.com>
+Subject: =?iso-2022-jp?b?GyRCTWg9NSROSyxMZCRLJEQkJCRGGyhC?=
+X-Mozilla-Status: 0001
+X-Mozilla-Status2: 00000000
+
+チャン様
+
+来週火曜に御社を訪問したいのですが、ご都合はいかがでしょうか。
+
+--
+株式会社サンプルA
+システム開発部 田中 健二
+TEL: 03-0000-0001
+

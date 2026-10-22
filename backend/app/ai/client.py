@@ -1,0 +1,311 @@
+"""Gọi Claude (SDK anthropic) và ghi lại mỗi lần gọi vào ai_calls (spec 21 mục 5, spec 22).
+
+- Output có cấu trúc: structured outputs (output_config.format, schema từ Pydantic) rồi tự kiểm tra
+  bằng Pydantic, để luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
+- Sonnet, Opus: bật server-side fallback ("default") khi model từ chối (refusal); Haiku không có.
+- Lỗi SDK được thay bằng LlmError (mã cho web); log chỉ có tên lớp lỗi, không có thông điệp.
+- Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20).
+"""
+
+import logging
+import os
+import time
+from dataclasses import dataclass, field
+from typing import Protocol
+from urllib.parse import urlparse
+
+import anthropic
+from anthropic import AsyncAnthropic, transform_schema
+from pydantic import BaseModel, ValidationError
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
+
+from app.ai.models import TASKS, TIER_INFO, Effort, Tier, model_for
+from app.db.session import user_session
+
+log = logging.getLogger("app.ai")
+
+TIMEOUT_SECONDS = 120.0
+MAX_RETRIES = 2
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+
+@dataclass(frozen=True)
+class LlmUsage:
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+
+
+@dataclass(frozen=True)
+class LlmResponse:
+    text: str | None  # text của khối text đầu tiên (JSON theo schema)
+    model: str  # model thực sự trả lời (có thể là model dự phòng)
+    stop_reason: str | None
+    usage: LlmUsage
+
+
+class LlmError(Exception):
+    """Lỗi gọi Claude cho web: code (vd. ai_unavailable), http_status, status ghi ai_calls."""
+
+    def __init__(
+        self,
+        code: str,
+        http_status: int,
+        message: str,
+        *,
+        status: str = "error",
+        usage: LlmUsage | None = None,
+        model: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.http_status = http_status
+        self.message = message
+        self.status = status
+        self.usage = usage or LlmUsage()
+        self.model = model
+
+
+class LlmClient(Protocol):
+    async def create(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        schema: dict[str, object],
+        max_tokens: int,
+        effort: Effort,
+        fallbacks: bool,
+    ) -> LlmResponse: ...
+
+
+def configured() -> bool:
+    """Có khóa API của Claude trong biến môi trường của backend (không đọc giá trị ra ngoài)."""
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
+
+
+def fallbacks_enabled() -> bool:
+    return os.environ.get("PMM_AI_FALLBACKS", "1") != "0"
+
+
+API_BASE_URL = "https://api.anthropic.com"
+
+
+def anthropic_base_url() -> str:
+    """NDA: mail (đã che) chỉ được gửi tới Claude API của Anthropic.
+
+    Không dùng ANTHROPIC_BASE_URL hay profile của SDK (máy dev có thể trỏ tới gateway khác);
+    PMM_ANTHROPIC_BASE_URL chỉ nhận https://*.anthropic.com.
+    """
+    raw = os.environ.get("PMM_ANTHROPIC_BASE_URL")
+    if not raw:
+        return API_BASE_URL
+    url = urlparse(raw)
+    host = url.hostname or ""
+    if url.scheme == "https" and (host == "anthropic.com" or host.endswith(".anthropic.com")):
+        return raw.rstrip("/")
+    raise ValueError("PMM_ANTHROPIC_BASE_URL phải là https://*.anthropic.com")
+
+
+def _quiet_sdk_logs() -> None:
+    # ANTHROPIC_LOG=debug làm SDK ghi cả request (text đã che) vào log: giữ mức WARNING.
+    for name in ("anthropic", "httpx2", "httpcore2", "httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
+class AnthropicLlm:
+    def __init__(self, client: AsyncAnthropic | None = None) -> None:
+        if client is None:
+            _quiet_sdk_logs()
+            client = AsyncAnthropic(
+                base_url=anthropic_base_url(),
+                timeout=TIMEOUT_SECONDS,
+                max_retries=MAX_RETRIES,
+                # OpenTelemetry bật sẵn trong SDK (có chế độ đưa nội dung vào span): tắt.
+                open_telemetry=False,
+            )
+        self._client = client
+
+    async def create(
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        schema: dict[str, object],
+        max_tokens: int,
+        effort: Effort,
+        fallbacks: bool,
+    ) -> LlmResponse:
+        output_config = {"effort": effort, "format": {"type": "json_schema", "schema": schema}}
+        messages = [{"role": "user", "content": user}]
+        try:
+            if fallbacks:
+                resp = await self._client.beta.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=messages,  # type: ignore[arg-type]
+                    output_config=output_config,  # type: ignore[arg-type]
+                    betas=[FALLBACK_BETA],
+                    fallbacks="default",
+                )
+            else:
+                resp = await self._client.messages.create(
+                    model=model,
+                    max_tokens=max_tokens,
+                    system=system,
+                    messages=messages,  # type: ignore[arg-type]
+                    output_config=output_config,  # type: ignore[arg-type]
+                )
+        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
+            raise _api_error("ai_auth_failed", 503, "Khóa API của Claude không hợp lệ", e) from None
+        except anthropic.RateLimitError as e:
+            raise _api_error("ai_unavailable", 503, "Claude đang quá tải, thử lại sau", e) from None
+        except anthropic.BadRequestError as e:
+            raise _api_error("ai_bad_request", 502, "Claude từ chối request", e) from None
+        except anthropic.APIStatusError as e:
+            if e.status_code >= 500:
+                raise _api_error("ai_unavailable", 503, "Claude đang lỗi, thử lại sau", e) from None
+            raise _api_error("ai_bad_request", 502, "Claude từ chối request", e) from None
+        except anthropic.APIConnectionError as e:  # gồm APITimeoutError
+            raise _api_error("ai_unavailable", 503, "Không kết nối được Claude", e) from None
+        usage = resp.usage
+        text_block = next((b.text for b in resp.content if b.type == "text"), None)
+        return LlmResponse(
+            text=text_block,
+            model=resp.model,
+            stop_reason=resp.stop_reason,
+            usage=LlmUsage(
+                input_tokens=usage.input_tokens or 0,
+                output_tokens=usage.output_tokens or 0,
+                cache_read_tokens=usage.cache_read_input_tokens or 0,
+                cache_write_tokens=usage.cache_creation_input_tokens or 0,
+            ),
+        )
+
+
+def _api_error(code: str, http_status: int, message: str, e: Exception) -> LlmError:
+    log.warning(
+        "ai api error type=%s request_id=%s", type(e).__name__, getattr(e, "request_id", None)
+    )
+    return LlmError(code, http_status, message)
+
+
+def default_llm() -> LlmClient | None:
+    if not configured():
+        return None
+    log.info("claude api host=%s", urlparse(anthropic_base_url()).hostname)
+    return AnthropicLlm()
+
+
+@dataclass
+class CallRecord:
+    task: str
+    model: str
+    status: str
+    input_tokens: int
+    output_tokens: int
+    duration_ms: int
+
+
+@dataclass
+class CallLog:
+    """Các lần gọi Claude trong một lần hỏi (trả về cho web, không có nội dung)."""
+
+    calls: list[CallRecord] = field(default_factory=list)
+
+
+INSERT_CALL = text(
+    """
+    INSERT INTO ai_calls (user_id, task, model, status, input_tokens, output_tokens,
+                          cache_read_tokens, cache_write_tokens, duration_ms)
+    VALUES (:u, :task, :model, :status, :in_, :out, :cr, :cw, :ms)
+    """
+)
+
+
+async def _record(
+    engine: AsyncEngine, user_id: int, task: str, model: str, status: str, usage: LlmUsage, ms: int
+) -> None:
+    async with user_session(engine, user_id) as s:
+        await s.execute(
+            INSERT_CALL,
+            {
+                "u": user_id,
+                "task": task,
+                "model": model,
+                "status": status,
+                "in_": usage.input_tokens,
+                "out": usage.output_tokens,
+                "cr": usage.cache_read_tokens,
+                "cw": usage.cache_write_tokens,
+                "ms": ms,
+            },
+        )
+    log.info(
+        "ai user=%s task=%s model=%s status=%s in=%d out=%d ms=%d",
+        user_id,
+        task,
+        model,
+        status,
+        usage.input_tokens,
+        usage.output_tokens,
+        ms,
+    )
+
+
+async def call_task[T: BaseModel](
+    engine: AsyncEngine,
+    llm: LlmClient,
+    user_id: int,
+    task: str,
+    tier: Tier,
+    *,
+    system: str,
+    user: str,
+    output_type: type[T],
+    log_to: CallLog,
+) -> T:
+    """Gọi Claude cho một tác vụ với cấp model đã chọn; ghi ai_calls mọi trường hợp."""
+    spec = TASKS[task]
+    model = model_for(tier)
+    started = time.monotonic()
+    status = "error"
+    usage = LlmUsage()
+    served = model
+    try:
+        resp = await llm.create(
+            model=model,
+            system=system,
+            user=user,
+            schema=transform_schema(output_type),
+            max_tokens=spec.max_tokens,
+            effort=spec.effort,
+            fallbacks=TIER_INFO[tier].fallbacks and fallbacks_enabled(),
+        )
+        usage, served = resp.usage, resp.model or model
+        if resp.stop_reason == "refusal":
+            status = "refusal"
+            raise LlmError("ai_refused", 502, "Claude từ chối trả lời câu hỏi này", status=status)
+        if resp.stop_reason == "max_tokens":
+            status = "max_tokens"
+            raise LlmError("ai_truncated", 502, "Câu trả lời của Claude bị cắt giữa chừng")
+        try:
+            parsed = output_type.model_validate_json(resp.text or "")
+        except ValidationError:
+            raise LlmError("ai_bad_output", 502, "Claude trả kết quả sai định dạng") from None
+        status = "ok"
+        return parsed
+    finally:
+        ms = int((time.monotonic() - started) * 1000)
+        try:
+            await _record(engine, user_id, task, served, status, usage, ms)
+        except Exception as e:  # không che lỗi gốc của lần gọi
+            log.error("ai_calls insert failed type=%s", type(e).__name__)
+        log_to.calls.append(
+            CallRecord(task, served, status, usage.input_tokens, usage.output_tokens, ms)
+        )

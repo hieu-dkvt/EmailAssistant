@@ -1,0 +1,28 @@
+name: pm-mail-assistant
+
+services:
+  db:
+    build: ./db
+    image: pm-mail-assistant-db:16
+    # terse: log lỗi không kèm DETAIL "Failing row contains (...)" — tránh nội dung mail trong log.
+    command: ["postgres", "-c", "log_error_verbosity=terse"]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev-postgres}
+      APP_OWNER_PASSWORD: ${APP_OWNER_PASSWORD:-dev-owner}
+      APP_API_PASSWORD: ${APP_API_PASSWORD:-dev-api}
+      APP_WORKER_PASSWORD: ${APP_WORKER_PASSWORD:-dev-worker}
+    ports:
+      # Chỉ mở trên máy này, không mở ra mạng.
+      - "127.0.0.1:15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Qua TCP: chỉ healthy khi server thật đã chạy (sau khi script init xong).
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d mailassist"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+volumes:
+  pgdata:

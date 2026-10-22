@@ -1,0 +1,225 @@
+# Nhật ký thay đổi và quyết định
+
+Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
+
+## 2026-10-19 → 2026-10-21: giai đoạn 5, tìm kiếm ngữ nghĩa và hỏi đáp AI
+
+### Quyết định của người dùng (2026-10-19)
+- **NDA: khách cho phép gửi nội dung mail qua Claude API, với điều kiện phải che thông tin nhạy cảm**: email, điện thoại, URL, địa chỉ; tên người; tên công ty, tổ chức; số tiền, số hợp đồng/đơn hàng (chọn cả bốn nhóm). Đã ghi vào kế hoạch (giai đoạn 0, mục 3) và `CLAUDE.md`.
+- **Thêm màn hình cài đặt model AI**: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ.
+
+### Đã làm
+- Spec 17 (ml-service), 18 (embedding mail), 19 (tìm kiếm hybrid + `eval/`), 20 (che thông tin), 21 (hỏi đáp AI), 22 (cài đặt model AI), 23 (thread liên quan).
+- `ml-service/` (mới, Python 3.12): `/embed` (bge-m3, CPU), `/ner` (GiNZA tiếng Nhật, spaCy tiếng Anh; tiếng Việt không có NER), `/health`; chỉ `127.0.0.1`, kiểm Host, không log text, lỗi không trả lại input.
+- DB: migration `0015_embeddings_ai`: `message_chunks` (vị trí đoạn trên `body_clean` + `halfvec(1024)`, index HNSW cosine, RLS, `app_api` chỉ đọc, cascade khi xóa mail), `user_ai_settings`, `ai_calls` (model, token, thời gian; không có nội dung).
+- Worker: `embed_sweep` mỗi phút + `embed_user` (job ≤ 10 giây, tự đẩy tiếp; mail mới nhất trước); làm sạch xong mail mới thì embed ngay. CLI `embed-mail`; `mail-stats` có số mail đã/chờ embed.
+- Tìm kiếm: `GET /api/v1/search?mode=hybrid` (nhánh vector + nhánh từ khóa cùng cú pháp ô tìm kiếm, gộp RRF k=60, tối đa 200 kết quả, nhãn khớp từ khóa/ngữ nghĩa, số mail chưa embed). Web: nút "Từ khóa / Ngữ nghĩa" trên trang kết quả.
+- Đánh giá (`eval/retrieval_eval.py`, `eval/questions-sample.jsonl`, kết quả `eval/results-sample.md`): 1.050 mail giả embed bằng bge-m3 thật, 28 câu hỏi Việt/Nhật/Anh. Vector/hybrid: hit@1 0,89, hit@5 0,96, MRR 0,92; từ khóa AND: hit@1 0,18. Chi tiết spec 19 mục 10.
+- Thread liên quan: `GET /api/v1/threads/{id}/similar` (cosine ≥ 0,80, tối đa 5), khối "Thread có thể liên quan" trên trang thread, gộp bằng sửa tay có sẵn.
+- Che thông tin (`app/ai/masking.py`): mẫu regex + từ điển người gửi/nhận của chính người hỏi + tên công ty học từ toàn văn (cả chữ ký) + NER; nhãn nhất quán trong một lần hỏi (`[PERSON_1]`…), lan sang mọi đoạn, che cả câu hỏi; lỗi thì không gửi; thay ngược trên server.
+- Hỏi đáp: `POST /api/v1/ask`: che câu hỏi → Claude phân tích (từ khóa, câu tìm tiếng Nhật, người gửi, khoảng ngày) → tìm 20 đoạn trong phạm vi RLS → che nguồn → Claude trả lời tiếng Việt kèm `[n]` → thay nhãn. Structured outputs; fallback phía server cho Sonnet/Opus; mỗi lần gọi ghi `ai_calls`. Không lưu câu hỏi/câu trả lời. Web: trang "Hỏi AI" (câu trả lời, nguồn, khối "Nội dung đã gửi Claude" để tự kiểm tra việc che, model và token).
+- Cài đặt AI: `GET/PUT /api/v1/ai/settings`, `GET /api/v1/ai/usage`; web: trang "Cài đặt AI" (cấp model từng tác vụ, giá, nhóm thông tin bị che, thống kê tháng).
+- Kiểm thử: backend 517 test (thêm embedding, hybrid, thread liên quan, che thông tin, hỏi đáp với Claude/ml-service giả, client SDK với transport giả, worker embed); ml-service 27 test (API với model giả, NER GiNZA/spaCy thật); web 17 test Vitest; ruff, pyright, ESLint, Prettier, `tsc` sạch.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- NER chạy trong ml-service (không nạp model trong backend). Không làm reranker (CPU quá chậm).
+- Che cả câu hỏi của người dùng (có thể chứa tên khách), không chỉ đoạn mail.
+- Không lưu lịch sử hỏi đáp; mỗi câu hỏi độc lập, không stream.
+- Cài đặt model theo từng người dùng; mặc định phân tích = Haiku, trả lời = Sonnet.
+- Lớp 4 gom thread: gợi ý tính lúc xem trang thread, không có danh sách gợi ý toàn cục.
+- Embed toàn bộ mail (self-host, không tốn tiền); quyết định "phạm vi xử lý AI lần đầu" vẫn để mở cho giai đoạn 6.
+- Nhánh từ khóa của tìm kiếm ngữ nghĩa dùng AND (cú pháp ô tìm kiếm), không dùng "một trong các từ": đo trên bộ giả, OR kéo về mail nhiễu làm MRR giảm từ 0,92 xuống 0,71 (RRF ngang nhau) hay 0,77 (trọng số 0,3); AND giữ nguyên chất lượng của vector và vẫn đẩy mã/cụm chính xác lên đầu.
+- Ngưỡng thread liên quan cosine ≥ 0,80: cần chỉnh trên mail thật (dữ liệu giả sinh hàng loạt nên điểm cao 0,93–0,97).
+
+### Đã đo (máy dev, CPU, dữ liệu giả)
+- bge-m3 trên CPU i5-1235U: khoảng 0,3 đoạn/giây (đoạn 800 ký tự), câu tìm kiếm 0,4 giây; int8 động không nhanh hơn. Embed lần đầu vài nghìn mail mất vài giờ chạy nền. NER 7–11 giây cho 21 đoạn. Chi tiết spec 17 mục 8.
+
+### Chạy thử (E2E, DB test, dữ liệu giả)
+- Edge headless + backend trên DB test + ml-service thật + Claude **giả** ghi lại request: đăng nhập, tìm ngữ nghĩa câu tiếng Việt ra mail tiếng Nhật (100 kết quả, nhãn "ngữ nghĩa"), trang thread có 5 thread liên quan, Hỏi AI (20 nguồn, `[n]` thành link, khối "Nội dung đã gửi Claude"), lưu cài đặt AI; không có lỗi console/CSP ngoài 401 kiểm tra phiên ở trang đăng nhập.
+- Quét request gửi Claude giả: lần đầu thấy che thừa (`仕様書`, `在庫管理システム`, `From`/`To`) và lọt `Trầnです`; sau khi sửa không còn tên, công ty, tên miền, điện thoại nào của dữ liệu giả.
+
+### Đã xử lý sau security review (2026-10-21)
+- **Nghiêm trọng: tên người lọt** qua lời chào + danh xưng (`Chào Anh Tuấn`, `Dear Mr. Tanaka`), `-sama`, `a/c` + tên, tên trong từ điển viết hoa/thường khác, full-width, katakana half-width. Sửa: mẫu lời chào/danh xưng mới, biến thể Title/UPPER, mẫu và từ điển chạy trên bản NFKC (ánh xạ vị trí về text gốc).
+- **Nghiêm trọng: điện thoại, email lọt** (`0912345678`, `+84…`, `03(1234)5678`, dấu `−`, `＠` full-width). Sửa: thêm mẫu, NFKC.
+- Mẫu tiền (`500万`, số sau `金額`/`giá`, `nghìn`, `trăm triệu`, `15k USD`), số hợp đồng (thêm nhãn, mã sau "hợp đồng"), địa chỉ (Việt Nam, Nhật không có tỉnh), tên miền (thêm đuôi, nuốt path).
+- **Regex chạy theo bình phương** (subject 10.000 chữ số: 13 giây, chặn cả API): mọi lượng từ có giới hạn, che chạy ở thread riêng; test 9 chuỗi cố tình dựng (≤ 0,2 giây).
+- NER chọn model theo từng dòng; kiểm nhãn model lúc khởi động; backend coi kết quả NER sai dạng là lỗi. Làm sạch kết quả NER (kính ngữ, "tên" trộn Hán + katakana, từ header).
+- Client Claude ghim `https://api.anthropic.com` (bỏ qua `ANTHROPIC_BASE_URL`/profile), tắt OpenTelemetry của SDK, log SDK ở mức WARNING. ml-service tắt telemetry của FastAPI, bắt lỗi trong endpoint (không để uvicorn log traceback có text), tự offline khi model đã có trong cache.
+- Subject cắt 300 ký tự, To/Cc tối đa 10 người khi embed/che/gửi (mail độc không làm kẹt embedding hay làm `/ask` lỗi). Header của nguồn che từng giá trị riêng.
+- `ML_SERVICE_URL` chỉ nhận loopback hoặc https; embed câu tìm kiếm trước khi mở phiên DB; cache từ điển xóa mục hết hạn; eval đọc mbox chỉ đọc; lời nhắc về prompt injection trên trang Hỏi AI; test CSRF `/ask` và từ điển theo người dùng.
+- **Vòng 2 (rà lại lượt sửa)**: Nghiêm trọng: số điện thoại cuối câu / sau `Tel.` vẫn lọt → sửa ranh giới. Lỗi do lượt sửa trước: lọt `健一様`, `本多様` (lọc `仕様` quá rộng), bỏ hẳn tên NER dài / Hán + katakana, chữ Việt NFD lọt, ngưỡng tiếng Việt theo dòng quá chặt, tự offline Hugging Face không có tác dụng → đã sửa. Thêm: không lan số ngắn (năm/ngày không bị che theo), `ASP.NET` không bị coi là tên miền, `TANAKA-san`, `4丁目2番8号`, `(+84)`, `鈴木エリカ様`.
+
+### Còn để sau
+- Chưa gọi thử Claude thật: máy dev chưa có `ANTHROPIC_API_KEY`. Đã kiểm request/response của SDK bằng transport giả và cả luồng bằng Claude giả; cần chạy thử một câu hỏi trên dữ liệu giả khi có khóa.
+- Che thông tin còn giới hạn (spec 20 mục 8): tên viết toàn chữ thường, địa chỉ tiếng Anh không có nhãn, tên không có trong header/kính ngữ mà NER bỏ sót.
+- Tiêu chí giai đoạn 5 (30 câu hỏi do PM soạn, ≥ 80% đúng có nguồn): PM tự chấm trên dữ liệu thật.
+- Embed nhanh hơn: máy có GPU, hoặc đổi model nhỏ hơn (phải hỏi người dùng: đổi model là embed lại toàn bộ).
+- Index vector riêng theo người dùng trước khi nhiều người dùng (spec 19 mục 9).
+
+## 2026-10-19: kiểm tra cách đặt mật khẩu web
+
+### Đã xử lý
+- **Lỗi: `set-password --password-stdin` qua pipe PowerShell lưu cả BOM vào mật khẩu**: CLI báo đã đặt nhưng đăng nhập bằng đúng mật khẩu luôn bị từ chối. Nay đọc stdin dạng byte UTF-8, bỏ BOM, từ chối mật khẩu có ký tự ẩn/điều khiển hoặc không phải UTF-8.
+- Mật khẩu chuẩn hóa NFC khi băm và khi kiểm tra (chữ Việt có dấu gõ kiểu dựng sẵn hay tổ hợp đều khớp). Chưa có mật khẩu web nào trên DB dev nên không cần đặt lại.
+- `set-password` kiểm tra email trước khi hỏi mật khẩu; in đường dẫn đăng nhập sau khi đặt xong.
+- Kiểm lại thật trên DB test (scrypt thật): đặt mật khẩu ASCII và có dấu qua pipe PowerShell → đăng nhập 200, sai mật khẩu 401; mật khẩu ngắn → mã thoát 2; email không có → báo lỗi, không hỏi mật khẩu. Spec 13 mục 11.
+
+## 2026-10-18 → 2026-10-19: giai đoạn 4, search từ khóa và web UI
+
+### Đã làm
+- Spec 13 (đăng nhập web), 14 (search từ khóa), 15 (API thread, toàn văn, gộp/tách tay), 16 (giao diện web).
+- DB: migration `0010_web_sessions` (`user_passwords`, `web_sessions`, 4 hàm `SECURITY DEFINER` chỉ `app_api` gọi được; `app_api` không đọc được hai bảng), `0011_thread_override_writes` (`user_thread_state` có RLS; `app_api` được `INSERT` theo cột và `DELETE` `thread_overrides` của chính mình), `0012_messages_search_index` (index PGroonga trên `ARRAY[subject, body_clean]`, tạo `CONCURRENTLY`).
+- Backend:
+  - Đăng nhập web: mật khẩu scrypt, phiên cookie `HttpOnly`/`SameSite=Strict` 12 giờ, header `X-PMM-Request` chống CSRF, giới hạn 5 lần sai / 15 phút, CLI `set-password`. Endpoint web chỉ nhận phiên, endpoint collector chỉ nhận token: token collector không đọc được mail.
+  - `GET /api/v1/search`: ô tìm kiếm hỗ trợ AND, `OR`, `-từ`, `"cụm từ"` (backend tự dựng truy vấn Groonga); lọc folder, người gửi, khoảng ngày, file đính kèm; sắp theo ngày hoặc độ liên quan; tô từ khóa và đoạn trích (danh sách đoạn `{text, hit}`). Không log chuỗi tìm kiếm.
+  - `GET /api/v1/folders`, `/threads` (keyset), `/threads/{id}`, `/messages/{id}`, `/messages/{id}/full` (toàn văn chia theo quote/chữ ký), `/processing`, `/thread-overrides` (tạo, liệt kê, hoàn tác).
+  - Worker: task `apply_overrides` mỗi 5 giây; hỏi bảng job mỗi giây. Sửa tay có hiệu lực sau khoảng 2–6 giây (đo trên profile giả).
+  - Backend phục vụ bản build của web; header CSP `default-src 'self'`, `nosniff`, `no-referrer`, `X-Frame-Options: DENY`; `/api/…` `Cache-Control: no-store`. Tắt `/docs`, `/redoc` (Swagger UI tải script từ CDN). `python -m app.openapi_dump` cho client web.
+- Web (`web/`, mới): React 19 + Vite 8 + TypeScript + TanStack Query + React Router 8 + Tailwind 4 + shadcn/ui; client sinh từ OpenAPI (`npm run gen:api`). Trang đăng nhập, danh sách thread, kết quả search, hội thoại (toàn văn, tách), hộp thoại gộp, trang "Sửa tay".
+- Kiểm thử: backend 316 test (thêm đăng nhập, search, thread, sửa tay, phân quyền giữa hai người dùng, EXPLAIN dùng index trong phiên RLS, worker áp dụng sửa tay kể cả khi sửa tay được ghi giữa lúc gom, các điểm sửa sau review); web 13 test Vitest; ruff, pyright, ESLint, Prettier, `tsc` sạch.
+- DB dev đã lên migration 0014 (index mới hợp lệ). Đo trên DB dev, chỉ số liệu: search 16–34 ms, danh sách thread 16 ms với 4.792 mail. Chạy thử bằng Edge headless trên DB test với profile giả 1.050 mail: đăng nhập sai/đúng, lọc, search `見積` (113 kết quả có tô), mở thread, toàn văn, tách → gộp → hoàn tác, đăng xuất; không có lỗi console hay vi phạm CSP.
+
+### Đo tốc độ (dữ liệu tổng hợp, DB test)
+- 300.000 mail của một người + 100.000 của người khác, từ "phổ biến" có trong ~73% số mail (trường hợp xấu nhất). Từ hiếm 29 ms; từ phổ biến 0,4–0,7 s; danh sách thread 9 ms. Chưa đạt dưới 1 giây: từ phổ biến kèm lọc người gửi (1,1 s). Chi tiết: spec 14 mục 10.
+- Đã tối ưu sau lần đo đầu (1,1–1,5 s): đếm tối đa 10.000 (`total_capped`, web hiện "Hơn 10.000 kết quả"; thay đổi schema API của web), sắp/cắt trang trên cột hẹp trước khi lấy nội dung, migration `0014_threads_list_index`, cờ đính kèm của thread bằng `LATERAL`.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Đăng nhập bằng mật khẩu đặt qua CLI, phiên 12 giờ không gia hạn; SSO để giai đoạn 7.
+- "Xem bản gốc" của kế hoạch làm thành "Toàn văn": hiện `body_text` đã có trên server (text đã giải mã), phần quote/chữ ký đã cắt hiện mờ. Mở mail gốc trong Thunderbird qua collector để sau. Không lưu thêm gì lên server (quyết định mở số 6 của kế hoạch không bị ảnh hưởng).
+- Search trả từng mail (không gộp theo thread), mặc định mới nhất trước.
+- Gộp thread từ web: gộp thread đang xem (theo mail đầu thread) vào thread của mail chọn qua search.
+
+### Đã xử lý sau security review (2026-10-19)
+- **Nghiêm trọng: access log của uvicorn ghi chuỗi tìm kiếm và bộ lọc người gửi** (`GET /api/v1/search?q=…&sender=…`). `app/run.py` gắn filter bỏ query string cho logger `uvicorn.access`; có test.
+- **Hàm `SECURITY DEFINER` thiếu `pg_temp` ở cuối `search_path`** (0005, 0010): phiên `app_api` có thể tạo kiểu giả trong `pg_temp` để chạy code bằng quyền `app_owner`. Migration `0013_secdef_search_path`: `search_path = pg_catalog, pg_temp` cho 5 hàm, thu hồi quyền TEMP trên database của PUBLIC; test kiểm mọi hàm `SECURITY DEFINER`.
+- **Giới hạn đăng nhập sai bị vượt bằng request đồng thời**, và endpoint đăng nhập có thể làm cạn bộ nhớ (scrypt ~32 MiB mỗi lần): giữ chỗ mỗi lần thử trước khi băm, tối đa 4 lần scrypt cùng lúc; test 20 request đồng thời → 5 lần 401.
+- Chống DNS rebinding: chỉ nhận Host `127.0.0.1`, `localhost` (biến `PMM_ALLOWED_HOSTS`).
+- Thread lớn: giới hạn 2.000.000 ký tự nội dung cho cả thread; tô từ khóa, đoạn trích chạy ở thread riêng (không chặn event loop).
+- Web: `?next=` phân tích bằng `URL` và so origin (trước đó `/%09/evil…` lọt qua, React Router chặn nên chỉ làm hỏng trang); ô tìm kiếm, người gửi `autoComplete="off"`.
+- Hash giả cho email không tồn tại tạo theo tham số scrypt hiện hành.
+- Ghi thành giới hạn (chưa sửa): kênh phụ thời gian qua index PGroonga dùng chung khi có nhiều người dùng; `app_api` lấy được hash mật khẩu qua hàm (ngang quyền đặt `app.user_id`); cookie `Secure` theo scheme, không tách theo cổng; tạo/xóa sửa tay liên tục làm worker bận.
+
+### Còn để sau
+- Lọc và danh sách thread theo dự án: chờ người dùng chốt danh sách dự án và quy tắc gán.
+- Tìm tiếng Việt không dấu; mở mail gốc qua collector; audit log xem/tìm (giai đoạn 7).
+- Trước khi chạy nhiều người dùng hoặc mở API ra ngoài máy: index PGroonga có `user_id`, cookie `Secure`/`__Host-`, giới hạn đăng nhập theo IP lưu trong DB, giới hạn tần suất sửa tay.
+
+## 2026-10-18: quy tắc và hook cập nhật tài liệu, spec bộ sinh mail giả, sửa test collector
+
+### Quyết định của người dùng
+- **Mỗi khi thêm hoặc sửa một chức năng thì phải cập nhật tài liệu liên quan** (spec, danh mục spec, CHANGELOG, CLAUDE.md của thành phần, bảng cấu hình Claude Code) trong cùng lượt làm việc, trước khi báo xong. Quy tắc nằm ở `.claude/rules/documentation.md` (luôn được nạp), có trỏ từ `CLAUDE.md`. Trước đó chỉ có quy tắc cập nhật mục "Lệnh" khi dựng khung một thành phần.
+
+### Đã làm
+- Spec 12 (viết bù): bộ sinh profile Thunderbird giả (`data/generate_sample_profile.py`, `data/expected_threads.json`, skill `/gen-sample-mail`). Kiểm lại bằng cách sinh vào thư mục tạm: 1.051 mail, 11 mbox có mail, 88 nhóm, 1.050 Message-ID.
+- Sửa các tài liệu đã cũ so với generator: `collector/CLAUDE.md` (51 → 1.051 mail), `CLAUDE.md` (mô tả profile; thêm skill `gen-sample-mail` và rule tài liệu vào bảng cấu hình), skill `gen-sample-mail` (bỏ câu mâu thuẫn với `test-data.md`, thêm bước chạy lại test), spec 1 (cây folder mong đợi), `.claude/rules/test-data.md` (nạp cả khi sửa `data/`).
+
+### Đã xử lý (người dùng đồng ý cùng ngày)
+- **8 test collector fail**: nguyên nhân là `data/thunderbird-profile` bị dở (thư mục `ImapMail` rỗng, thiếu `Local Folders/Inbox`), trong đó có một panic nil pointer trong `syncer`. Đã sinh lại profile bằng `/gen-sample-mail`: 1.051 mail, 88 nhóm.
+- `syncer_test.go`, `service_test.go`, `sync_api_test.go` viết cứng 51 mail; nay lấy số mail từ `expected_threads.json`. Kết quả: `go test -C collector ./...` pass toàn bộ (gofmt, vet sạch); test backend dùng generator 30 passed.
+- **Hook nhắc tài liệu** (`.claude/hooks/doc_reminder.py`, khai báo trong `.claude/settings.json`): PostToolUse ghi lại file vừa sửa, UserPromptSubmit xóa danh sách khi bắt đầu lượt mới, Stop kiểm tra cuối lượt. Nếu lượt có sửa code (trừ test và dữ liệu sinh ra) mà không sửa file `.md` nào thì hook chặn dừng một lần và nhắc Claude. Hook chỉ đọc đường dẫn file. Đã chạy thử với input giả cho 7 tình huống và input hỏng; đã xác nhận PostToolUse chạy thật trong phiên.
+
+## 2026-10-17 (tối): giai đoạn 3, làm sạch nội dung và gom thread
+
+### Đã làm
+- Spec 9 (làm sạch), 10 (gom thread), 11 (worker và công cụ kiểm tra).
+- DB: migration `0006_cleaning_threads` (`messages.body_clean`, `clean_cuts`, `cleaner_version`, `thread_id`, `thread_parent_id`, `thread_method`; bảng `threads`, `thread_overrides` có RLS, FK kép kèm `user_id`, `app_api` chỉ đọc), `0007` (index tạo CONCURRENTLY), `0008` (hàng đợi Procrastinate ở schema riêng `procrastinate`, chỉ `app_worker`). `env.py` chạy mỗi migration trong transaction riêng.
+- Backend: `app/mail/cleaning.py` (cắt quote/chữ ký, giữ nội dung chuyển tiếp), `app/mail/threading.py` (References/In-Reply-To theo JWZ, Thread-Index, subject + người tham gia + 60 ngày, gộp/tách tay), `app/processing.py`, worker `python -m app.worker` (tự quét mỗi phút), CLI `process-mail`, `mail-stats`, `review-threads`.
+- Kiểm thử: 209 test; profile giả 1.051 mail gom đúng 100% so với `data/expected_threads.json` (cả trong DB).
+- Chạy trên DB dev (chỉ xem số liệu tổng hợp): worker tự xử lý 4.792 mail trong 27 giây, 0 lỗi; 3.812 thread (3.719 thread một mail); 978 mail nối bằng References, 1 bằng Thread-Index, 1 bằng subject; cắt quote 710 mail, chữ ký 1.058 mail; 6 mail thành rỗng (đều là `Re:` chỉ có phần trích dẫn). Gom lại lần hai không đổi mail nào.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Nội dung chuyển tiếp được giữ trong `body_clean` (search không mất mail khách chuyển cho mình); đổi lại, chuyển tiếp một mail đã có thì nội dung trùng.
+- Gom lại toàn bộ mail của một người mỗi lần có mail mới, giữ id thread theo số mail chung; khi chậm (khoảng vài trăm nghìn mail) thì chuyển sang gom tăng dần.
+- Gán dự án tự động chưa làm: cần người dùng chốt danh sách dự án và quy tắc gán (domain khách, mã dự án).
+- API/giao diện xem thread và gộp/tách tay làm cùng web ở giai đoạn 4.
+
+### Đã xử lý sau security review (không có mục Nghiêm trọng)
+- **Lỗi DB trong worker/CLI có thể in nội dung mail:** `DETAIL: Failing row contains (…)` là cả dòng `messages`, và Procrastinate log cả traceback. Nay task và CLI thay lỗi bằng mô tả chỉ có tên lớp lỗi, `sqlstate`, ràng buộc, vị trí code (`app/safe_errors.py`). Có test ép lỗi CHECK: log/stderr không có nội dung.
+- **ReDoS trong làm sạch:** regex địa chỉ mail chạy bậc hai trên dòng dài. Một mail spam 2 triệu ký tự có thể làm worker treo hàng giờ. Đã sửa (lookbehind, bỏ dòng dài, lọc nhanh, cache, đếm có giới hạn). Mail cố tình dựng xấu nhất nay 1,3 giây.
+- **`threads.subject` còn lại sau khi xóa mail của folder:** migration 0009 bỏ `subject`, `subject_norm`. `threads` không còn chứa nội dung mail.
+- **`review-threads --out` ghi nội dung mail ra bất kỳ đâu:** bỏ `--out`, chỉ ghi vào `%LOCALAPPDATA%\PMMailAssistant\review\`. Tự xóa file cũ hơn 7 ngày; `.gitignore` có `threads-*.html`.
+- Lưu ý đã làm: CSP chỉ cho script theo hash, `translate="no"`, truy vấn review tự lọc `user_id` (không chỉ dựa vào RLS), helper `user_connection` (bản sync của `user_session`), worker tắt LISTEN/NOTIFY và xóa job đã xong.
+- Không tăng `CLEANER_VERSION`: kết quả chỉ khác ở trường hợp hiếm (dòng dài hơn 1.000 ký tự ngay sau đường kẻ). DB dev đã lên 0009; gom lại không đổi mail nào.
+- Còn để sau: đề xuất thêm deny lệnh PowerShell/Bash đọc thư mục review vào `.claude/settings.json` (thay đổi quyền, chờ người dùng); audit log khi xuất review (giai đoạn 7); kiểm tra index INVALID và `NOT VALID`/`VALIDATE` khi lên production.
+
+### Lưu ý
+- `data/thunderbird-profile` đang thiếu `ImapMail` và `Local Folders/Inbox` (có file do Thunderbird tạo, script sinh vừa được sửa). Test không phụ thuộc thư mục này: golden test tự sinh profile giả vào thư mục tạm.
+
+## 2026-10-17
+
+### Quyết định của người dùng
+- **Mỗi người dùng có bản mail riêng, không dùng chung mail giữa người dùng.** Lý do: dùng chung theo Message-ID cho phép người biết Message-ID (vd. từ header References) gửi mail giả để đọc bản thật. Đánh đổi: mail gửi cho nhiều người được lưu và xử lý AI ở bản của từng người. Đã sửa `CLAUDE.md` (nguyên tắc "mỗi bản mail gọi AI một lần"), kế hoạch, spec DB, `.claude/rules/database.md`.
+- **Bỏ chọn folder không xóa mail trên server**; thêm chức năng chủ động chọn xóa mail của folder khỏi server (spec 7).
+- **Đồng bộ xong phải có thông báo hoàn thành** (spec 8).
+- Làm tiếp các bước còn lại không cần hỏi xác nhận; mỗi chức năng có spec riêng (danh mục spec).
+
+### Đã làm
+- DB: migration `0004_per_user_messages` (cột `messages.user_id`, khóa `(user_id, message_id_hash)`, FK kép từ `message_ownership`, policy theo `user_id`, index bắt đầu bằng `user_id`).
+- Spec cho các chức năng 3–8 (trích xuất mail, đồng bộ tăng dần, xác thực API, ingest API, xóa mail của folder, giao diện đồng bộ).
+- **Chức năng đồng bộ chạy được từ đầu đến cuối**: chọn folder → bấm "Đồng bộ" → mail vào DB → hộp "✓ Đồng bộ hoàn thành" kèm số mail mới / đã có / thời gian.
+  - Collector: đọc mbox không khóa, tách mail, parse MIME + tiếng Nhật (`enmime`), đồng bộ tăng dần theo state JSON, gửi lô gzip có retry, lệnh `collector sync`, khóa chống chạy trùng, kết nối server và token mã hóa DPAPI trên trang setting, tiến độ, nút Dừng.
+  - Backend: FastAPI (`python -m app.run`), token API (`python -m app.cli create-user/create-token/revoke-token`), migration `0005` (`api_tokens`, hàm `auth_token_user` SECURITY DEFINER, quyền INSERT/DELETE theo cột), `POST /api/v1/ingest` idempotent, `GET /api/v1/sources`, `POST /api/v1/sources/delete-mail`.
+  - Xóa mail của folder khỏi server từ trang setting (folder đã bỏ tick, hoặc folder không còn trong Thunderbird).
+- Chạy thử E2E với backend + PostgreSQL thật và profile tự sinh: lần 1 "50 mail mới, 1 mail đã có trên server", lần 2 "0 mail mới"; xóa folder đang chọn bị từ chối; bỏ tick ProjectB rồi xóa → server còn 46 mail; log backend chỉ có ID và số lượng.
+
+### Đã xử lý sau review cuối chức năng đồng bộ (code reviewer + security-reviewer)
+- **Nghiêm trọng (bảo mật): nội dung file đính kèm dạng text bị gửi lên server** trong `body_text` (part text có tên file, vd. `log.txt` inline hoặc chỉ có `name=`). Tự chọn thân mail: chỉ part text không có tên file và không phải attachment; part có tên file chỉ gửi metadata. `ParserVersion` → `collector/0.3.0`.
+- **Nghiêm trọng (mất dữ liệu): compact rồi có mail mới làm file lớn hơn vị trí đã lưu → bỏ sót mail mới vĩnh viễn.** Lưu `tail` (SHA-256 4 KiB trước vị trí) và kiểm tra lại khi đọc tiếp; lệch thì đọc lại từ đầu.
+- Token chỉ gửi tới server đã nhập cùng nó (file token lưu origin; đổi server phải nhập token mới; URL trong `config.json` được kiểm tra lại mỗi lần).
+- `delete-mail` đọc body sau khi xác thực token.
+- Một mail có Date bất thường (năm 0001, múi +24:00…) làm cả lô bị 422 và folder kẹt mãi → collector bỏ ngày không hợp lệ; backend coi ngày ngoài 1970–2100 là null; lô bị từ chối thì chia đôi để chỉ bỏ mail lỗi.
+- Đọc vượt kích thước đã đo (gửi mail Thunderbird đang ghi dở) → chỉ đọc tới kích thước lúc mở file.
+- Khóa đồng bộ do hệ điều hành giữ (tiến trình chết thì tự nhả, không còn "khóa cũ 6 giờ"); panic trong parser hoặc lượt đồng bộ không làm sập collector; kiểm tra hủy trước mỗi mail; Ctrl+C / đóng cửa sổ dừng gọn.
+- Một địa chỉ hỏng (vd. `Tanaka [Sales] <t@x>`) không còn làm mất cả From/To; header gửi thẳng byte JIS/Shift_JIS được giải mã; nhận nhãn charset `MS932`, `ISO-2022-JP-MS`…
+- Xóa được mail của folder đã đổi tên/xóa trong Thunderbird (nhóm "Có trên server, không còn trong Thunderbird").
+- Lưu ý đã sửa: không theo redirect; không cho lưu cấu hình/kết nối khi đang đồng bộ (409); lỗi DB chỉ log `sqlstate`/ràng buộc; **tắt telemetry OpenTelemetry bật sẵn của FastAPI 0.143**; mail giả trùng Message-ID không đổi `mbox_offset` của bản thật; giới hạn độ dài một dòng mbox; backend 404 khi xóa = đã xóa; thông báo hoàn thành có số mail bị bỏ qua / chỉ đọc được header; `collector sync` trả mã 3 khi có folder lỗi; Message-ID có chú thích phía sau; giới hạn số nguyên 2^63−1; sửa chú thích DPAPI (không chống được mã độc chạy dưới cùng tài khoản).
+
+### Đã xử lý sau security review lần 2 (rà lại lượt sửa)
+- Review xác nhận đã sửa đúng: token theo server, không theo redirect, `delete-mail` xác thực trước, Date bất thường, lỗi DB, telemetry, khóa, recover.
+- **Nghiêm trọng: nội dung file đính kèm text vẫn lọt vào `body_text`** khi enmime không đọc được tên file hoặc `Content-Disposition`: tên file RFC 2231 bằng ISO-2022-JP/Shift_JIS (mailer Nhật hay dùng), `attachment filename=…` thiếu `;`, kiểu lạ `attachement`/`x-attached`, `filename=""`. Sửa: quyết định "là file đính kèm" từ header thô của part; tự giải mã tên file RFC 2231 charset Nhật. `ParserVersion` → `collector/0.4.0`.
+- Text bên trong `message/rfc822` có tham số `boundary` không còn vào thân mail (chỉ đi xuống `multipart/*`).
+- Khối uuencode trong thân mail bị cắt, ghi thành metadata file đính kèm.
+- **Backend từ chối (426) dữ liệu từ collector có parser < `collector/0.4.0`.** Dữ liệu đã nạp bằng parser cũ: đã kiểm DB dev (2026-10-17) không có mail nào (0 dòng `messages`), không cần làm sạch. Nếu có DB khác từng nạp bằng parser cũ: xóa mail của các folder đó khỏi server (trang setting) rồi đồng bộ lại.
+- Collector chỉ coi 404 là "đã xóa từ trước" khi backend trả mã `source_not_found`; 404 khác (proxy, sai đường dẫn) là lỗi.
+- Client tới server được tạo bằng URL đã kiểm tra và chuẩn hóa; khóa `sync.lock` không đi theo symlink (`FILE_FLAG_OPEN_REPARSE_POINT`; test cho phần này bị bỏ qua trên máy dev vì không có quyền tạo symlink).
+
+### Còn để sau (chức năng đồng bộ)
+- File đính kèm mã hóa yEnc trong thân mail chưa được cắt (hiếm trong mail công việc).
+- Mail đã xóa trong Thunderbird (sau compact) vẫn còn trên server; cờ đã đọc/đã trả lời chỉ cập nhật khi folder được đọc lại từ đầu.
+- Hai profile/máy của cùng một người có `folder_path` trùng nhau sẽ ghi chung một folder trên server.
+- Khóa chính `message_ownership` nên bắt đầu bằng `user_id`; token chưa có phạm vi quyền và hạn dùng; chưa giới hạn tần suất gọi API.
+- Múi giờ dạng tên (`JST`) chưa đọc được (ngày = null); chưa bỏ escape `>From ` trong thân mail; ghi state chưa thử lại khi rename bị chặn (antivirus); nút Đồng bộ có thể bật cho profile chưa từng lưu; dòng phân cách mbox chưa kiểm tra chặt dạng `From <addr> <date>`.
+- Mail trùng Message-ID nhưng khác dấu vân tay chỉ được đếm `mismatched`, chưa có chỗ để người dùng xem.
+
+### Đã xử lý sau review bảo mật DB (migration 0003 và hạ tầng)
+- **Nghiêm trọng:** role API tự gắn mình vào mail người khác qua `message_ownership` → thu hồi `INSERT/UPDATE`, chỉ cho sửa 3 cột cờ; từ 0004 còn có FK kép chặn ở cấu trúc.
+- `app_user_id()` khai báo `PARALLEL SAFE` (truy vấn trên bảng mail chạy song song được).
+- Thu hồi quyền chạy hàm quản trị PGroonga (`pgroonga_command`…) khỏi PUBLIC.
+- Log không chứa nội dung mail: server `log_error_verbosity=terse`, engine `hide_parameters`.
+
+### Thay đổi kỹ thuật
+- Cổng DB đổi 55432 → **15432** (55432 nằm trong dải Windows/Hyper-V giữ trước).
+- PGroonga ghim 4.0.6-1; backend chạy bằng Python 3.13 do `uv` chọn.
+
+## 2026-10-16
+
+### Đã làm
+- Trang setting của collector (`collector settings`): chọn profile, cây folder Server/Local, chọn folder đồng bộ, lưu `config.json`.
+- DB: PostgreSQL 16 + PGroonga + pgvector bằng Docker; 4 bảng `users`, `mail_sources`, `messages`, `message_ownership`; RLS; helper `user_session`.
+
+### Quyết định của người dùng
+- Không dùng git cho dự án.
+- Không lưu bản gốc MIME lên server (chỉ text đã giải mã và metadata).
+- DB chạy bằng Docker trên máy dev (giai đoạn một người dùng).
+
+### Đã xử lý sau review trang setting
+- `/api/browse` mở handle tới file mbox → kiểm tra bằng `os.Stat` trước.
+- Folder con mới của folder đã bỏ tick bị tự thêm → kế thừa quyết định của folder cha; so khớp đường dẫn không phân biệt hoa thường.
+- Lưu cấu hình ghi folder chưa từng hiển thị thành "bỏ tick" → chỉ ghi folder đã hiển thị.
+- File tạm `nstmp-N` của Thunderbird hiện thành folder → lọc theo mẫu.
+- Double-click `collector.exe` sau lần lưu đầu không mở lại setting → luôn mở trang setting.
+
+### Còn để sau (ghi trong ledger)
+- Trang setting: chặn request từ cổng localhost khác, cookie theo cổng, bỏ `?key=` khỏi URL, CSP thêm `base-uri`, danh sách ổ đĩa có thể treo với ổ mạng, `config.json` có BOM bị coi là hỏng, thông báo lỗi khi server cục bộ tự tắt.
+- DB: test quyền đầy đủ, mật khẩu dev khi lên server, siết quyền `app_worker`, index `(source_id, message_id)`, ghim digest image, dọn mail mồ côi, thống nhất phiên bản Python.
+- Cần khảo sát giai đoạn 0: tên folder IMAP dạng modified UTF-7, tài khoản có thư mục lưu ngoài profile.

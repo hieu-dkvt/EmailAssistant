@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "PowerShell(go test *)",
+      "PowerShell(go vet *)",
+      "PowerShell(go build *)",
+      "PowerShell(golangci-lint run *)",
+      "PowerShell(uv sync *)",
+      "PowerShell(uv run pytest *)",
+      "PowerShell(uv run ruff *)",
+      "PowerShell(uv run pyright *)",
+      "PowerShell(npm run lint *)",
+      "PowerShell(npm run test *)",
+      "PowerShell(npm run build *)",
+      "Bash(go test *)",
+      "Bash(go vet *)",
+      "Bash(go build *)",
+      "Bash(golangci-lint run *)",
+      "Bash(uv sync *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run pyright *)",
+      "Bash(npm run lint *)",
+      "Bash(npm run test *)",
+      "Bash(npm run build *)"
+    ],
+    "deny": [
+      "Read(~/AppData/Roaming/Thunderbird/**)",
+      "Edit(~/AppData/Roaming/Thunderbird/**)",
+      "Read(/samples/raw/**)",
+      "Edit(/samples/raw/**)",
+      "Read(~/AppData/Local/PMMailAssistant/review/**)",
+      "Edit(~/AppData/Local/PMMailAssistant/review/**)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(!.env.example)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "track"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "reset"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python",
+            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "check"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

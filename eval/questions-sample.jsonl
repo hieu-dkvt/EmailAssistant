@@ -1,0 +1,28 @@
+{"id": "q01", "lang": "vi", "question": "Báo giá 45 人月 cho khách A gửi khi nào?", "threads": ["A-estimate"]}
+{"id": "q02", "lang": "ja", "question": "在庫管理システム改修の見積の工数は何人月でしたか", "threads": ["A-estimate"]}
+{"id": "q03", "lang": "vi", "question": "Lỗi E1024 khi đăng ký nhập kho trên production nguyên nhân là gì?", "threads": ["A-bug"]}
+{"id": "q04", "lang": "ja", "question": "入庫登録のエラーの原因と対応", "threads": ["A-bug"]}
+{"id": "q05", "lang": "vi", "question": "Khách muốn đổi layout báo cáo số 5, công số thêm bao nhiêu?", "threads": ["A-spec"]}
+{"id": "q06", "lang": "ja", "question": "帳票No.5のレイアウト変更の追加工数", "threads": ["A-spec"]}
+{"id": "q07", "lang": "vi", "question": "Lịch họp kick-off Project B chốt ngày nào?", "threads": ["B-kickoff"]}
+{"id": "q08", "lang": "en", "question": "When is the Project B kickoff meeting?", "threads": ["B-kickoff"]}
+{"id": "q09", "lang": "vi", "question": "Hóa đơn tháng 9 gửi khách B bị sai đơn giá", "threads": ["B-invoice"]}
+{"id": "q10", "lang": "ja", "question": "9月分請求書の単価の誤り", "threads": ["B-invoice"]}
+{"id": "q11", "lang": "vi", "question": "Scope sprint 12 gồm những việc gì?", "threads": ["VN-sprint"]}
+{"id": "q12", "lang": "vi", "question": "QA cần build trước ngày nào để kịp regression test?", "threads": ["VN-sprint"]}
+{"id": "q13", "lang": "vi", "question": "Kết quả regression test Project A có bao nhiêu case fail?", "threads": ["VN-qa"]}
+{"id": "q14", "lang": "en", "question": "API license renewal for 2027, number of seats", "threads": ["C-license"]}
+{"id": "q15", "lang": "vi", "question": "Gia hạn license API năm 2027, giảm còn bao nhiêu seat?", "threads": ["C-license"]}
+{"id": "q16", "lang": "ja", "question": "定例会議の議事録と次回の日程", "threads": ["A-minutes"]}
+{"id": "q17", "lang": "vi", "question": "Khách nghỉ Tết từ ngày nào đến ngày nào?", "threads": ["S1"]}
+{"id": "q18", "lang": "vi", "question": "Ai đang nghỉ phép, liên hệ ai khi gấp?", "threads": ["S2"]}
+{"id": "q19", "lang": "vi", "question": "Khách yêu cầu nộp báo cáo kết quả test theo format nào?", "threads": ["S5"]}
+{"id": "q20", "lang": "vi", "question": "Khách muốn đến thăm công ty mình vào tuần sau", "threads": ["S8"]}
+{"id": "q21", "lang": "en", "question": "webinar on API best practices", "threads": ["S9", "S3"]}
+{"id": "q22", "lang": "vi", "question": "Khách B nhờ gửi lại báo giá Project B", "threads": ["S7"]}
+{"id": "q23", "lang": "vi", "question": "Buổi chia sẻ về automation test lúc mấy giờ?", "threads": ["S6"]}
+{"id": "q24", "lang": "vi", "question": "Thông báo lịch nghỉ lễ Quốc khánh và dời deadline", "threads": ["S4"]}
+{"id": "q25", "lang": "code", "question": "E1024", "threads": ["A-bug"]}
+{"id": "q26", "lang": "en", "question": "\"15 seats\"", "threads": ["C-license"]}
+{"id": "q27", "lang": "code", "question": "#77 #150", "threads": ["VN-qa"]}
+{"id": "q28", "lang": "ja", "question": "議事録", "threads": ["A-minutes"]}

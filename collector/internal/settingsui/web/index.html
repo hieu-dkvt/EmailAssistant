@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cài đặt collector</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <h1>Cài đặt collector</h1>
+  <a href="#" id="close-link">Đóng</a>
+</header>
+
+<main>
+  <section class="panel">
+    <label class="lbl" for="profile-path">Profile Thunderbird</label>
+    <div class="path-row">
+      <input id="profile-path" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Dán đường dẫn profile hoặc bấm Chọn thư mục…">
+      <button id="open-btn" type="button">Mở</button>
+      <button id="browse-btn" type="button">Chọn thư mục…</button>
+    </div>
+    <div id="detected" class="hint"></div>
+    <div id="message" class="message" hidden></div>
+    <div id="warning" class="warning" hidden></div>
+    <div id="info" class="info" hidden></div>
+  </section>
+
+  <section class="panel">
+    <div class="lbl">Kết nối server</div>
+    <div class="path-row">
+      <input id="server-url" type="text" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000">
+      <input id="server-token" type="password" autocomplete="off" placeholder="Token do quản trị cấp">
+      <button id="server-save" type="button">Lưu kết nối</button>
+    </div>
+    <div id="server-status" class="hint"></div>
+  </section>
+
+  <section id="sync-panel" class="panel" hidden>
+    <div class="sync-head">
+      <strong id="sync-title">Đồng bộ</strong>
+      <button id="sync-stop" type="button">Dừng</button>
+    </div>
+    <div class="bar"><div id="sync-bar"></div></div>
+    <div id="sync-line" class="hint"></div>
+    <div id="sync-result" class="result" hidden></div>
+  </section>
+
+  <section id="profiles-root" class="panel" hidden>
+    <p>Thư mục này chứa các profile sau. Chọn một profile:</p>
+    <ul id="profiles-list" class="plain-list"></ul>
+  </section>
+
+  <div id="tree"></div>
+</main>
+
+<footer id="footer" class="footer" hidden>
+  <div class="footer-inner">
+    <div class="sum">
+      <div id="summary"></div>
+      <label class="auto"><input type="checkbox" id="auto-include"> Tự thêm folder mới xuất hiện sau này</label>
+    </div>
+    <span id="saved-msg" class="saved"></span>
+    <button id="save-btn" type="button">Lưu</button>
+    <button id="sync-btn" type="button" class="primary" disabled>Đồng bộ</button>
+  </div>
+</footer>
+
+<dialog id="browse-dialog">
+  <div class="dlg-head">
+    <strong>Chọn thư mục</strong>
+    <div id="browse-path" class="dlg-path"></div>
+  </div>
+  <ul id="browse-list" class="browse-list"></ul>
+  <div class="dlg-actions">
+    <button id="browse-up" type="button">↑ Lên</button>
+    <span class="spacer"></span>
+    <button id="browse-cancel" type="button">Hủy</button>
+    <button id="browse-choose" type="button" class="primary">Chọn thư mục này</button>
+  </div>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

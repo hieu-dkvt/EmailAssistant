@@ -1,0 +1,34 @@
+# Claude Code: thiết lập và ghi chú cá nhân
+.claude/settings.local.json
+CLAUDE.local.md
+.superpowers/
+
+# Bí mật
+.env
+.env.*
+!.env.example
+
+# Mail thật (chỉ giữ thư mục)
+samples/raw/*
+!samples/raw/.gitkeep
+# File review-threads (có nội dung mail; mặc định nằm ở %LOCALAPPDATA%, đề phòng bị chép vào repo)
+threads-*.html
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+web/dist/
+
+# Go
+collector/*.exe
+collector/dist/
+
+# Dữ liệu chạy cục bộ (state collector, DB thử)
+*.sqlite
+*.db
