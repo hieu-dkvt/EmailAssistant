@@ -8,7 +8,7 @@ Yêu cầu của người dùng (2026-10-19): có màn hình cài đặt model A
 
 ## 2. Không làm
 
-- Nhập API key trên web: key đặt bằng biến môi trường `ANTHROPIC_API_KEY` của backend (không lưu DB). Màn hình chỉ báo đã cấu hình hay chưa.
+- Nhập API key trên web: spec này chỉ dùng biến môi trường `ANTHROPIC_API_KEY` (không lưu DB). Từ 2026-10-25 spec 24 thêm nhà cung cấp tùy chỉnh (URL, key mã hóa, tên model); không nhập thì vẫn chạy như spec này.
 - Cài đặt chung cho cả công ty (admin): mỗi người dùng tự chọn cho mình.
 - Chỉnh `effort`, `max_tokens`: cố định theo tác vụ trong code.
 - Giới hạn chi phí theo tháng: chỉ hiện thống kê.

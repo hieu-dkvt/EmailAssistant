@@ -31,7 +31,8 @@ app/api/session_routes.py # đăng nhập web: POST/GET/DELETE /api/v1/session
 app/api/web_routes.py    # API web (chỉ phiên): /folders, /search (mode=keyword|hybrid), /threads,
                          #   /threads/{id}, /threads/{id}/similar, /messages/{id}, /messages/{id}/full,
                          #   /processing, /thread-overrides
-app/api/ai_routes.py     # API web AI (chỉ phiên): POST /ask, GET/PUT /ai/settings, GET /ai/usage
+app/api/ai_routes.py     # API web AI (chỉ phiên): POST /ask, GET/PUT /ai/settings, GET /ai/usage,
+                         #   GET/PUT/DELETE /ai/provider, POST /ai/provider/test
 app/api/errors.py        # lỗi 422 không trả lại dữ liệu gửi lên; lỗi DB chỉ log sqlstate/ràng buộc;
                          #   ApiError → {"detail", "code"}; MlUnavailable / EmbeddingModelMismatch → 503
 app/schemas.py           # schema Ingest API (hợp đồng với collector)
@@ -44,7 +45,9 @@ app/search/similar.py    # thread liên quan bằng vector đã lưu (lớp 4 go
 app/ml_client.py         # HttpMlClient: /embed (kiểm model = PMM_EMBED_MODEL), /ner; MlUnavailable
 app/embedding.py         # cắt đoạn body_clean (CHUNKER_VERSION), mail chờ embed, embed_batch/embed_user
 app/ai/models.py         # cấp haiku/sonnet/opus → model (PMM_MODEL_*), giá ước tính, tác vụ (TASKS)
-app/ai/settings.py       # user_ai_settings (cấp theo tác vụ), thống kê ai_calls theo tháng
+app/ai/settings.py       # user_ai_settings (cấp + tên model theo tác vụ), thống kê ai_calls theo tháng
+app/ai/provider.py       # nhà cung cấp tùy chỉnh (spec 24): validate_base_url, OpenAiLlm, LlmResolver, user_ai_provider
+app/ai/secrets.py        # Fernet mã hóa API key (PMM_SECRET_KEY)
 app/ai/names.py          # tách tên hiển thị header thành PERSON/ORG/EMAIL, mẫu tên công ty, tên lõi
 app/ai/people.py         # từ điển người gửi/nhận + công ty trong chữ ký (cache 10 phút / người dùng)
 app/ai/masking.py        # Masker: che (mẫu + từ điển + NER, nhất quán, fail closed), thay ngược
@@ -169,10 +172,10 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 
 ## Claude API
 
-Spec 20, 21, 22.
+Spec 20, 21, 22, 24.
 
 - Trước khi viết code gọi Claude, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
-- Khóa: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
+- Khóa mặc định: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Người dùng có thể lưu nhà cung cấp riêng (bảng `user_ai_provider`, key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24): `LlmResolver.for_user` chọn client theo người dùng, `call_task(custom_model=…)` dùng tên model tự nhập. URL qua `validate_base_url` (https công cộng, http chỉ loopback, chặn IP riêng); không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `anthropic_base_url()` (chỉ `*.anthropic.com`) chỉ áp dụng cho client môi trường. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
 - Model theo cấp và tác vụ (`app/ai/models.py`): mặc định phân tích câu hỏi = `claude-haiku-5-5`, trả lời = `claude-sonnet-5-5`; người dùng đổi trên trang "Cài đặt AI" (bảng `user_ai_settings`). `PMM_MODEL_HAIKU/SONNET/OPUS` đổi model của cấp. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS`, gọi qua `call_task`.
 - **Mọi text gửi Claude phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị Claude trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
 - Che từng giá trị riêng (người gửi, người nhận, subject, đoạn mail) rồi mới ghép tên trường (`From:`…): GiNZA nhận nhầm tên trường là tổ chức. Giới hạn độ dài mọi phần (subject 300, To/Cc 10 người).

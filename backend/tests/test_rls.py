@@ -50,6 +50,8 @@ def test_rls_enabled_flags(owner_engine: Engine, migrated: None) -> None:
         # Giai đoạn 5 (0015): vector dẫn xuất từ mail, cài đặt AI và nhật ký gọi Claude.
         "message_chunks": True,
         "user_ai_settings": True,
+        # 0016: bí mật (API key mã hóa) của provider AI tùy chỉnh.
+        "user_ai_provider": True,
         "ai_calls": True,
     }
 

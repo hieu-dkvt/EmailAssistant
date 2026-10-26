@@ -325,7 +325,24 @@ class UserAiSetting(Base):
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     task: Mapped[str] = mapped_column(Text, primary_key=True)
-    tier: Mapped[str] = mapped_column(Text)
+    tier: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Tên model người dùng nhập (spec 2026-10-25-ai-provider-design mục 4); NULL = dùng cấp.
+    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserAiProvider(Base):
+    """Nhà cung cấp AI tùy chỉnh của từng người; API key đã mã hóa (spec 24 mục 4, 5)."""
+
+    __tablename__ = "user_ai_provider"
+    __table_args__ = (CheckConstraint("protocol IN ('anthropic', 'openai')", name="protocol"),)
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    protocol: Mapped[str] = mapped_column(Text)
+    base_url: Mapped[str] = mapped_column(Text)
+    api_key_enc: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

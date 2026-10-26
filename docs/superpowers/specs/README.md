@@ -27,6 +27,7 @@ Mỗi chức năng có một spec mô tả mục đích, quy tắc xử lý, rà
 | 21 | Hỏi đáp AI trên mail (RAG), ghi lại lần gọi Claude (`ai_calls`) | DB, backend, web | [2026-10-19-ai-ask-design.md](2026-10-19-ai-ask-design.md) | Xong (chưa gọi thử Claude thật) |
 | 22 | Cài đặt model AI theo tác vụ (Haiku / Sonnet / Opus), thống kê token | DB, backend, web | [2026-10-19-ai-settings-design.md](2026-10-19-ai-settings-design.md) | Xong |
 | 23 | Gợi ý thread liên quan bằng embedding (lớp 4 gom thread) | backend, web | [2026-10-19-similar-threads-design.md](2026-10-19-similar-threads-design.md) | Xong (ngưỡng chỉnh trên mail thật) |
+| 24 | Nhà cung cấp AI tùy chỉnh (OpenRouter, 9router): nhập URL, API key, model | DB, backend, web | [2026-10-25-ai-provider-design.md](2026-10-25-ai-provider-design.md) | Xong (chưa gọi thử gateway thật) |
 
 Chức năng 3–8 đã qua review cuối (code reviewer + security-reviewer) ngày 2026-10-17; chức năng 9–11 qua security-reviewer cùng ngày; chức năng 13–16 qua security-reviewer ngày 2026-10-19; chức năng 17–23 qua security-reviewer ngày 2026-10-21. Các điểm đã sửa ghi ở mục "Sửa sau review" của từng spec và trong CHANGELOG.
 

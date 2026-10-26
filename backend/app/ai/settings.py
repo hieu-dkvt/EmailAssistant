@@ -12,6 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.ai.models import TASKS, TIERS, Tier, estimate_cost
 
 SELECT_TIERS = text("SELECT task, tier FROM user_ai_settings")
+SELECT_MODELS = text("SELECT task, model FROM user_ai_settings WHERE model IS NOT NULL")
+UPSERT_MODEL = text(
+    """
+    INSERT INTO user_ai_settings (user_id, task, model) VALUES (:u, :task, :model)
+    ON CONFLICT (user_id, task) DO UPDATE SET model = excluded.model, updated_at = now()
+    """
+)
 UPSERT_TIER = text(
     """
     INSERT INTO user_ai_settings (user_id, task, tier) VALUES (:u, :task, :tier)
@@ -42,6 +49,18 @@ async def user_tiers(session: AsyncSession) -> dict[str, Tier]:
 async def save_tiers(session: AsyncSession, user_id: int, tiers: Mapping[str, Tier]) -> None:
     for task, tier in tiers.items():
         await session.execute(UPSERT_TIER, {"u": user_id, "task": task, "tier": tier})
+
+
+async def user_models(session: AsyncSession) -> dict[str, str]:
+    """Tên model người dùng nhập theo tác vụ (spec 24); tác vụ chưa nhập thì không có mặt."""
+    return {r.task: r.model for r in await session.execute(SELECT_MODELS) if r.task in TASKS}
+
+
+async def save_models(
+    session: AsyncSession, user_id: int, models: Mapping[str, str | None]
+) -> None:
+    for task, model in models.items():
+        await session.execute(UPSERT_MODEL, {"u": user_id, "task": task, "model": model or None})
 
 
 def month_start(now: datetime | None = None) -> datetime:

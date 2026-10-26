@@ -25,7 +25,7 @@ src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái
                            #   rethread.tsx + rethread-context.ts
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), AiSettingsPage (/settings/ai)
+                           #   OverridesPage, AskPage (/ask), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
 src/**/*.test.ts(x)        # Vitest
 ```
 

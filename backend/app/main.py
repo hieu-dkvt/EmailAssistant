@@ -16,6 +16,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.ai.ask import AskGuard
 from app.ai.client import LlmClient, default_llm
+from app.ai.provider import LlmResolver
 from app.api import ai_routes, routes, session_routes, web_routes
 from app.api.errors import (
     ApiError,
@@ -90,6 +91,7 @@ def create_app(
     app.state.engine = api_engine
     app.state.ml = ml or HttpMlClient()
     app.state.llm = llm if llm is not None else default_llm()
+    app.state.llm_resolver = LlmResolver(app.state.llm)
     app.state.ask_guard = AskGuard()
     app.state.limits = Limits(max_body_bytes, max_decompressed_bytes)
     app.state.login_throttle = LoginThrottle()

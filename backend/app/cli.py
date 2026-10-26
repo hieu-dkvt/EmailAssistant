@@ -8,6 +8,10 @@ Người dùng và token collector (role owner):
 
 Token chỉ in ra một lần; DB chỉ lưu SHA-256 của token.
 
+Khóa mã hóa API key của nhà cung cấp AI (spec 2026-10-25-ai-provider-design mục 5):
+
+    ... python -m app.cli gen-secret-key     # in khóa mới; đặt vào biến môi trường PMM_SECRET_KEY
+
 Mật khẩu đăng nhập web (role owner; spec 2026-10-18-web-login-design.md mục 6):
 
     ... python -m app.cli set-password --email pm@example.com [--password-stdin]
@@ -164,6 +168,9 @@ def _user_id(conn: Connection, email: str) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli")
     sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser(
+        "gen-secret-key", help="sinh khóa PMM_SECRET_KEY (mã hóa API key của provider AI)"
+    )
     p = sub.add_parser("create-user", help="tạo người dùng và token")
     p.add_argument("--email", required=True)
     p.add_argument("--name", required=True)
@@ -191,6 +198,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--sample", type=int, default=100)
     p.add_argument("--seed", type=int)
     args = parser.parse_args(argv)
+    if args.cmd == "gen-secret-key":
+        from app.ai.secrets import generate_key
+
+        print(generate_key())
+        return 0
     if args.cmd in MAIL_COMMANDS:
         try:
             return _mail_command(args)

@@ -30,6 +30,7 @@ MAIL_TABLES = (
     "web_sessions",
     "message_chunks",
     "user_ai_settings",
+    "user_ai_provider",
     "ai_calls",
 )
 

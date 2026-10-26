@@ -29,7 +29,7 @@ from app.ai.prompts import (
     analysis_message,
     answer_message,
 )
-from app.ai.settings import user_tiers
+from app.ai.settings import user_models, user_tiers
 from app.db.session import user_session
 from app.embedding import CHUNK_CHARS, MAX_CHUNKS, MAX_SUBJECT_CHARS, split_chunks
 from app.ml_client import MlClient
@@ -261,6 +261,7 @@ async def ask(
     filters: AskFilters,
     *,
     today: date | None = None,
+    custom_provider: bool = False,
 ) -> AskResult:
     started = time.monotonic()
     question = question.replace("\x00", "").strip()
@@ -270,6 +271,7 @@ async def ask(
 
     async with user_session(engine, user_id) as s:
         tiers = await user_tiers(s)
+        models = await user_models(s) if custom_provider else {}
         known = await people_mod.correspondents(s, user_id)
     masker = Masker(ml.ner)
     masker.add_entities(known)
@@ -288,6 +290,7 @@ async def ask(
         user=content,
         output_type=QuestionPlan,
         log_to=calls,
+        custom_model=models.get("question_analysis"),
     )
     queries = [masker.unmask(q).strip() for q in plan.search_queries if q.strip()][:MAX_QUERIES]
     keywords = [masker.unmask(k).strip() for k in plan.keywords if k.strip()][:MAX_KEYWORDS]
@@ -385,6 +388,7 @@ async def ask(
         user=content,
         output_type=AnswerOut,
         log_to=calls,
+        custom_model=models.get("answer"),
     )
     n_sources = len(rows)
     answer = masker.unmask(out.answer)

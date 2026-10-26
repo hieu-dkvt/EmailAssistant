@@ -13,6 +13,7 @@ import type { ApiFilters } from "@/lib/filters";
 import {
   api,
   unwrap,
+  type AiProviderBody,
   type AiSettingsBody,
   type AskBody,
   type LoginBody,
@@ -32,6 +33,7 @@ export const keys = {
   overrides: ["overrides"] as const,
   aiSettings: ["aiSettings"] as const,
   aiUsage: ["aiUsage"] as const,
+  aiProvider: ["aiProvider"] as const,
 };
 
 export interface SearchParams extends ApiFilters {
@@ -209,5 +211,45 @@ export function useDeleteOverride() {
         }),
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.processing }),
+  });
+}
+
+/** Nhà cung cấp AI tùy chỉnh (spec 24). Không bao giờ nhận lại API key, chỉ "đã đặt" và 4 ký tự cuối. */
+export function useAiProvider() {
+  return useQuery({
+    queryKey: keys.aiProvider,
+    queryFn: () => unwrap(api.GET("/api/v1/ai/provider")),
+  });
+}
+
+function useRefreshAiProvider() {
+  const qc = useQueryClient();
+  return (data: unknown) => {
+    qc.setQueryData(keys.aiProvider, data);
+    return qc.invalidateQueries({ queryKey: keys.aiSettings });
+  };
+}
+
+export function useSaveAiProvider() {
+  const refresh = useRefreshAiProvider();
+  return useMutation({
+    mutationFn: (body: AiProviderBody) => unwrap(api.PUT("/api/v1/ai/provider", { body })),
+    onSuccess: refresh,
+  });
+}
+
+export function useDeleteAiProvider() {
+  const refresh = useRefreshAiProvider();
+  return useMutation({
+    mutationFn: () => unwrap(api.DELETE("/api/v1/ai/provider")),
+    onSuccess: refresh,
+  });
+}
+
+export function useTestAiProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => unwrap(api.POST("/api/v1/ai/provider/test")),
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.aiUsage }),
   });
 }

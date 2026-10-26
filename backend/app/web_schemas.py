@@ -274,6 +274,7 @@ class AiTaskInfo(BaseModel):
     description: str
     tier: TierName
     default_tier: TierName
+    model: str | None  # tên model người dùng nhập (chỉ dùng khi có provider tùy chỉnh, spec 24)
 
 
 class AiTierInfo(BaseModel):
@@ -286,6 +287,7 @@ class AiTierInfo(BaseModel):
 
 class AiSettings(BaseModel):
     configured: bool
+    custom_provider: bool  # đang dùng nhà cung cấp tự nhập thay cho ANTHROPIC_API_KEY (spec 24)
     tasks: list[AiTaskInfo]
     tiers: list[AiTierInfo]
     masking: list[str]
@@ -294,7 +296,37 @@ class AiSettings(BaseModel):
 class AiSettingsUpdate(StrictModel):
     # Literal viết thẳng (không dùng alias TierName): schema của body nằm trong openapi_extra
     # (json_body), không có $defs để tham chiếu.
-    tiers: dict[str, Literal["haiku", "sonnet", "opus"]]
+    tiers: dict[str, Literal["haiku", "sonnet", "opus"]] = {}
+    # Tên model theo tác vụ; null hoặc rỗng = xóa (spec 24 mục 7).
+    models: dict[str, str | None] = {}
+
+
+# --- nhà cung cấp AI tùy chỉnh (spec 24) ---
+
+
+class AiProviderCustom(BaseModel):
+    protocol: Literal["anthropic", "openai"]
+    base_url: str
+    api_key_set: bool  # false khi key không giải mã được (đổi PMM_SECRET_KEY)
+    api_key_hint: str | None  # 4 ký tự cuối, không bao giờ trả key đầy đủ
+
+
+class AiProvider(BaseModel):
+    configured_env: bool  # có ANTHROPIC_API_KEY trong môi trường backend
+    secret_key_ready: bool  # có PMM_SECRET_KEY hợp lệ (cần để lưu key)
+    custom: AiProviderCustom | None
+
+
+class AiProviderUpdate(StrictModel):
+    protocol: Literal["anthropic", "openai"]
+    base_url: str
+    api_key: str | None = None  # bỏ trống = giữ key đã lưu
+
+
+class AiProviderTest(BaseModel):
+    ok: bool
+    model: str
+    duration_ms: int
 
 
 class AiUsageRow(BaseModel):

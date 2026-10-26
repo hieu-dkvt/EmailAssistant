@@ -78,7 +78,7 @@
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
 | Embedding | `bge-m3` self-host (phương án chính) / Voyage AI (dự phòng) | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Claude Haiku 5.5 (phân loại, phân tích câu hỏi), Sonnet 5.5 (tóm tắt, trả lời, soạn reply); người dùng đổi được sang Opus 5.5 theo từng tác vụ | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin |
+| LLM | Claude Haiku 5.5 (phân loại, phân tích câu hỏi), Sonnet 5.5 (tóm tắt, trả lời, soạn reply); người dùng đổi được sang Opus 5.5 theo từng tác vụ | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |

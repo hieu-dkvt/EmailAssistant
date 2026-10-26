@@ -2,6 +2,34 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-10-25: nhà cung cấp AI tùy chỉnh (spec 24)
+
+### Quyết định của người dùng (2026-10-25)
+- **NDA nới thêm: cho phép gửi nội dung mail đã che tới gateway công cộng** (OpenRouter, 9router…), không chỉ Claude API của Anthropic. Việc che 4 nhóm thông tin vẫn bắt buộc. Người dùng chịu trách nhiệm xác nhận với khách; trang Cài đặt AI hiện cảnh báo theo host.
+- **Trang Cài đặt AI cho nhập URL, API key và tên model** để hỏi đáp AI chạy qua các gateway đó.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Cấu hình theo từng người dùng, không dùng chung toàn hệ thống.
+- Khóa mã hóa API key lấy từ biến môi trường `PMM_SECRET_KEY` (Fernet), không tự sinh file khóa; thiếu thì không lưu key.
+- Hai giao thức: `openai` (chat/completions, `json_schema` rồi lùi về `json_object`) và `anthropic`.
+- `http://` chỉ cho loopback; `https://` mọi host công cộng, chặn IP riêng/metadata/userinfo/query, không theo redirect.
+
+### Đã làm
+- Migration `0016_ai_provider`: bảng `user_ai_provider` (RLS, key mã hóa), cột `user_ai_settings.model`, `tier` cho phép NULL.
+- Backend: `app/ai/provider.py` (kiểm tra URL, `OpenAiLlm`, `LlmResolver`), `app/ai/secrets.py`, `call_task(custom_model=…)`, `ask(custom_provider=…)`; API `GET/PUT/DELETE /ai/provider`, `POST /ai/provider/test`; `/ai/settings` thêm `custom_provider` và `models`. CLI `gen-secret-key`. Phụ thuộc mới: `cryptography`.
+- Web: khối "Nhà cung cấp AI" (giao thức, URL, API key không hiện lại, Kiểm tra kết nối, Xóa, cảnh báo NDA theo host), ô tên model theo tác vụ khi có provider tùy chỉnh.
+- Kiểm thử: 47 test cho mã hóa, URL, client OpenAI-compatible (gateway giả); 20 test API (key không lộ qua response/log, RLS, che thông tin với provider ngoài, khóa sai); web thêm 1 test.
+
+### Đã xử lý sau review
+- security-reviewer (2026-10-25): giao thức `anthropic` theo redirect (có thể đưa key và mail đã che sang host khác) đã tắt; kiểm tra URL thêm tên nội bộ, IP dạng số/hex và phân giải DNS; giới hạn 4 MiB body phản hồi; đóng client cũ; chỉ hiện gợi ý key khi key dài từ 16 ký tự. Chi tiết: spec 24 mục 13.
+
+- Chẩn đoán lỗi "Nhà cung cấp AI đang quá tải hoặc lỗi" (2026-10-26): log `ai provider error` nay ghi thêm mã HTTP cuối cùng (`type=Status429`, `Status502`…, không có body) để phân biệt giới hạn tốc độ với lỗi gateway. Log trên máy dev cho thấy `Status429` với model `:free` của OpenRouter (giới hạn tốc độ của gói miễn phí), nên với 429 thông báo nói rõ "giới hạn tốc độ: chờ, đổi model hoặc nạp thêm hạn mức". Theo yêu cầu người dùng, lỗi 429/5xx/mạng của provider kiểu `openai` hiện kèm chi tiết ra màn hình: mã HTTP (hoặc tên lớp lỗi mạng), host, model, số lần thử. Vẫn không chép body phản hồi của gateway.
+
+### Còn để sau
+- Thử lại khi gateway trả 429/5xx hiện không chờ giữa các lần (3 lần liên tiếp, bỏ qua `Retry-After`); chưa sửa vì chưa biết mã lỗi thật (cần log mới).
+- Chưa gọi thử OpenRouter/9router thật (cần key của người dùng).
+- DNS rebinding (đổi DNS giữa lúc kiểm tra và lúc kết nối) chưa chặn; model tự nhập không có giá ước tính; đổi `PMM_SECRET_KEY` làm mất key đã lưu.
+
 ## 2026-10-19 → 2026-10-21: giai đoạn 5, tìm kiếm ngữ nghĩa và hỏi đáp AI
 
 ### Quyết định của người dùng (2026-10-19)

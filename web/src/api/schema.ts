@@ -314,6 +314,45 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/ai/provider": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Provider */
+    get: operations["get_provider_api_v1_ai_provider_get"];
+    /** Put Provider */
+    put: operations["put_provider_api_v1_ai_provider_put"];
+    post?: never;
+    /** Remove Provider */
+    delete: operations["remove_provider_api_v1_ai_provider_delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/ai/provider/test": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Test Provider
+     * @description Gửi một câu cố định, không có dữ liệu mail, bằng model đã nhập cho tác vụ "answer".
+     */
+    post: operations["test_provider_api_v1_ai_provider_test_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -325,10 +364,43 @@ export interface components {
       /** Addr */
       addr: string;
     };
+    /** AiProvider */
+    AiProvider: {
+      /** Configured Env */
+      configured_env: boolean;
+      /** Secret Key Ready */
+      secret_key_ready: boolean;
+      custom: components["schemas"]["AiProviderCustom"] | null;
+    };
+    /** AiProviderCustom */
+    AiProviderCustom: {
+      /**
+       * Protocol
+       * @enum {string}
+       */
+      protocol: "anthropic" | "openai";
+      /** Base Url */
+      base_url: string;
+      /** Api Key Set */
+      api_key_set: boolean;
+      /** Api Key Hint */
+      api_key_hint: string | null;
+    };
+    /** AiProviderTest */
+    AiProviderTest: {
+      /** Ok */
+      ok: boolean;
+      /** Model */
+      model: string;
+      /** Duration Ms */
+      duration_ms: number;
+    };
     /** AiSettings */
     AiSettings: {
       /** Configured */
       configured: boolean;
+      /** Custom Provider */
+      custom_provider: boolean;
       /** Tasks */
       tasks: components["schemas"]["AiTaskInfo"][];
       /** Tiers */
@@ -346,6 +418,8 @@ export interface components {
       description: string;
       tier: components["schemas"]["TierName"];
       default_tier: components["schemas"]["TierName"];
+      /** Model */
+      model: string | null;
     };
     /** AiTierInfo */
     AiTierInfo: {
@@ -1657,9 +1731,19 @@ export interface operations {
     requestBody: {
       content: {
         "application/json": {
-          /** Tiers */
-          tiers: {
+          /**
+           * Tiers
+           * @default {}
+           */
+          tiers?: {
             [key: string]: "haiku" | "sonnet" | "opus";
+          };
+          /**
+           * Models
+           * @default {}
+           */
+          models?: {
+            [key: string]: string | null;
           };
         };
       };
@@ -1791,6 +1875,181 @@ export interface operations {
         };
       };
       /** @description ai_not_configured, ai_unavailable, ml_… */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  get_provider_api_v1_ai_provider_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AiProvider"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  put_provider_api_v1_ai_provider_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /**
+           * Protocol
+           * @enum {string}
+           */
+          protocol: "anthropic" | "openai";
+          /** Base Url */
+          base_url: string;
+          /** Api Key */
+          api_key?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AiProvider"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description secret_key_missing */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  remove_provider_api_v1_ai_provider_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AiProvider"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  test_provider_api_v1_ai_provider_test_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["AiProviderTest"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description ai_not_configured, ai_auth_failed… */
       503: {
         headers: {
           [name: string]: unknown;

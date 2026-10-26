@@ -1317,14 +1317,27 @@
                       ]
                     },
                     "type": "object",
-                    "title": "Tiers"
+                    "title": "Tiers",
+                    "default": {}
+                  },
+                  "models": {
+                    "additionalProperties": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "type": "object",
+                    "title": "Models",
+                    "default": {}
                   }
                 },
                 "additionalProperties": false,
                 "type": "object",
-                "required": [
-                  "tiers"
-                ],
                 "title": "AiSettingsUpdate"
               }
             }
@@ -1520,6 +1533,206 @@
           }
         }
       }
+    },
+    "/api/v1/ai/provider": {
+      "get": {
+        "summary": "Get Provider",
+        "operationId": "get_provider_api_v1_ai_provider_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProvider"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "summary": "Put Provider",
+        "operationId": "put_provider_api_v1_ai_provider_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "protocol": {
+                    "type": "string",
+                    "enum": [
+                      "anthropic",
+                      "openai"
+                    ],
+                    "title": "Protocol"
+                  },
+                  "base_url": {
+                    "type": "string",
+                    "title": "Base Url"
+                  },
+                  "api_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Api Key"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "protocol",
+                  "base_url"
+                ],
+                "title": "AiProviderUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProvider"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "secret_key_missing",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove Provider",
+        "operationId": "remove_provider_api_v1_ai_provider_delete",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProvider"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ai/provider/test": {
+      "post": {
+        "summary": "Test Provider",
+        "description": "Gửi một câu cố định, không có dữ liệu mail, bằng model đã nhập cho tác vụ \"answer\".",
+        "operationId": "test_provider_api_v1_ai_provider_test_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiProviderTest"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ai_not_configured, ai_auth_failed…",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1548,11 +1761,106 @@
         ],
         "title": "AddressOut"
       },
+      "AiProvider": {
+        "properties": {
+          "configured_env": {
+            "type": "boolean",
+            "title": "Configured Env"
+          },
+          "secret_key_ready": {
+            "type": "boolean",
+            "title": "Secret Key Ready"
+          },
+          "custom": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AiProviderCustom"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "configured_env",
+          "secret_key_ready",
+          "custom"
+        ],
+        "title": "AiProvider"
+      },
+      "AiProviderCustom": {
+        "properties": {
+          "protocol": {
+            "type": "string",
+            "enum": [
+              "anthropic",
+              "openai"
+            ],
+            "title": "Protocol"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "api_key_set": {
+            "type": "boolean",
+            "title": "Api Key Set"
+          },
+          "api_key_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key Hint"
+          }
+        },
+        "type": "object",
+        "required": [
+          "protocol",
+          "base_url",
+          "api_key_set",
+          "api_key_hint"
+        ],
+        "title": "AiProviderCustom"
+      },
+      "AiProviderTest": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "model",
+          "duration_ms"
+        ],
+        "title": "AiProviderTest"
+      },
       "AiSettings": {
         "properties": {
           "configured": {
             "type": "boolean",
             "title": "Configured"
+          },
+          "custom_provider": {
+            "type": "boolean",
+            "title": "Custom Provider"
           },
           "tasks": {
             "items": {
@@ -1579,6 +1887,7 @@
         "type": "object",
         "required": [
           "configured",
+          "custom_provider",
           "tasks",
           "tiers",
           "masking"
@@ -1604,6 +1913,17 @@
           },
           "default_tier": {
             "$ref": "#/components/schemas/TierName"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
           }
         },
         "type": "object",
@@ -1612,7 +1932,8 @@
           "label",
           "description",
           "tier",
-          "default_tier"
+          "default_tier",
+          "model"
         ],
         "title": "AiTaskInfo"
       },

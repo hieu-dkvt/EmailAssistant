@@ -74,7 +74,7 @@ Lỗi (`{"detail", "code"}`): 400 `question_empty`/422; 409 `ask_in_progress`; 5
 - Claude không có tool: nội dung mail (có thể chứa prompt injection) chỉ ảnh hưởng câu trả lời trong phạm vi dữ liệu người hỏi đã có quyền xem.
 - Lỗi SDK chỉ log tên lớp lỗi và `request_id` (không log thông điệp lỗi).
 - Response có `Cache-Control: no-store` (middleware chung).
-- `ANTHROPIC_API_KEY` đặt trong biến môi trường của backend (không lưu DB, không trả ra API).
+- `ANTHROPIC_API_KEY` đặt trong biến môi trường của backend (không lưu DB, không trả ra API). Từ 2026-10-25 người dùng có thể nhập nhà cung cấp riêng (spec 24); khi đó `ask()` nhận `custom_provider=True` và dùng tên model tự nhập.
 
 ## 7. Web (`AskPage`)
 

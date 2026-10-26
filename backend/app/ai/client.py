@@ -228,7 +228,7 @@ INSERT_CALL = text(
 )
 
 
-async def _record(
+async def record_call(
     engine: AsyncEngine, user_id: int, task: str, model: str, status: str, usage: LlmUsage, ms: int
 ) -> None:
     async with user_session(engine, user_id) as s:
@@ -269,10 +269,12 @@ async def call_task[T: BaseModel](
     user: str,
     output_type: type[T],
     log_to: CallLog,
+    custom_model: str | None = None,
 ) -> T:
-    """Gọi Claude cho một tác vụ với cấp model đã chọn; ghi ai_calls mọi trường hợp."""
+    """Gọi AI cho một tác vụ với cấp model đã chọn (hoặc tên model tự nhập khi có provider
+    tùy chỉnh, spec 24); ghi ai_calls mọi trường hợp."""
     spec = TASKS[task]
-    model = model_for(tier)
+    model = custom_model or model_for(tier)
     started = time.monotonic()
     status = "error"
     usage = LlmUsage()
@@ -285,7 +287,7 @@ async def call_task[T: BaseModel](
             schema=transform_schema(output_type),
             max_tokens=spec.max_tokens,
             effort=spec.effort,
-            fallbacks=TIER_INFO[tier].fallbacks and fallbacks_enabled(),
+            fallbacks=custom_model is None and TIER_INFO[tier].fallbacks and fallbacks_enabled(),
         )
         usage, served = resp.usage, resp.model or model
         if resp.stop_reason == "refusal":
@@ -303,7 +305,7 @@ async def call_task[T: BaseModel](
     finally:
         ms = int((time.monotonic() - started) * 1000)
         try:
-            await _record(engine, user_id, task, served, status, usage, ms)
+            await record_call(engine, user_id, task, served, status, usage, ms)
         except Exception as e:  # không che lỗi gốc của lần gọi
             log.error("ai_calls insert failed type=%s", type(e).__name__)
         log_to.calls.append(

@@ -28,6 +28,11 @@ export type AskResult = Schemas["AskResult"];
 export type AskSource = Schemas["AskSource"];
 export type AiSettings = Schemas["AiSettings"];
 export type AiUsage = Schemas["AiUsage"];
+export type AiProvider = Schemas["AiProvider"];
+export type AiProviderTest = Schemas["AiProviderTest"];
+export type AiProviderBody = NonNullable<
+  paths["/api/v1/ai/provider"]["put"]["requestBody"]
+>["content"]["application/json"];
 export type Tier = Schemas["AiTierInfo"]["tier"];
 export type AskBody = NonNullable<
   paths["/api/v1/ask"]["post"]["requestBody"]
