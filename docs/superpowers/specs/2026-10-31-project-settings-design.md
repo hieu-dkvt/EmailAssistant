@@ -1,6 +1,6 @@
 # Spec: Cấu hình dự án và gán mail theo bộ lọc
 
-Ngày: 2026-10-31 · Thành phần: `backend/app/projects.py`, `backend/app/api/project_routes.py`, `backend/app/processing.py`, `backend/app/tasks/__init__.py`, `backend/app/threads_view.py`, `backend/app/cli.py`, migration 0017 (`projects`, `message_projects`, `user_project_state`), `web/src/pages/ProjectsPage.tsx`, `web/src/pages/ThreadListPage.tsx` · Trạng thái: đang làm (chờ người dùng duyệt spec, chưa có code)
+Ngày: 2026-10-31 · Thành phần: `backend/app/projects.py`, `backend/app/api/project_routes.py`, `backend/app/processing.py`, `backend/app/tasks/__init__.py`, `backend/app/threads_view.py`, `backend/app/cli.py`, `backend/app/db/locks.py`, migration 0017 (`projects`, `message_projects`, `user_project_state`), `web/src/pages/ProjectsPage.tsx`, `web/src/pages/ThreadListPage.tsx` · Trạng thái: xong (sửa sau review: mục 11)
 
 ## 1. Mục đích
 
@@ -131,6 +131,8 @@ Mail không còn khớp bị gỡ khỏi dự án ở bước 4. Job chạy tố
 
 Mail commit trong lúc quét có `id` nhỏ hơn `scan_after_id` không bị sót: mail đó còn `thread_id IS NULL` nên đi qua nhánh mail mới, và cả hai nhánh đều đọc quy tắc sau khi giữ `LOCK`.
 
+`assign_messages` ghi mỗi lô trong một SAVEPOINT và thử lại tối đa 3 lần khi gặp sqlstate 23503 (mail hoặc dự án vừa bị xóa) hoặc 40P01 (deadlock); hết lần thử thì lỗi được ném ra.
+
 Gán là idempotent: chạy lại cho cùng kết quả. Task bọc lỗi bằng `sanitized`.
 
 ## 6. API (chỉ phiên web)
@@ -150,7 +152,7 @@ Path id dùng `Path(gt=0, le=MAX_BIGINT)`.
 
 - `name`: bắt buộc, 1–200 ký tự sau khi bỏ khoảng trắng hai đầu, không có ký tự điều khiển.
 - Mỗi ô danh sách (`filter_*`, `github_mail`, `backlog_mail`): tối đa 20 giá trị, mỗi giá trị 1–255 ký tự, bỏ khoảng trắng hai đầu, không có ký tự điều khiển, bỏ giá trị trùng sau chuẩn hóa, giữ thứ tự.
-- `docs_repo_url`, `review_repo_url`, `backlog_space_url`, `redmine_url`: có thể trống, tối đa 2.000 ký tự. Nhận `https://`, `http://`, `ssh://`, và dạng `git@host:path`. Từ chối URL có userinfo với `http`, `https`, và có mật khẩu với `ssh`, vì giá trị này lưu dạng thường. Không gọi tới URL.
+- `docs_repo_url`, `review_repo_url`, `backlog_space_url`, `redmine_url`: có thể trống, tối đa 2.000 ký tự. Nhận `https://`, `http://`, `ssh://`, và dạng `git@host:path`. Từ chối URL có userinfo với `http`, `https`, và có mật khẩu với `ssh`, vì giá trị này lưu dạng thường. Từ chối thêm: có query (`?`) hoặc fragment (`#`), tên đăng nhập ssh khác `git`, host bắt đầu bằng `-` (cả `ssh://` và `git@host:path`). Không gọi tới URL.
 - `docs_local_path`, `review_local_path`: có thể trống, tối đa 1.000 ký tự, không có ký tự điều khiển. Không kiểm tra tồn tại.
 - `backlog_project_key`, `redmine_project`: có thể trống, tối đa 200 ký tự.
 - Giá trị trống ghi `NULL`.
@@ -221,3 +223,16 @@ Chỉ dùng dữ liệu giả `*.example.*`.
 - `PUT` không kiểm tra phiên bản: hai tab cùng sửa thì bản lưu sau thắng.
 - Quét lại toàn bộ mất thời gian tỷ lệ với số mail; trong lúc đó nhãn dự án trên danh sách có thể chưa cập nhật.
 - Người dùng dùng chung một khách cho nhiều dự án mà không có Subject thì mail thuộc cả các dự án đó, theo quyết định ở mục 3.
+- Xóa dự án qua web (`DELETE`) hiếm khi trả 500 nếu bị chọn làm nạn nhân deadlock; người dùng bấm lại là được.
+- Giới hạn 100 dự án kiểm bằng đếm rồi chèn, nên nhiều lần tạo đồng thời có thể vượt nhẹ.
+- Ràng buộc `UNIQUE (id, user_id)` trên `projects` là mẫu làm đích FK kép, dùng chung với `messages`, `threads`, `mail_sources`.
+- Các tính năng về sau dùng `docs_repo_url` hoặc đường dẫn local phải truyền `--` cho git, giới hạn giao thức git, và chỉ cho phép trong danh sách folder gốc cho trước. Hiện UNC và `..` vẫn được nhận vì giá trị chưa bao giờ được dùng.
+
+## 11. Sửa sau review (2026-10-31)
+
+- Điểm vào `assign-projects` của CLI được sửa để chạy đúng khi gọi như lệnh thật (có test chạy tiến trình con).
+- `assign_messages` ghi từng lô trong SAVEPOINT và thử lại tối đa 3 lần khi gặp sqlstate 23503 (mail hoặc dự án bị xóa giữa chừng) hoặc 40P01 (deadlock).
+- `TagInput`: Enter khi đang soạn bằng IME không còn thêm giá trị.
+- Quy tắc URL chặt hơn (mục 6): từ chối query, fragment, tên đăng nhập ssh khác `git`, host bắt đầu bằng `-` ở cả dạng `ssh://` và `git@host:path`.
+- Kiểm tra độ dài giá trị lọc chạy trước chuẩn hóa NFKC.
+- Thêm test RLS theo hành vi: người khác không thấy `message_projects`, `user_project_state` và không sửa được; `app_api` không đổi được cột tiến độ của worker; `app_worker` không ghi được `projects`; danh sách cột bị cấm trong `test_api_column_privileges` có thêm hai bảng mới.

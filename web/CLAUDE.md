@@ -41,7 +41,7 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 | Build (`dist/`, backend phục vụ ở `http://127.0.0.1:8000`)        | `npm run build` (gồm `tsc -b`)                                                           |
 | Test                                                              | `npm run test`                                                                           |
 | Lint + kiểm tra format / format                                   | `npm run lint` · `npm run format`                                                        |
-| Sinh client API từ OpenAPI của backend                            | `npm run gen:api` (cần `uv`; chạy `python -m app.openapi_dump` rồi `openapi-typescript`) |
+| Sinh client API từ OpenAPI của backend                            | `npm run gen:api` (cần `uv`; chạy `python -m app.openapi_dump` rồi `openapi-typescript`; trên Windows đặt `$env:PYTHONUTF8 = "1"` trước) |
 
 ## Quy tắc
 

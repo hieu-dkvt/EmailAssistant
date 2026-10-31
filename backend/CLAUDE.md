@@ -81,13 +81,11 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
                          #   tests/mlfake.py: FakeMl (vector theo "khái niệm", NER giả), FakeLlm
+app/projects.py          # bộ lọc From, To, CC, Subject: match_projects (hàm thuần), assign_messages, assign_user_projects (spec 25)
+app/api/project_routes.py  # CRUD dự án (chỉ phiên web)
+app/db/locks.py          # khóa advisory theo người dùng dùng chung cho gom thread và gán dự án
 ```
 
-Dự kiến thêm:
-
-```
-app/projects.py  # bộ lọc From, To, CC, Subject và gán mail vào dự án (spec 25, đang làm)
-```
 
 ## DB
 
@@ -127,6 +125,7 @@ Chạy từ thư mục gốc `Email Assistant` (hoặc bỏ `--directory backend
 | Chạy worker (làm sạch + gom thread tự động) | `uv run --directory backend python -m app.worker` (không dùng CLI `procrastinate`: trên Windows cần SelectorEventLoop) |
 | Làm sạch + gom ngay, không cần worker | `... python -m app.cli process-mail --email <e> [--rethread]` |
 | Embed ngay, không cần worker (cần ml-service chạy) | `... python -m app.cli embed-mail --email <e> [--limit N]` |
+| Gán lại mail vào dự án ngay, không cần worker (in số mail đã xét và số mail có dự án) | `... python -m app.cli assign-projects --email <e>` |
 | Số liệu tổng hợp (chạy được trên dữ liệu thật) | `... python -m app.cli mail-stats [--email <e>]` |
 | Đánh giá tìm kiếm trên profile giả (DB test, cần ml-service; không chạy cùng pytest) | `uv run --directory backend python ../eval/retrieval_eval.py [--skip-load] [--out FILE]` |
 | Người dùng tự kiểm tra thread (file có nội dung mail, Claude Code không đọc) | `... python -m app.cli review-threads --email <e> [--sample 100]` |
@@ -158,7 +157,12 @@ Spec: `docs/superpowers/specs/2026-10-17-threading-design.md`.
 - `thread_overrides` (split/merge, tham chiếu mail) luôn được áp dụng lại, thuật toán không ghi bảng này. Web ghi qua `app/overrides.py` (spec 15), kèm tăng `user_thread_state.overrides_version`; `rethread_user` đọc version **trước** khi đọc override rồi ghi `applied_overrides_version` (sửa tay commit giữa lúc gom không bị mất).
 - Không bao giờ gom mail của hai người dùng với nhau; code chạy bằng role worker phải lọc `user_id` ở mọi truy vấn.
 
-Gán dự án tự động theo bộ lọc From, To, CC, Subject do người dùng khai báo: đang làm (spec 25).
+Gán dự án theo bộ lọc From, To, CC, Subject do người dùng khai báo (spec 25, `app/projects.py`). Bẫy:
+
+- `assign_messages` chạy bên trong transaction của `rethread_user` (giữ `USER_MAIL_LOCK`), nên mail mới và dự án cùng commit. Ghi mỗi lô trong SAVEPOINT, thử lại tối đa 3 lần với sqlstate 23503 (mail/dự án bị xóa giữa chừng) và 40P01.
+- Đọc `rules_version` **trước** khi đọc `projects` (sửa bộ lọc commit giữa chừng thì lần sau quét lại, không bị mất).
+- Không dùng mốc `messages.id` để tìm mail mới; không log giá trị bộ lọc hay tên dự án.
+- Quét lại: `project_rules_sweep` (5 giây) đẩy `assign_user_projects`; chạy tay `python -m app.cli assign-projects --email <e>`.
 
 ## Embedding và tìm kiếm ngữ nghĩa
 

@@ -12,8 +12,9 @@ Trợ lý email dùng AI cho PM dự án outsource Nhật: trích xuất mail t�
 | 1–3 | Collector đọc mbox, đồng bộ tăng dần, ingest, xóa mail của folder; worker tự làm sạch và gom thread | 1–11 |
 | 4 | Web: đăng nhập, danh sách thread, search từ khóa, toàn văn, tách/gộp tay | 13–16 |
 | 5 | ml-service, embed nền, search ngữ nghĩa, thread liên quan, hỏi đáp AI có che thông tin, Cài đặt AI, nhà cung cấp riêng | 17–24 |
+| 5b | Cấu hình dự án, gán mail theo bộ lọc, nhãn dự án trên danh sách thread | 25 |
 
-- Đang làm: màn hình cấu hình dự án và gán mail theo bộ lọc (spec 25). Tiếp theo: giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
+- Đã có (spec 25, 2026-10-31): màn hình cấu hình dự án và worker gán mail theo bộ lọc, nhãn dự án trên danh sách thread. Tiếp theo: giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
 - Đang đợi, chưa đối ứng: xử lý Backlog → Redmine và GitHub review. Chưa làm: lọc theo dự án, mở mail gốc trong Thunderbird. Chưa gọi thử Claude thật (máy dev chưa có `ANTHROPIC_API_KEY`). Embed trên CPU máy dev chậm (khoảng 0,3 đoạn/giây).
 - Khi dựng khung một thành phần, cập nhật mục "Lệnh" trong CLAUDE.md của thành phần đó.
 

@@ -2,7 +2,7 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
-## 2026-10-31: lộ trình mail tự động
+## 2026-10-31: lộ trình mail tự động và cấu hình dự án (spec 25)
 
 ### Quyết định của người dùng (2026-10-31)
 - **Backlog → Redmine và GitHub review: đợi, chưa đối ứng.** Chỉ ghi trong kế hoạch, chưa làm và chưa viết tài liệu. Người dùng sẽ quyết định khi nào thực hiện.
@@ -10,6 +10,20 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 - **Quy tắc gán dự án: người dùng tự khai báo bộ lọc From, To, CC, Subject** cho từng dự án, thay cho chốt danh sách trong code. Mail khớp nhiều dự án được gán vào tất cả dự án khớp.
 - **Phạm vi AI khi tự động xử lý mail: chỉ mail từ mốc.** Mốc là ngày bật lùi 14 ngày, cố định, không trượt theo thời gian; mail cũ hơn mốc vẫn tìm kiếm được nhưng không gọi AI. Lý do: tránh chi phí xử lý lịch sử mà vẫn theo dõi được các việc đang dở. Mốc theo người dùng hay theo dự án sẽ chốt khi làm phân loại AI.
 - **Không làm import `.eml`, `.msg`:** Thunderbird đã cung cấp đủ mail qua mbox.
+
+### Đã làm
+- Spec 25 xong: migration 0017 (`projects`, `message_projects`, `user_project_state`), `app/projects.py` (khớp bộ lọc, gán mail mới trong `rethread_user`, quét lại khi sửa bộ lọc), API `/projects`, lệnh `assign-projects`, nhãn dự án trên danh sách thread, màn hình `/settings/projects` (`TagInput`).
+- Chạy thử đầu cuối trên DB `mailassist_test` với profile giả (1.050 mail nạp bằng collector): tạo, sửa bộ lọc, xóa dự án; nhãn trên danh sách thread đổi theo bộ lọc sau vài giây; giao diện hẹp xuống một cột.
+- Kiểm tra đã chạy trên commit cuối: pytest 704 test đạt, ruff và pyright sạch, Vitest 46 test đạt, build web và eslint sạch. `npm run lint` bước prettier vẫn báo file cấu hình do CRLF của working copy (có từ trước).
+
+### Đã xử lý sau review
+- URL dự án: từ chối query, fragment, tên đăng nhập ssh khác `git`, host bắt đầu bằng `-`; kiểm tra độ dài giá trị lọc trước khi chuẩn hóa NFKC.
+- Gán dự án ghi từng lô trong SAVEPOINT, thử lại khi mail/dự án bị xóa giữa chừng hoặc deadlock; sửa điểm vào CLI `assign-projects`; Enter khi đang soạn IME không thêm giá trị vào `TagInput`.
+- Thêm test RLS theo hành vi cho `message_projects`, `user_project_state`, `projects`.
+
+### Còn để sau
+- Xem mục 10 của spec 25 (xóa dự án có thể hiếm khi 500 do deadlock, giới hạn 100 dự án có thể vượt nhẹ, cần `--` và danh sách folder gốc khi dùng URL/đường dẫn về sau).
+- Sau khi xóa dự án đang chọn, URL còn `?project=<id>` cũ nên trang hiện "Không tìm thấy dự án này" thay vì quay về trạng thái chưa chọn.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Dự án là của từng người dùng, chưa chia sẻ cho thành viên.
