@@ -74,6 +74,15 @@ THREAD_STATS = text(
 )
 
 
+# Dự án (spec 25): chỉ số đếm, không lấy tên dự án.
+PROJECT_STATS = text(
+    """
+    SELECT (SELECT count(*) FROM projects WHERE user_id = :u) AS projects,
+           (SELECT count(DISTINCT message_id) FROM message_projects WHERE user_id = :u) AS assigned
+    """
+)
+
+
 def _pct(n: int, total: int) -> str:
     return f"{n / total * 100:.1f}%" if total else "-"
 
@@ -87,10 +96,12 @@ def stats_report(conn: Connection, user_ids: list[int]) -> str:
         methods = {r.thread_method: r.n for r in conn.execute(METHOD_STATS, {"u": u})}
         reduced = 1 - m.clean_chars / m.text_chars if m.text_chars else 0
         e = conn.execute(EMBED_STATS, {"u": u, "model": embed_model(), "cv": CHUNKER_VERSION}).one()
+        p = conn.execute(PROJECT_STATS, {"u": u}).one()
         lines += [
             f"Người dùng id={u}",
             f"  Embedding ({embed_model()}, cắt đoạn v{CHUNKER_VERSION}): đã embed {e.embedded}"
             f" mail · chờ embed: {e.pending} · {e.chunks} đoạn",
+            f"  Dự án: {p.projects} dự án · {p.assigned} mail đã gán dự án",
             f"  Mail: {m.total} · đã làm sạch (v{CLEANER_VERSION}): {m.cleaned}"
             f" · chờ làm sạch: {m.total - m.cleaned} · chưa gom thread: {m.unthreaded}",
             f"  Làm sạch: cắt quote {m.with_quote} ({_pct(m.with_quote, m.total)})"

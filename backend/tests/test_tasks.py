@@ -10,9 +10,9 @@ from procrastinate import App
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app import embedding, processing, tasks
+from app import embedding, processing, projects, tasks
 from app.processing import pending_users
-from tests.dbutil import add_mail, add_user, url_for_test_db
+from tests.dbutil import add_mail, add_project, add_user, url_for_test_db
 from tests.mlfake import FakeMl
 
 JOB_TABLES = (
@@ -272,3 +272,50 @@ async def test_sweep_task_processes_everything(
     await tasks.defer_sweep_now(job_app)  # đã có sweep chờ: bỏ qua, không lỗi
     await run_until_idle(job_app, worker)
     assert await pending_users(worker) == []
+
+
+async def test_project_rules_sweep_defers_assign(
+    job_app: App, worker: AsyncEngine, owner_engine: Engine, users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, users.a, "P", filter_from=["a.example.jp"])
+        conn.execute(
+            text("insert into user_project_state (user_id, rules_version) values (:u, 1)"),
+            {"u": users.a},
+        )
+    assert await projects.pending_rule_users(worker) == [users.a]
+    await job_app.configure_task(tasks.PROJECT_RULES_SWEEP).defer_async(timestamp=0)
+    await run_until_idle(job_app, worker)
+    with owner_engine.connect() as conn:
+        rules, applied = conn.execute(
+            text(
+                "select rules_version, applied_rules_version from user_project_state "
+                "where user_id = :u"
+            ),
+            {"u": users.a},
+        ).one()
+        links = conn.scalar(text("select count(*) from message_projects"))
+    assert (rules, applied) == (1, 1)
+    assert links == 2
+    assert (tasks.ASSIGN_USER_PROJECTS, "succeeded") in job_statuses(owner_engine)
+
+
+async def test_assign_job_defers_next_when_more(
+    job_app: App,
+    worker: AsyncEngine,
+    owner_engine: Engine,
+    users: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[int] = []
+
+    async def fake(engine: AsyncEngine, user_id: int, **kwargs: Any) -> projects.AssignStats:
+        calls.append(user_id)
+        return projects.AssignStats(1, more=len(calls) == 1)
+
+    monkeypatch.setattr(projects, "assign_user", fake)
+    assert await tasks.defer_assign(job_app, users.a) == 1
+    await run_until_idle(job_app, worker)
+    assert calls == [users.a, users.a]
+    names = [n for n, _ in job_statuses(owner_engine)]
+    assert names.count(tasks.ASSIGN_USER_PROJECTS) == 2

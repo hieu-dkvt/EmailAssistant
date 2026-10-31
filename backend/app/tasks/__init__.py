@@ -15,7 +15,7 @@ from procrastinate.exceptions import AlreadyEnqueued
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app import embedding, processing
+from app import embedding, processing, projects
 from app.config import database_url
 from app.ml_client import EmbeddingModelMismatch, MlClient, MlUnavailable
 from app.safe_errors import sanitized
@@ -28,6 +28,8 @@ SWEEP = f"{NAMESPACE}:sweep"
 APPLY_OVERRIDES = f"{NAMESPACE}:apply_overrides"
 EMBED_SWEEP = f"{NAMESPACE}:embed_sweep"
 EMBED_USER = f"{NAMESPACE}:embed_user"
+PROJECT_RULES_SWEEP = f"{NAMESPACE}:project_rules_sweep"
+ASSIGN_USER_PROJECTS = f"{NAMESPACE}:assign_user_projects"
 
 
 def conninfo(url: str | None = None) -> str:
@@ -114,6 +116,30 @@ def _blueprint() -> Blueprint:
         except Exception as e:
             raise sanitized("apply_overrides", e) from None
 
+    # Gán mail vào dự án khi sửa bộ lọc (spec 25 mục 5): task 5 giây chỉ đọc bảng nhỏ
+    # user_project_state; việc quét lại nằm ở job riêng theo người dùng, chạy theo lô.
+    @bp.periodic(cron="* * * * * */5", periodic_id="project_rules_sweep")
+    @bp.task(name="project_rules_sweep", pass_context=True, queueing_lock="project_rules_sweep")
+    async def project_rules_sweep(context: JobContext, timestamp: int) -> int:
+        try:
+            users = await projects.pending_rule_users(_engine(context))
+        except Exception as e:
+            raise sanitized("project_rules_sweep", e) from None
+        deferred = 0
+        for user_id in users:
+            deferred += await defer_assign(context.app, user_id)
+        return deferred
+
+    @bp.task(name="assign_user_projects", pass_context=True)
+    async def assign_user_projects(context: JobContext, user_id: int) -> int:
+        try:
+            stats = await projects.assign_user(_engine(context), user_id)
+        except Exception as e:
+            raise sanitized(f"assign_user_projects user={user_id}", e) from None
+        if stats.more:
+            await defer_assign(context.app, user_id)
+        return stats.messages
+
     return bp
 
 
@@ -140,6 +166,17 @@ async def defer_embed(app: App, user_id: int) -> int:
         await app.configure_task(EMBED_USER, queueing_lock=embed_lock(user_id)).defer_async(
             user_id=user_id
         )
+        return 1
+    except AlreadyEnqueued:
+        return 0
+
+
+async def defer_assign(app: App, user_id: int) -> int:
+    """Đẩy assign_user_projects cho người dùng; đã có job chờ thì bỏ qua. Trả 1 nếu đã đẩy."""
+    try:
+        await app.configure_task(
+            ASSIGN_USER_PROJECTS, lock=user_lock(user_id), queueing_lock=f"projects:{user_id}"
+        ).defer_async(user_id=user_id)
         return 1
     except AlreadyEnqueued:
         return 0

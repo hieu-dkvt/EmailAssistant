@@ -28,6 +28,10 @@ Embedding (spec 2026-10-19-mail-embedding-design.md mục 5; cần ml-service đ
 
     ... python -m app.cli embed-mail --email pm@example.com [--limit N]       # role app_worker
 
+Gán mail vào dự án (spec 2026-10-31-project-settings-design.md mục 5; quét lại toàn bộ):
+
+    ... python -m app.cli assign-projects --email pm@example.com               # role app_worker
+
 review-threads ghi file HTML CÓ NỘI DUNG MAIL cho người dùng tự kiểm tra (đọc bằng app_api + RLS),
 chỉ vào %LOCALAPPDATA%\\PMMailAssistant\\review\\. Lỗi của các lệnh mail chỉ in mô tả an toàn.
 """
@@ -35,11 +39,13 @@ chỉ vào %LOCALAPPDATA%\\PMMailAssistant\\review\\. Lỗi của các lệnh ma
 import argparse
 import asyncio
 import getpass
+import math
 import sys
 from collections.abc import Coroutine
 from typing import Any
 
 from sqlalchemy import Connection, create_engine, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import hash_token, new_token
 from app.config import database_url
@@ -47,6 +53,7 @@ from app.db.session import user_connection
 from app.embedding import EMBED_BATCH, count_pending, embed_batch
 from app.ml_client import EmbeddingModelMismatch, HttpMlClient, MlUnavailable
 from app.processing import ProcessResult, create_worker_engine, process_user
+from app.projects import assign_user, reset_scan
 from app.review import (
     REVIEW_KEEP_DAYS,
     default_review_path,
@@ -57,7 +64,7 @@ from app.review import (
 from app.safe_errors import describe
 from app.web_auth import hash_password, password_problem
 
-MAIL_COMMANDS = ("process-mail", "mail-stats", "review-threads", "embed-mail")
+MAIL_COMMANDS = ("process-mail", "mail-stats", "review-threads", "embed-mail", "assign-projects")
 
 
 def create_token(conn: Connection, user_id: int, label: str = "collector") -> str:
@@ -188,6 +195,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--rethread", action="store_true", help="gom lại dù không có việc tồn")
     p = sub.add_parser("mail-stats", help="số liệu tổng hợp làm sạch / gom thread / embedding")
     p.add_argument("--email")
+    p = sub.add_parser(
+        "assign-projects", help="quét lại và gán mail vào dự án theo bộ lọc hiện hành"
+    )
+    p.add_argument("--email", required=True)
     p = sub.add_parser("embed-mail", help="embed ngay mail chờ embed (cần ml-service đang chạy)")
     p.add_argument("--email", required=True)
     p.add_argument("--limit", type=int, default=0, help="tối đa N mail mới nhất (0: tất cả)")
@@ -249,6 +260,13 @@ def _mail_command(args: argparse.Namespace) -> int:
     (user_id,) = user_ids
     if args.cmd == "process-mail":
         print(format_process_result(user_id, _run(_process(user_id, args.rethread))))
+        return 0
+    if args.cmd == "assign-projects":
+        has_state, examined, assigned = _run(_assign(user_id))
+        if not has_state:
+            print(f"Người dùng id={user_id}: chưa có dự án.")
+        else:
+            print(f"Người dùng id={user_id}: đã xét {examined} mail, {assigned} mail có dự án.")
         return 0
     if args.cmd == "embed-mail":
         try:
@@ -334,3 +352,20 @@ def format_process_result(user_id: int, result: ProcessResult) -> str:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+async def _assign(user_id: int) -> tuple[bool, int, int]:
+    """Quét lại toàn bộ mail của người dùng. Trả (có state, số mail đã xét, số mail có dự án)."""
+    engine = create_worker_engine()
+    try:
+        if not await reset_scan(engine, user_id):
+            return False, 0, 0
+        stats = await assign_user(engine, user_id, budget_seconds=math.inf)
+        async with AsyncSession(engine) as s:
+            assigned = await s.scalar(
+                text("select count(distinct message_id) from message_projects where user_id = :u"),
+                {"u": user_id},
+            )
+        return True, stats.messages, int(assigned or 0)
+    finally:
+        await engine.dispose()

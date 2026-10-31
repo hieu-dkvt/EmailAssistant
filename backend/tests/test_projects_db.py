@@ -1,13 +1,25 @@
 """Bảng dự án và liên kết mail (spec 25 mục 4): RLS, GRANT, FK kép, xóa lan truyền."""
 
+import logging
 from types import SimpleNamespace
 
 import psycopg.errors
 import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from tests.dbutil import add_project, as_user
+from app.processing import process_user
+from app.projects import (
+    AssignStats,
+    assign_batch,
+    assign_messages,
+    assign_user,
+    load_rules,
+    pending_rule_users,
+    reset_scan,
+)
+from tests.dbutil import add_mail, add_project, add_user, as_user
 
 
 def link(conn, user_id: int, message_id: int, project_id: int) -> None:  # noqa: ANN001
@@ -121,3 +133,274 @@ def test_project_name_unique_per_user(owner_engine: Engine, seeded: SimpleNamesp
         add_project(conn, seeded.b, "Chung")
     with pytest.raises(IntegrityError), owner_engine.begin() as conn:
         add_project(conn, seeded.a, "Chung")
+
+
+# --- worker gán mail vào dự án (spec 25 mục 5) ---
+
+
+@pytest.fixture
+def two_users(owner_engine: Engine, clean: None) -> SimpleNamespace:
+    with owner_engine.begin() as conn:
+        return SimpleNamespace(a=add_user(conn, "a@example.com"), b=add_user(conn, "b@example.com"))
+
+
+def set_rules_version(engine: Engine, user_id: int, version: int) -> None:
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "insert into user_project_state (user_id, rules_version) values (:u, :v) "
+                "on conflict (user_id) do update set rules_version = :v"
+            ),
+            {"u": user_id, "v": version},
+        )
+
+
+def state(engine: Engine, user_id: int) -> tuple[int, int, int, int]:
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "select rules_version, applied_rules_version, scan_version, scan_after_id "
+                "from user_project_state where user_id = :u"
+            ),
+            {"u": user_id},
+        ).one()
+    return row[0], row[1], row[2], row[3]
+
+
+def linked(engine: Engine, user_id: int) -> set[tuple[str, int]]:
+    """Cặp (Message-ID giả, project_id) đã gán."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text(
+                "select m.message_id, mp.project_id from message_projects mp "
+                "join messages m on m.id = mp.message_id where mp.user_id = :u"
+            ),
+            {"u": user_id},
+        )
+        return {(r[0], r[1]) for r in rows}
+
+
+async def test_new_mail_assigned_by_process_user(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_subject=["báo giá"])
+        add_mail(conn, two_users.a, "m1@x.example", subject="Re: Báo giá tháng 9")
+        add_mail(conn, two_users.a, "m2@x.example", subject="Họp")
+    await process_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == {("m1@x.example", pid)}
+    with owner_engine.connect() as conn:
+        assert conn.scalar(text("select count(*) from messages where thread_id is null")) == 0
+
+
+async def test_no_projects_is_noop(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_mail(conn, two_users.a, "m1@x.example")
+    await process_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == set()
+
+
+async def test_process_user_second_run_no_duplicates(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        add_mail(conn, two_users.a, "m1@x.example")
+    await process_user(worker, two_users.a)
+    await process_user(worker, two_users.a, force_rethread=True)
+    assert linked(owner_engine, two_users.a) == {("m1@x.example", pid)}
+
+
+async def test_scan_adds_and_removes_on_filter_change(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_subject=["alpha"])
+        add_mail(conn, two_users.a, "a@x.example", subject="alpha")
+        add_mail(conn, two_users.a, "b@x.example", subject="beta")
+    await process_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == {("a@x.example", pid)}
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text("update projects set filter_subject = '{beta}' where id = :id"), {"id": pid}
+        )
+    set_rules_version(owner_engine, two_users.a, 1)
+    stats = await assign_user(worker, two_users.a)
+    assert stats == AssignStats(messages=2, more=False)
+    assert linked(owner_engine, two_users.a) == {("b@x.example", pid)}
+    assert state(owner_engine, two_users.a)[:2] == (1, 1)
+    # Đã áp dụng xong thì không làm gì nữa.
+    assert await assign_user(worker, two_users.a) == AssignStats(0, False)
+
+
+async def test_scan_runs_in_batches(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        for i in range(5):
+            add_mail(conn, two_users.a, f"m{i}@x.example")
+    set_rules_version(owner_engine, two_users.a, 1)
+    assert await assign_batch(worker, two_users.a, 2) == AssignStats(2, more=True)
+    assert state(owner_engine, two_users.a)[1] == 0  # chưa xong thì chưa đánh dấu đã áp dụng
+    assert await assign_batch(worker, two_users.a, 2) == AssignStats(2, more=True)
+    assert await assign_batch(worker, two_users.a, 2) == AssignStats(1, more=False)
+    assert len(linked(owner_engine, two_users.a)) == 5
+    assert state(owner_engine, two_users.a)[1] == 1
+
+
+async def test_assign_user_stops_at_budget_with_more(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        for i in range(5):
+            add_mail(conn, two_users.a, f"m{i}@x.example")
+    set_rules_version(owner_engine, two_users.a, 1)
+    stats = await assign_user(worker, two_users.a, budget_seconds=0, batch=2)
+    assert stats == AssignStats(2, more=True)
+    stats = await assign_user(worker, two_users.a, batch=2)
+    assert stats == AssignStats(3, more=False)
+
+
+async def test_filter_change_mid_scan_restarts(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_subject=["alpha"])
+        for i in range(3):
+            add_mail(conn, two_users.a, f"a{i}@x.example", subject="alpha")
+        for i in range(2):
+            add_mail(conn, two_users.a, f"b{i}@x.example", subject="beta")
+    set_rules_version(owner_engine, two_users.a, 1)
+    assert (await assign_batch(worker, two_users.a, 2)).more is True
+    assert state(owner_engine, two_users.a)[3] > 0
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text("update projects set filter_subject = '{beta}' where id = :id"), {"id": pid}
+        )
+    set_rules_version(owner_engine, two_users.a, 2)
+    stats = await assign_user(worker, two_users.a, batch=2)
+    assert stats.messages == 5 and stats.more is False
+    assert linked(owner_engine, two_users.a) == {("b0@x.example", pid), ("b1@x.example", pid)}
+    assert state(owner_engine, two_users.a)[:3] == (2, 2, 2)
+
+
+async def test_scan_covers_mail_with_smaller_id_via_thread_path(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_subject=["alpha"])
+        add_mail(conn, two_users.a, "old@x.example", subject="alpha")
+    set_rules_version(owner_engine, two_users.a, 1)
+    await assign_user(worker, two_users.a)
+    with owner_engine.begin() as conn:
+        late = add_mail(conn, two_users.a, "late@x.example", subject="alpha")
+        # Mốc quét đã vượt id của mail mới (mail commit muộn có id nhỏ hơn mốc).
+        conn.execute(
+            text("update user_project_state set scan_after_id = :a where user_id = :u"),
+            {"a": late + 1000, "u": two_users.a},
+        )
+    await process_user(worker, two_users.a)
+    assert ("late@x.example", pid) in linked(owner_engine, two_users.a)
+
+
+async def test_assign_skips_project_deleted_after_rules_loaded(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        mid = add_mail(conn, two_users.a, "m1@x.example")
+    async with AsyncSession(worker) as s, s.begin():
+        rules = await load_rules(s, two_users.a)
+        assert [r.id for r in rules] == [pid]
+        with owner_engine.begin() as conn:
+            conn.execute(text("delete from projects where id = :id"), {"id": pid})
+        await assign_messages(s, two_users.a, [mid], rules)
+    assert linked(owner_engine, two_users.a) == set()
+
+
+async def test_load_rules_drops_empty_values(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "P", filter_from=["", "A.Example.JP"])
+    async with AsyncSession(worker) as s:
+        (rule,) = await load_rules(s, two_users.a)
+    assert rule.from_ == ("a.example.jp",)
+
+
+async def test_user_isolation(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        add_mail(conn, two_users.a, "a@x.example")
+        add_mail(conn, two_users.b, "b@x.example")
+    await process_user(worker, two_users.a)
+    await process_user(worker, two_users.b)
+    set_rules_version(owner_engine, two_users.a, 1)
+    await assign_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == {("a@x.example", pid)}
+    assert linked(owner_engine, two_users.b) == set()
+
+
+async def test_multiple_projects(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        p1 = add_project(conn, two_users.a, "P1", filter_from=["a.example.jp"])
+        p2 = add_project(conn, two_users.a, "P2", filter_subject=["báo giá"])
+        add_mail(conn, two_users.a, "m1@x.example")
+    await process_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == {("m1@x.example", p1), ("m1@x.example", p2)}
+
+
+async def test_delete_folder_mail_removes_links(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        mid = add_mail(conn, two_users.a, "m1@x.example")
+    await process_user(worker, two_users.a)
+    assert len(linked(owner_engine, two_users.a)) == 1
+    with owner_engine.begin() as conn:
+        conn.execute(text("delete from messages where id = :id"), {"id": mid})
+    assert linked(owner_engine, two_users.a) == set()
+
+
+async def test_reset_scan_requires_state(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    assert await reset_scan(worker, two_users.a) is False
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        add_mail(conn, two_users.a, "m1@x.example")
+    set_rules_version(owner_engine, two_users.a, 1)
+    await assign_user(worker, two_users.a)
+    with owner_engine.begin() as conn:
+        conn.execute(text("delete from message_projects"))
+    assert await pending_rule_users(worker) == []
+    assert await reset_scan(worker, two_users.a) is True
+    assert await pending_rule_users(worker) == [two_users.a]
+    await assign_user(worker, two_users.a)
+    assert linked(owner_engine, two_users.a) == {("m1@x.example", pid)}
+
+
+async def test_worker_logs_have_no_filter_values(
+    worker: AsyncEngine,
+    owner_engine: Engine,
+    two_users: SimpleNamespace,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "Tên-dự-án-bí-mật", filter_subject=["từ-khóa-bí-mật"])
+        add_mail(conn, two_users.a, "m1@x.example", subject="từ-khóa-bí-mật")
+    await process_user(worker, two_users.a)
+    set_rules_version(owner_engine, two_users.a, 1)
+    await assign_user(worker, two_users.a)
+    assert "assign user=" in caplog.text
+    assert "bí-mật" not in caplog.text and "Tên-dự-án" not in caplog.text

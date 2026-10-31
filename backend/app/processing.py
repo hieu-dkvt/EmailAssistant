@@ -14,7 +14,9 @@ from typing import Any
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 
+from app import projects
 from app.config import database_url
+from app.db.locks import USER_MAIL_LOCK
 from app.mail.cleaning import CLEANER_VERSION, clean_body
 from app.mail.threading import (
     THREADER_VERSION,
@@ -29,8 +31,8 @@ log = logging.getLogger("app.processing")
 CLEAN_BATCH = 500
 CLEAN_BATCH_MAX_BYTES = 16 * 1024 * 1024
 
-# Khóa theo người dùng: worker và CLI không làm sạch / gom chồng nhau cho cùng một người.
-LOCK = text("SELECT pg_advisory_xact_lock(hashtextextended('process-mail:' || :u, 0))")
+# Khóa theo người dùng (app.db.locks): worker và CLI không làm sạch / gom chồng nhau.
+LOCK = USER_MAIL_LOCK
 
 
 def create_worker_engine(url: str | None = None, **kwargs: Any) -> AsyncEngine:
@@ -243,6 +245,7 @@ async def rethread_user(engine: AsyncEngine, user_id: int) -> ThreadStats:
             Override(o.action, o.message_id, o.target_message_id)
             for o in await s.execute(SELECT_OVERRIDES, {"u": user_id})
         ]
+        unthreaded_ids = [r.id for r in rows if r.thread_id is None]
         mails = {
             r.id: MailRow(
                 id=r.id,
@@ -293,6 +296,11 @@ async def rethread_user(engine: AsyncEngine, user_id: int) -> ThreadStats:
                     changes["methods"].append(new[2])
         if changes["ids"]:
             await s.execute(UPDATE_MESSAGE_THREADS, {"u": user_id, **changes})
+        # Mail vừa được gom lần đầu thì gán dự án cùng transaction (spec 25 mục 5).
+        if unthreaded_ids:
+            rules = await projects.load_rules(s, user_id)
+            if rules:
+                await projects.assign_messages(s, user_id, unthreaded_ids, rules)
         deleted = len(
             list(await s.scalars(DELETE_OTHER_THREADS, {"u": user_id, "keep": thread_ids}))
         )
