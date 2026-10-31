@@ -62,7 +62,7 @@ export function Layout({ me }: { me: Me }) {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-20 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4">
+        <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2">
           <Link to="/threads" className="shrink-0 font-semibold">
             PM Mail Assistant
           </Link>
@@ -78,7 +78,7 @@ export function Layout({ me }: { me: Me }) {
               className="pl-8"
             />
           </form>
-          <nav className="flex items-center gap-1">
+          <nav className="flex flex-wrap items-center gap-1">
             <NavLink to="/threads" className={navClass}>
               Thread
             </NavLink>
@@ -87,6 +87,9 @@ export function Layout({ me }: { me: Me }) {
             </NavLink>
             <NavLink to="/ask" className={navClass}>
               Hỏi AI
+            </NavLink>
+            <NavLink to="/settings/projects" className={navClass}>
+              Dự án
             </NavLink>
             <NavLink to="/settings/ai" className={navClass}>
               Cài đặt AI

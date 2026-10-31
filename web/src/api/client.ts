@@ -33,6 +33,12 @@ export type AiProviderTest = Schemas["AiProviderTest"];
 export type AiProviderBody = NonNullable<
   paths["/api/v1/ai/provider"]["put"]["requestBody"]
 >["content"]["application/json"];
+export type Project = Schemas["Project"];
+export type ProjectList = Schemas["ProjectList"];
+export type ProjectRef = Schemas["ProjectRef"];
+export type ProjectBody = NonNullable<
+  paths["/api/v1/projects"]["post"]["requestBody"]
+>["content"]["application/json"];
 export type Tier = Schemas["AiTierInfo"]["tier"];
 export type AskBody = NonNullable<
   paths["/api/v1/ask"]["post"]["requestBody"]
@@ -48,12 +54,20 @@ export const CSRF_HEADER = "X-PMM-Request";
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
+  /** Lỗi 422 theo từng trường: tên trường → thông điệp (đã bỏ tiền tố "Value error, "). */
+  readonly fields: Record<string, string>;
 
-  constructor(status: number, message: string, code: string | null = null) {
+  constructor(
+    status: number,
+    message: string,
+    code: string | null = null,
+    fields: Record<string, string> = {},
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.fields = fields;
   }
 }
 
@@ -116,7 +130,28 @@ export function toApiError(status: number, error: unknown): ApiError {
   } else {
     message = `Lỗi máy chủ (${status})`;
   }
-  return new ApiError(status, message, typeof body.code === "string" ? body.code : null);
+  return new ApiError(
+    status,
+    message,
+    typeof body.code === "string" ? body.code : null,
+    fieldErrors(body.detail),
+  );
+}
+
+/** `detail` dạng mảng của lỗi 422: khóa là tên trường đầu tiên trong `loc` (bỏ "body"). */
+function fieldErrors(detail: unknown): Record<string, string> {
+  const fields: Record<string, string> = {};
+  if (!Array.isArray(detail)) return fields;
+  for (const item of detail) {
+    if (typeof item !== "object" || item === null) continue;
+    const { loc, msg } = item as { loc?: unknown; msg?: unknown };
+    if (!Array.isArray(loc) || typeof msg !== "string") continue;
+    const path = loc[0] === "body" ? loc.slice(1) : loc;
+    const field = path[0];
+    if (typeof field !== "string" || field in fields) continue;
+    fields[field] = msg.replace(/^Value error, /, "");
+  }
+  return fields;
 }
 
 export function errorMessage(error: unknown): string {

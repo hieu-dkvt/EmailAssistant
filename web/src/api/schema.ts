@@ -353,6 +353,42 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/projects": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Projects */
+    get: operations["get_projects_api_v1_projects_get"];
+    put?: never;
+    /** Post Project */
+    post: operations["post_project_api_v1_projects_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/projects/{project_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Put Project */
+    put: operations["put_project_api_v1_projects__project_id__put"];
+    post?: never;
+    /** Remove Project */
+    delete: operations["remove_project_api_v1_projects__project_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -670,6 +706,65 @@ export interface components {
       /** Unprocessed Messages */
       unprocessed_messages: number;
     };
+    /** Project */
+    Project: {
+      /** Id */
+      id: number;
+      /** Name */
+      name: string;
+      /** Filter From */
+      filter_from: string[];
+      /** Filter To */
+      filter_to: string[];
+      /** Filter Cc */
+      filter_cc: string[];
+      /** Filter Subject */
+      filter_subject: string[];
+      /** Docs Repo Url */
+      docs_repo_url: string | null;
+      /** Docs Local Path */
+      docs_local_path: string | null;
+      /** Github Mail */
+      github_mail: string[];
+      /** Review Repo Url */
+      review_repo_url: string | null;
+      /** Review Local Path */
+      review_local_path: string | null;
+      /** Backlog Mail */
+      backlog_mail: string[];
+      /** Backlog Space Url */
+      backlog_space_url: string | null;
+      /** Backlog Project Key */
+      backlog_project_key: string | null;
+      /** Redmine Url */
+      redmine_url: string | null;
+      /** Redmine Project */
+      redmine_project: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+    };
+    /** ProjectList */
+    ProjectList: {
+      /** Items */
+      items: components["schemas"]["Project"][];
+      /** Assigning */
+      assigning: boolean;
+    };
+    /** ProjectRef */
+    ProjectRef: {
+      /** Id */
+      id: number;
+      /** Name */
+      name: string;
+    };
     /** SearchHit */
     SearchHit: {
       /** Message Id */
@@ -853,6 +948,8 @@ export interface components {
       last_from_addr: string | null;
       /** Has Attachments */
       has_attachments: boolean;
+      /** Projects */
+      projects: components["schemas"]["ProjectRef"][];
     };
     /** @enum {string} */
     TierName: "haiku" | "sonnet" | "opus";
@@ -2056,6 +2153,329 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  get_projects_api_v1_projects_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectList"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  post_project_api_v1_projects_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Name */
+          name: string;
+          /**
+           * Filter From
+           * @default []
+           */
+          filter_from?: string[];
+          /**
+           * Filter To
+           * @default []
+           */
+          filter_to?: string[];
+          /**
+           * Filter Cc
+           * @default []
+           */
+          filter_cc?: string[];
+          /**
+           * Filter Subject
+           * @default []
+           */
+          filter_subject?: string[];
+          /** Docs Repo Url */
+          docs_repo_url?: string | null;
+          /** Docs Local Path */
+          docs_local_path?: string | null;
+          /**
+           * Github Mail
+           * @default []
+           */
+          github_mail?: string[];
+          /** Review Repo Url */
+          review_repo_url?: string | null;
+          /** Review Local Path */
+          review_local_path?: string | null;
+          /**
+           * Backlog Mail
+           * @default []
+           */
+          backlog_mail?: string[];
+          /** Backlog Space Url */
+          backlog_space_url?: string | null;
+          /** Backlog Project Key */
+          backlog_project_key?: string | null;
+          /** Redmine Url */
+          redmine_url?: string | null;
+          /** Redmine Project */
+          redmine_project?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Project"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_name_taken, project_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  put_project_api_v1_projects__project_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Name */
+          name: string;
+          /**
+           * Filter From
+           * @default []
+           */
+          filter_from?: string[];
+          /**
+           * Filter To
+           * @default []
+           */
+          filter_to?: string[];
+          /**
+           * Filter Cc
+           * @default []
+           */
+          filter_cc?: string[];
+          /**
+           * Filter Subject
+           * @default []
+           */
+          filter_subject?: string[];
+          /** Docs Repo Url */
+          docs_repo_url?: string | null;
+          /** Docs Local Path */
+          docs_local_path?: string | null;
+          /**
+           * Github Mail
+           * @default []
+           */
+          github_mail?: string[];
+          /** Review Repo Url */
+          review_repo_url?: string | null;
+          /** Review Local Path */
+          review_local_path?: string | null;
+          /**
+           * Backlog Mail
+           * @default []
+           */
+          backlog_mail?: string[];
+          /** Backlog Space Url */
+          backlog_space_url?: string | null;
+          /** Backlog Project Key */
+          backlog_project_key?: string | null;
+          /** Redmine Url */
+          redmine_url?: string | null;
+          /** Redmine Project */
+          redmine_project?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["Project"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_name_taken, project_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  remove_project_api_v1_projects__project_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        project_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_name_taken, project_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
         };
       };
     };

@@ -1733,6 +1733,559 @@
           }
         }
       }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "summary": "Get Projects",
+        "operationId": "get_projects_api_v1_projects_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post Project",
+        "operationId": "post_project_api_v1_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "title": "Name"
+                  },
+                  "filter_from": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Filter From",
+                    "default": []
+                  },
+                  "filter_to": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Filter To",
+                    "default": []
+                  },
+                  "filter_cc": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Filter Cc",
+                    "default": []
+                  },
+                  "filter_subject": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Filter Subject",
+                    "default": []
+                  },
+                  "docs_repo_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Docs Repo Url"
+                  },
+                  "docs_local_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Docs Local Path"
+                  },
+                  "github_mail": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Github Mail",
+                    "default": []
+                  },
+                  "review_repo_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review Repo Url"
+                  },
+                  "review_local_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review Local Path"
+                  },
+                  "backlog_mail": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Backlog Mail",
+                    "default": []
+                  },
+                  "backlog_space_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Backlog Space Url"
+                  },
+                  "backlog_project_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Backlog Project Key"
+                  },
+                  "redmine_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Redmine Url"
+                  },
+                  "redmine_project": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Redmine Project"
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "title": "ProjectInput",
+                "description": "Body của POST/PUT /projects. Validator theo từng trường để web hiện lỗi đúng ô (loc)."
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "project_name_taken, project_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "put": {
+        "summary": "Put Project",
+        "operationId": "put_project_api_v1_projects__project_id__put",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "project_name_taken, project_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Body của POST/PUT /projects. Validator theo từng trường để web hiện lỗi đúng ô (loc).",
+                "properties": {
+                  "name": {
+                    "title": "Name",
+                    "type": "string"
+                  },
+                  "filter_from": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Filter From",
+                    "type": "array"
+                  },
+                  "filter_to": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Filter To",
+                    "type": "array"
+                  },
+                  "filter_cc": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Filter Cc",
+                    "type": "array"
+                  },
+                  "filter_subject": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Filter Subject",
+                    "type": "array"
+                  },
+                  "docs_repo_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Docs Repo Url"
+                  },
+                  "docs_local_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Docs Local Path"
+                  },
+                  "github_mail": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Github Mail",
+                    "type": "array"
+                  },
+                  "review_repo_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review Repo Url"
+                  },
+                  "review_local_path": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Review Local Path"
+                  },
+                  "backlog_mail": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Backlog Mail",
+                    "type": "array"
+                  },
+                  "backlog_space_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Backlog Space Url"
+                  },
+                  "backlog_project_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Backlog Project Key"
+                  },
+                  "redmine_url": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Redmine Url"
+                  },
+                  "redmine_project": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Redmine Project"
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "title": "ProjectInput",
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Remove Project",
+        "operationId": "remove_project_api_v1_projects__project_id__delete",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "project_name_taken, project_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2721,6 +3274,219 @@
         ],
         "title": "ProcessingStatus"
       },
+      "Project": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "filter_from": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filter From"
+          },
+          "filter_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filter To"
+          },
+          "filter_cc": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filter Cc"
+          },
+          "filter_subject": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Filter Subject"
+          },
+          "docs_repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docs Repo Url"
+          },
+          "docs_local_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docs Local Path"
+          },
+          "github_mail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Github Mail"
+          },
+          "review_repo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Repo Url"
+          },
+          "review_local_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Local Path"
+          },
+          "backlog_mail": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Backlog Mail"
+          },
+          "backlog_space_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backlog Space Url"
+          },
+          "backlog_project_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Backlog Project Key"
+          },
+          "redmine_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redmine Url"
+          },
+          "redmine_project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redmine Project"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "filter_from",
+          "filter_to",
+          "filter_cc",
+          "filter_subject",
+          "docs_repo_url",
+          "docs_local_path",
+          "github_mail",
+          "review_repo_url",
+          "review_local_path",
+          "backlog_mail",
+          "backlog_space_url",
+          "backlog_project_key",
+          "redmine_url",
+          "redmine_project",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Project"
+      },
+      "ProjectList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "assigning": {
+            "type": "boolean",
+            "title": "Assigning"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "assigning"
+        ],
+        "title": "ProjectList"
+      },
+      "ProjectRef": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ProjectRef"
+      },
       "SearchHit": {
         "properties": {
           "message_id": {
@@ -3380,6 +4146,13 @@
           "has_attachments": {
             "type": "boolean",
             "title": "Has Attachments"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "type": "array",
+            "title": "Projects"
           }
         },
         "type": "object",
@@ -3391,7 +4164,8 @@
           "last_message_at",
           "last_from_name",
           "last_from_addr",
-          "has_attachments"
+          "has_attachments",
+          "projects"
         ],
         "title": "ThreadSummary"
       },

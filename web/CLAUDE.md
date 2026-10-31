@@ -16,16 +16,17 @@ openapi.json               # SINH bởi npm run gen:api (OpenAPI của backend),
 src/api/schema.ts          # SINH từ openapi.json, không sửa tay
 src/api/client.ts          # openapi-fetch: header X-PMM-Request cho request ghi, 401 → handler, unwrap/ApiError
 src/api/hooks.ts           # TanStack Query: useMe, useThreads (cursor), useSearch (mode), useThread,
-                           #   useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
+                           #   useProjects/useCreateProject/useUpdateProject/useDeleteProject, useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
                            #   useAiSettings/useSaveAiSettings, useAiUsage, mutation đăng nhập/đăng xuất/sửa tay
 src/lib/filters.ts         # bộ lọc trên URL ↔ tham số API (ngày theo giờ trình duyệt), safeNext
-src/lib/format.ts, links.ts
+src/lib/format.ts, links.ts, tags.ts (gộp giá trị cho TagInput)
 src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái xử lý), FilterBar, Highlighted,
                            #   MessageCard (toàn văn, tách), MergeDialog, SimilarThreads (gợi ý gộp),
-                           #   rethread.tsx + rethread-context.ts
+                           #   rethread.tsx + rethread-context.ts,
+                           #   TagInput (ô nhiều giá trị, `draftRef` giữ phần đang gõ)
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
+                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án và bộ lọc gán mail, spec 2026-10-31), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
 src/**/*.test.ts(x)        # Vitest
 ```
 
