@@ -8,7 +8,7 @@ Web (spec 16) xem danh sách thread, mở thread dạng hội thoại, xem toàn
 
 ## 2. Không làm
 
-- **Danh sách thread theo dự án**: chờ gán dự án. Danh sách hiện là mọi thread của người dùng, có bộ lọc folder, người gửi, ngày, file đính kèm.
+- **Danh sách thread theo dự án**: chờ gán dự án (nhãn dự án trên danh sách đã có từ spec 25; lọc theo dự án vẫn chưa làm). Danh sách hiện là mọi thread của người dùng, có bộ lọc folder, người gửi, ngày, file đính kèm.
 - **Mở mail gốc trong Thunderbird / qua collector theo offset mbox**: để sau (cần collector mở cổng cục bộ cho web gọi, có xác thực riêng). "Toàn văn" hiện lấy `body_text` đã có trên server (text đã giải mã, không phải MIME gốc), không lưu thêm gì lên server.
 - Cờ "khóa riêng tư" của thread: làm cùng chia sẻ theo dự án.
 - Trạng thái đối ứng, tóm tắt: giai đoạn 6.

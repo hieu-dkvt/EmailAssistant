@@ -108,6 +108,9 @@ thread_overrides     (thread_id, message_id, action[merge|split], by_user, at)
 
 projects             (id, code, name, client_domains[], keywords[])
 project_members      (project_id, user_id, role)
+                      -- đã đổi khi làm (spec 25): projects theo từng người dùng, có bộ lọc
+                      --   filter_from/to/cc/subject thay client_domains, keywords; chưa có code;
+                      --   chưa có project_members
 
 message_ai           (message_id, category, priority, sentiment, action_items jsonb, model, processed_at)
 message_embeddings   (message_id, chunk_no, embedding halfvec(1024))

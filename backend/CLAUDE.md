@@ -16,14 +16,14 @@ app/config.py            # URL DB theo role (owner/api/worker), biến DATABASE_
 app/db/models.py         # model SQLAlchemy: users, api_tokens, user_passwords, web_sessions, mail_sources,
                          #   messages (gồm index PGroonga ix_messages_search), message_ownership, threads,
                          #   thread_overrides, user_thread_state, message_chunks (halfvec + HNSW),
-                         #   user_ai_settings, ai_calls
+                         #   user_ai_settings, ai_calls, projects, message_projects, user_project_state (spec 25)
 app/db/session.py        # create_api_engine (hide_parameters), user_session(engine, user_id): transaction + app.user_id (RLS)
 app/main.py              # create_app (FastAPI, giới hạn body, tắt /docs /redoc, header bảo mật, mount web/dist)
 app/run.py               # chạy uvicorn 127.0.0.1 (SelectorEventLoop trên Windows); access log bỏ query string
 app/auth.py              # token collector pmm_..., băm SHA-256
 app/web_auth.py          # mật khẩu web (scrypt), token phiên pmw_..., LoginThrottle (5 lần sai / 15 phút)
 app/cli.py               # create-user / create-token / revoke-token / set-password (role owner);
-                         #   process-mail, mail-stats (role worker), review-threads (role api + RLS)
+                         #   process-mail, assign-projects, mail-stats (role worker), review-threads (role api + RLS)
 app/api/deps.py          # xác thực Bearer token qua auth_token_user, đọc body có giới hạn + gunzip an toàn
 app/api/web_deps.py      # phiên cookie qua web_session_user, header X-PMM-Request (CSRF), json_body() cho OpenAPI
 app/api/routes.py        # API collector (chỉ token): /api/v1/me, /ingest, /sources, /sources/delete-mail
@@ -67,7 +67,8 @@ app/mail/threading.py    # gom thread JWZ + Thread-Index + subject + override, a
 app/processing.py        # chạy làm sạch/gom trong DB theo từng người dùng (role worker), pending_users,
                          #   pending_override_users, ghi applied_overrides_version sau khi gom
 app/tasks/__init__.py    # App Procrastinate: process_user_mail, sweep mỗi phút, apply_overrides mỗi 5 giây,
-                         #   embed_sweep mỗi phút, embed_user (job ≤ 10 giây, tự đẩy tiếp)
+                         #   embed_sweep mỗi phút, embed_user (job ≤ 10 giây, tự đẩy tiếp),
+                         #   project_rules_sweep mỗi 5 giây, assign_user_projects (spec 25)
 app/worker.py            # python -m app.worker (additional_context: engine, ml)
 app/review.py            # mail-stats (chỉ số liệu tổng hợp, có embedding), HTML review-threads
 app/safe_errors.py       # describe()/sanitized(): mô tả lỗi không có thông điệp gốc (cho log worker, CLI)
@@ -77,11 +78,12 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
                          #   0010_web_sessions, 0011_thread_override_writes, 0012_messages_search_index (CONCURRENTLY),
                          #   0013_secdef_search_path (pg_temp cuối search_path, PUBLIC không có TEMP),
                          #   0014_threads_list_index (CONCURRENTLY, thứ tự danh sách thread),
-                         #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls)
+                         #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls),
+                         #   0017_projects (projects, message_projects, user_project_state, spec 25)
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
                          #   tests/mlfake.py: FakeMl (vector theo "khái niệm", NER giả), FakeLlm
-app/projects.py          # bộ lọc From, To, CC, Subject: match_projects (hàm thuần), assign_messages, assign_user_projects (spec 25)
+app/projects.py          # bộ lọc From, To, CC, Subject: match_projects (hàm thuần), assign_messages, assign_user (job `assign_user_projects` ở tasks bọc hàm này, spec 25)
 app/api/project_routes.py  # CRUD dự án (chỉ phiên web)
 app/db/locks.py          # khóa advisory theo người dùng dùng chung cho gom thread và gán dự án
 ```

@@ -11,7 +11,7 @@ Tạo một profile Thunderbird có cấu trúc như thật để chạy thử c
 - Không đọc, không chép, không ẩn danh hóa mail thật. Mẫu lấy từ mail thật là việc của `samples/anonymized/` (`.claude/rules/test-data.md`).
 - Không giả lập đúng định dạng `.msf` (Mork): mỗi `.msf` chỉ có dòng đầu, đủ để collector nhận ra folder.
 - Không sinh mail cố ý hỏng (Date bất thường, header sai chuẩn, uuencode, charset lạ). Các trường hợp này nằm trong test của từng thành phần.
-- Không gán dự án, vì quy tắc gán chưa chốt.
+- Không gán dự án trong generator; gán theo bộ lọc người dùng khai báo nay do spec 25 (`2026-10-31-project-settings-design.md`).
 
 ## 3. Chạy
 

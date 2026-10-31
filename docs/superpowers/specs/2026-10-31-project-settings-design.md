@@ -200,7 +200,7 @@ Trang `ProjectsPage` ở `/settings/projects`, mục menu "Dự án" đặt trư
 - Bộ lọc và tên dự án có thể chứa tên, địa chỉ khách: không ghi log, không đưa vào thông báo lỗi, không gửi cho AI, không in ở `mail-stats`. Log của gán dự án chỉ có `user`, số mail, số dự án, thời gian.
 - Claude Code không đọc `projects` trên DB dev `mailassist`, và mockup, test chỉ dùng dữ liệu giả `*.example.*`.
 - API chạy trong `user_session` (RLS). Worker dùng `app_worker` nên mọi truy vấn lọc `user_id = :u`. Không bao giờ so bộ lọc của người này với mail của người khác.
-- Mọi unique index bắt đầu bằng `user_id`.
+- Mọi unique index bắt đầu bằng `user_id`, trừ `UNIQUE (id, user_id)` chỉ làm đích FK kép (mục 10).
 - Chức năng không gọi dịch vụ ngoài, không đọc đường dẫn local, không dùng AI.
 
 ## 9. Kiểm thử
@@ -223,7 +223,8 @@ Chỉ dùng dữ liệu giả `*.example.*`.
 - `PUT` không kiểm tra phiên bản: hai tab cùng sửa thì bản lưu sau thắng.
 - Quét lại toàn bộ mất thời gian tỷ lệ với số mail; trong lúc đó nhãn dự án trên danh sách có thể chưa cập nhật.
 - Người dùng dùng chung một khách cho nhiều dự án mà không có Subject thì mail thuộc cả các dự án đó, theo quyết định ở mục 3.
-- Xóa dự án qua web (`DELETE`) hiếm khi trả 500 nếu bị chọn làm nạn nhân deadlock; người dùng bấm lại là được.
+- Lưu hoặc xóa dự án qua web, và xóa mail của folder, hiếm khi trả 500 nếu bị chọn làm nạn nhân deadlock; người dùng bấm lại là được. Đọc bộ lọc cũ khi lưu dùng `FOR NO KEY UPDATE` để không chờ khóa `FOR KEY SHARE` mà kiểm FK của worker giữ đến khi commit.
+- Rời trang bằng menu đầu trang (hoặc nút Back) làm mất phần sửa chưa lưu, không hỏi: app dùng `BrowserRouter`, chỉ việc chuyển sang dự án khác trong trang mới hỏi trước.
 - Giới hạn 100 dự án kiểm bằng đếm rồi chèn, nên nhiều lần tạo đồng thời có thể vượt nhẹ.
 - Ràng buộc `UNIQUE (id, user_id)` trên `projects` là mẫu làm đích FK kép, dùng chung với `messages`, `threads`, `mail_sources`.
 - Các tính năng về sau dùng `docs_repo_url` hoặc đường dẫn local phải truyền `--` cho git, giới hạn giao thức git, và chỉ cho phép trong danh sách folder gốc cho trước. Hiện UNC và `..` vẫn được nhận vì giá trị chưa bao giờ được dùng.
@@ -236,3 +237,13 @@ Chỉ dùng dữ liệu giả `*.example.*`.
 - Quy tắc URL chặt hơn (mục 6): từ chối query, fragment, tên đăng nhập ssh khác `git`, host bắt đầu bằng `-` ở cả dạng `ssh://` và `git@host:path`.
 - Kiểm tra độ dài giá trị lọc chạy trước chuẩn hóa NFKC.
 - Thêm test RLS theo hành vi: người khác không thấy `message_projects`, `user_project_state` và không sửa được; `app_api` không đổi được cột tiến độ của worker; `app_worker` không ghi được `projects`; danh sách cột bị cấm trong `test_api_column_privileges` có thêm hai bảng mới.
+
+Đợt sửa cuối (cùng ngày):
+
+- Xóa dự án đang chọn: dùng `mutateAsync(...).then(onDeleted)` vì callback của `mutate` bị bỏ khi form đã gỡ (dự án rời cache), nên URL còn `?project=<id>` cũ; test stub có độ trễ 20 ms để tái hiện.
+- Ô tìm kiếm ở đầu trang có `min-w-48` để dòng xuống hàng thay vì co lại khi dải "Đang xử lý" hiện.
+- `OLD_FILTERS` đổi `FOR UPDATE` thành `FOR NO KEY UPDATE`; có test lưu bộ lọc không chờ khi có transaction giữ `FOR KEY SHARE`.
+- Refetch nền lỗi không gỡ form đang sửa (cổng theo `projects.data`, không theo `isSuccess`).
+- `maxLength` từng ô văn bản theo đúng giới hạn mục 6 (URL 2.000, đường dẫn 1.000, key và project 200).
+- Khi `assigning` chuyển từ true sang false, danh sách thread được đánh dấu cũ để nhãn dự án tải lại.
+- Thêm test: `app_api` không chèn được dự án mang `user_id` người khác (RLS WITH CHECK); nhãn dự án trên danh sách thread đi theo tách và gộp thread tay.

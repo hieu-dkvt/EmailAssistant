@@ -14,16 +14,16 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 ### Đã làm
 - Spec 25 xong: migration 0017 (`projects`, `message_projects`, `user_project_state`), `app/projects.py` (khớp bộ lọc, gán mail mới trong `rethread_user`, quét lại khi sửa bộ lọc), API `/projects`, lệnh `assign-projects`, nhãn dự án trên danh sách thread, màn hình `/settings/projects` (`TagInput`).
 - Chạy thử đầu cuối trên DB `mailassist_test` với profile giả (1.050 mail nạp bằng collector): tạo, sửa bộ lọc, xóa dự án; nhãn trên danh sách thread đổi theo bộ lọc sau vài giây; giao diện hẹp xuống một cột.
-- Kiểm tra đã chạy trên commit cuối: pytest 704 test đạt, ruff và pyright sạch, Vitest 46 test đạt, build web và eslint sạch. `npm run lint` bước prettier vẫn báo file cấu hình do CRLF của working copy (có từ trước).
+- Kiểm tra đã chạy trên commit cuối: pytest 712 test đạt, ruff (check, format) và pyright sạch, Vitest 48 test đạt, build web và eslint sạch. Sau đó chỉ rút một docstring test cho vừa 100 cột và chạy lại ruff cùng `test_projects_api.py` (46 đạt). `npm run lint` bước prettier vẫn báo file cấu hình do CRLF của working copy (có từ trước).
 
 ### Đã xử lý sau review
 - URL dự án: từ chối query, fragment, tên đăng nhập ssh khác `git`, host bắt đầu bằng `-`; kiểm tra độ dài giá trị lọc trước khi chuẩn hóa NFKC.
 - Gán dự án ghi từng lô trong SAVEPOINT, thử lại khi mail/dự án bị xóa giữa chừng hoặc deadlock; sửa điểm vào CLI `assign-projects`; Enter khi đang soạn IME không thêm giá trị vào `TagInput`.
 - Thêm test RLS theo hành vi cho `message_projects`, `user_project_state`, `projects`.
+- Đợt sửa cuối: xóa dự án đang chọn quay về trạng thái chưa chọn; ô tìm kiếm không co lại khi dải "Đang xử lý" hiện; lưu bộ lọc dùng `FOR NO KEY UPDATE` nên không chờ worker và bớt đường deadlock; refetch nền lỗi không gỡ form đang sửa; giới hạn độ dài từng ô theo spec; nhãn thread tải lại khi gán xong; thêm test RLS WITH CHECK và nhãn theo tách/gộp thread (spec 25 mục 11).
 
 ### Còn để sau
 - Xem mục 10 của spec 25 (xóa dự án có thể hiếm khi 500 do deadlock, giới hạn 100 dự án có thể vượt nhẹ, cần `--` và danh sách folder gốc khi dùng URL/đường dẫn về sau).
-- Sau khi xóa dự án đang chọn, URL còn `?project=<id>` cũ nên trang hiện "Không tìm thấy dự án này" thay vì quay về trạng thái chưa chọn.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Dự án là của từng người dùng, chưa chia sẻ cho thành viên.
