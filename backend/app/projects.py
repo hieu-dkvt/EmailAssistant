@@ -135,8 +135,11 @@ INSERT = text(
     f"INSERT INTO projects (user_id, {', '.join(DATA_COLUMNS)}) "
     f"VALUES (:u, {', '.join(_value(c) for c in DATA_COLUMNS)}) RETURNING {_SELECT}"
 )
+# NO KEY UPDATE (không phải UPDATE): kiểm FK của worker giữ KEY SHARE trên dòng dự án đến khi
+# commit; FOR UPDATE xung đột với nó nên lưu bộ lọc phải chờ worker và có đường deadlock.
 OLD_FILTERS = text(
-    f"SELECT {', '.join(FILTER_COLUMNS)} FROM projects WHERE id = :id AND user_id = :u FOR UPDATE"
+    f"SELECT {', '.join(FILTER_COLUMNS)} FROM projects "
+    "WHERE id = :id AND user_id = :u FOR NO KEY UPDATE"
 )
 UPDATE = text(
     f"UPDATE projects SET {_SET}, updated_at = now() "

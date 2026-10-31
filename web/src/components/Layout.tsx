@@ -66,7 +66,7 @@ export function Layout({ me }: { me: Me }) {
           <Link to="/threads" className="shrink-0 font-semibold">
             PM Mail Assistant
           </Link>
-          <form onSubmit={submitSearch} className="relative max-w-md flex-1" role="search">
+          <form onSubmit={submitSearch} className="relative min-w-48 max-w-md flex-1" role="search">
             <Search className="absolute top-2.5 left-2.5 size-4 text-muted-foreground" />
             <Input
               key={onSearchPage ? (params.get("q") ?? "") : "other"}

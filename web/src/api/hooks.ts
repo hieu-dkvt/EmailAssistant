@@ -1,5 +1,6 @@
 // Truy vấn API bằng TanStack Query. Cache chỉ nằm trong bộ nhớ (không persist): nội dung mail
 // không được ghi xuống storage của trình duyệt.
+import { useEffect, useRef } from "react";
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -260,11 +261,22 @@ export function useTestAiProvider() {
 
 /** Dự án và bộ lọc gán mail (spec 2026-10-31). Hỏi mỗi 2 giây khi worker đang gán lại mail. */
 export function useProjects() {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: keys.projects,
     queryFn: () => unwrap(api.GET("/api/v1/projects")),
     refetchInterval: (query) => (query.state.data?.assigning ? 2000 : false),
   });
+  // Worker gán xong (assigning true -> false): nhãn dự án trên danh sách thread đã cũ, tải lại.
+  const assigning = query.data?.assigning;
+  const wasAssigning = useRef(false);
+  useEffect(() => {
+    if (wasAssigning.current && assigning === false) {
+      void qc.invalidateQueries({ queryKey: ["threads"] });
+    }
+    if (assigning !== undefined) wasAssigning.current = assigning;
+  }, [assigning, qc]);
+  return query;
 }
 
 /** Sau khi lưu: cập nhật danh sách ngay, đánh dấu danh sách thread (nhãn dự án) là cũ. */

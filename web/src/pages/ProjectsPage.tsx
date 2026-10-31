@@ -48,6 +48,11 @@ interface FormState {
   texts: Record<TextKey, string>;
 }
 
+// Giới hạn độ dài khớp spec 25 mục 6 (server cũng kiểm tra).
+const URL_MAX = 2000;
+const PATH_MAX = 1000;
+const KEY_MAX = 200;
+
 const NOT_USED = "Chưa dùng, lưu sẵn cho giai đoạn sau";
 
 function fromProject(p: Project | null): FormState {
@@ -85,9 +90,11 @@ function TextField({
   value,
   onChange,
   error,
+  maxLength,
 }: {
   id: string;
   label: string;
+  maxLength: number;
   value: string;
   onChange: (value: string) => void;
   error?: string;
@@ -98,7 +105,7 @@ function TextField({
       <Input
         id={id}
         value={value}
-        maxLength={500}
+        maxLength={maxLength}
         autoComplete="off"
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
@@ -199,7 +206,7 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
       />
     );
   }
-  function text(key: TextKey, label: string) {
+  function text(key: TextKey, label: string, maxLength: number) {
     return (
       <TextField
         id={`project-${key}`}
@@ -207,6 +214,7 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
         value={state.texts[key]}
         onChange={setText(key)}
         error={errors[key]}
+        maxLength={maxLength}
       />
     );
   }
@@ -230,7 +238,8 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
 
   function doDelete() {
     if (!project) return;
-    remove.mutate(project.id, { onSuccess: onDeleted });
+    // mutateAsync: callback của mutate bị bỏ khi form đã gỡ (dự án rời cache); lỗi hiện qua remove.error.
+    remove.mutateAsync(project.id).then(onDeleted, () => undefined);
   }
 
   return (
@@ -280,26 +289,26 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
 
         <Section title="Tài liệu khách hàng" note={NOT_USED}>
           <div className={GRID}>
-            {text("docs_repo_url", "Repo URL lưu tài liệu")}
-            {text("docs_local_path", "Folder local dự án")}
+            {text("docs_repo_url", "Repo URL lưu tài liệu", URL_MAX)}
+            {text("docs_local_path", "Folder local dự án", PATH_MAX)}
           </div>
         </Section>
 
         <Section title="GitHub review" note={NOT_USED}>
           {tag("github_mail", "Mail GitHub", "Thêm địa chỉ", "Địa chỉ gửi thông báo GitHub.")}
           <div className={GRID}>
-            {text("review_repo_url", "GitHub khách review")}
-            {text("review_local_path", "Git local của dự án")}
+            {text("review_repo_url", "GitHub khách review", URL_MAX)}
+            {text("review_local_path", "Git local của dự án", PATH_MAX)}
           </div>
         </Section>
 
         <Section title="Backlog và Redmine" note={NOT_USED}>
           {tag("backlog_mail", "Mail Backlog", "Thêm địa chỉ", "Địa chỉ gửi thông báo Backlog.")}
           <div className={GRID}>
-            {text("backlog_space_url", "URL space Backlog")}
-            {text("backlog_project_key", "Project key Backlog")}
-            {text("redmine_url", "URL Redmine")}
-            {text("redmine_project", "Project Redmine")}
+            {text("backlog_space_url", "URL space Backlog", URL_MAX)}
+            {text("backlog_project_key", "Project key Backlog", KEY_MAX)}
+            {text("redmine_url", "URL Redmine", URL_MAX)}
+            {text("redmine_project", "Project Redmine", KEY_MAX)}
           </div>
         </Section>
 
@@ -410,7 +419,8 @@ export function ProjectsPage() {
   }
 
   let right: React.ReactNode = null;
-  if (projects.isSuccess) {
+  // Gate theo data (không theo isSuccess): refetch nền lỗi vẫn giữ data, form đang sửa không bị gỡ.
+  if (projects.data) {
     if (isNew || selected) {
       right = (
         <>

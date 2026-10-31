@@ -72,6 +72,8 @@ function stub(
           : ((await request.json()) as Record<string, unknown>);
       const call = { method, path, body };
       if (method !== "GET") calls.push(call);
+      // Độ trễ như mạng thật: stub tức thì che lỗi callback bị bỏ khi form đã gỡ (xóa dự án).
+      await new Promise((resolve) => setTimeout(resolve, 20));
       const custom = opts.reply?.(call);
       if (custom) return custom;
       if (method === "GET") {
@@ -265,6 +267,26 @@ describe("ProjectsPage", () => {
     expect(screen.queryByText(/python -m app.worker/)).not.toBeInTheDocument();
   });
 
+  it("assigning xong: danh sách thread được đánh dấu cũ", async () => {
+    const spy = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    try {
+      let gets = 0;
+      stub([A], {
+        reply: (call) =>
+          call.method === "GET" ? json(200, { items: [A], assigning: ++gets === 1 }) : null,
+      });
+      renderPage();
+      await screen.findByText("Đang gán lại mail theo bộ lọc…");
+      await waitFor(
+        () => expect(spy).toHaveBeenCalledWith(expect.objectContaining({ queryKey: ["threads"] })),
+        { timeout: 4000 },
+      );
+      expect(screen.queryByText("Đang gán lại mail theo bộ lọc…")).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("nhắc worker khi assigning quá 30 giây", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -315,6 +337,21 @@ describe("ProjectsPage", () => {
     );
     expect(screen.getByTestId("where")).toHaveTextContent("project=2");
     expect(screen.getByLabelText("Tên dự án")).toHaveValue("Bảo trì Sample B");
+  });
+
+  it("refetch nền lỗi: form đang sửa không bị gỡ", async () => {
+    let gets = 0;
+    stub([A, B], {
+      reply: (call) => (call.method === "GET" && ++gets > 1 ? json(500, { detail: "x" }) : null),
+    });
+    renderPage("/settings/projects?project=1");
+    const name = await screen.findByLabelText("Tên dự án");
+    await userEvent.type(name, "x");
+    window.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(gets).toBeGreaterThan(1));
+    await screen.findByRole("alert");
+    expect(screen.getByLabelText("Tên dự án")).toHaveValue("Cổng khách hàng Sample Ax");
   });
 
   it("?project=999 không tồn tại: không vỡ, hiện thông báo chọn dự án", async () => {

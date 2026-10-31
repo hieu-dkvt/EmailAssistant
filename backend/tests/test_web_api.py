@@ -478,6 +478,44 @@ async def test_thread_list_hides_other_users_projects(
     ]
 
 
+async def test_thread_list_labels_follow_split_and_merge(
+    client_a: AsyncClient, owner_engine: Engine, worker: AsyncEngine, box: SimpleNamespace
+) -> None:
+    """Nhãn dự án đi theo mail khi sửa tay: tách thread mang nhãn theo mail, gộp thì cộng nhãn."""
+    with owner_engine.begin() as conn:
+        p = add_project(conn, box.a, "Alpha")
+        q = add_project(conn, box.a, "Beta")
+        link_project(conn, box.a, box.a3, p)  # mail cuối của thread t1
+        link_project(conn, box.a, box.a4, q)  # thread hóa đơn t2
+    alpha, beta = {"id": p, "name": "Alpha"}, {"id": q, "name": "Beta"}
+    before = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert before[box.t1] == [alpha] and before[box.t2] == [beta]
+
+    r = await client_a.post(
+        "/api/v1/thread-overrides", json={"action": "split", "message_id": box.a3}, headers=CSRF
+    )
+    assert r.status_code == 201, r.text
+    await process_user(worker, box.a)
+    split_thread = await thread_of(client_a, box.a3)
+    assert split_thread != box.t1
+    after_split = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert after_split[box.t1] == []  # nhãn rời thread cũ
+    assert after_split[split_thread] == [alpha]  # và đi theo mail sang thread mới
+
+    r = await client_a.post(
+        "/api/v1/thread-overrides",
+        json={"action": "merge", "message_id": box.a4, "target_message_id": box.a1},
+        headers=CSRF,
+    )
+    assert r.status_code == 201, r.text
+    await process_user(worker, box.a)
+    merged = await thread_of(client_a, box.a1)
+    assert await thread_of(client_a, box.a4) == merged
+    after_merge = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert after_merge[merged] == [beta]
+    assert after_merge[split_thread] == [alpha]
+
+
 async def test_thread_list_bad_cursor(client_a: AsyncClient) -> None:
     for cursor in ("x", "WzEsMl0", "bnVsbA"):  # rác, [1,2], null
         r = await client_a.get("/api/v1/threads", params={"cursor": cursor})

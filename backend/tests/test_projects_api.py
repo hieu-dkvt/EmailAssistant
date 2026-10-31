@@ -300,3 +300,20 @@ async def test_filter_values_not_logged(ca: AsyncClient, caplog: pytest.LogCaptu
 async def test_valid_urls_still_accepted(ca: AsyncClient, url: str) -> None:
     r = await post(ca, {"name": "P", "docs_repo_url": url})
     assert r.status_code == 201, r.text
+
+
+async def test_filter_save_does_not_wait_for_key_share(
+    ca: AsyncClient, owner_engine: Engine, users: tuple[int, int]
+) -> None:
+    """Worker kiểm FK giữ FOR KEY SHARE trên dòng dự án đến khi commit: lưu bộ lọc không được chờ."""
+    pid = (await post(ca, {"name": "KeyShare"})).json()["id"]
+    with owner_engine.connect() as holder:
+        holder.execute(text("select 1 from projects where id = :p for key share"), {"p": pid})
+        try:
+            r = await asyncio.wait_for(
+                ca.put(f"{URL}/{pid}", json={"name": "KeyShare", **FILTERS}, headers=CSRF),
+                timeout=5,
+            )
+        finally:
+            holder.rollback()
+    assert r.status_code == 200

@@ -574,3 +574,17 @@ def test_worker_cannot_write_projects(
         assert isinstance(ei.value.orig, psycopg.errors.InsufficientPrivilege), sql
     with owner_engine.begin() as conn:
         assert conn.scalar(text("select id from projects")) == pid
+
+
+def test_api_cannot_insert_project_for_other_user(
+    api_engine: Engine, owner_engine: Engine, seeded: SimpleNamespace
+) -> None:
+    """RLS WITH CHECK: phiên của A không chèn được dự án mang user_id của B."""
+    with pytest.raises(ProgrammingError) as ei, api_engine.begin() as conn:
+        as_user(conn, seeded.a)
+        conn.execute(
+            text("insert into projects (user_id, name) values (:u, 'Giả mạo')"), {"u": seeded.b}
+        )
+    assert getattr(ei.value.orig, "sqlstate", None) == "42501"
+    with owner_engine.connect() as conn:
+        assert count(conn, "projects") == 0
