@@ -201,6 +201,16 @@ def test_api_column_privileges(owner_engine: Engine, migrated: None) -> None:
         ("message_ownership", "message_id", "UPDATE"),
         ("message_ownership", "source_id", "UPDATE"),
         ("message_ownership", "user_id", "UPDATE"),
+        ("projects", "id", "INSERT"),
+        ("projects", "id", "UPDATE"),
+        ("projects", "user_id", "UPDATE"),
+        ("user_project_state", "user_id", "UPDATE"),
+        ("user_project_state", "applied_rules_version", "INSERT"),
+        ("user_project_state", "applied_rules_version", "UPDATE"),
+        ("user_project_state", "scan_version", "INSERT"),
+        ("user_project_state", "scan_version", "UPDATE"),
+        ("user_project_state", "scan_after_id", "INSERT"),
+        ("user_project_state", "scan_after_id", "UPDATE"),
     ]
     with owner_engine.connect() as conn:
         granted = [

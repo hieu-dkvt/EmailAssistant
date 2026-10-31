@@ -500,3 +500,77 @@ def test_cli_assign_projects_real_entry_point(
     )
     assert result.returncode == 0, result.stderr
     assert f"Người dùng id={two_users.a}: đã xét 1 mail, 1 mail có dự án." in result.stdout
+
+
+# --- RLS theo hành vi (rà soát bảo mật 2026-10-31) ---
+
+
+def test_other_user_sees_no_links_or_state(
+    owner_engine: Engine, api_engine: Engine, seeded: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, seeded.a, "P")
+        link(conn, seeded.a, seeded.m1, pid)
+        conn.execute(
+            text("insert into user_project_state (user_id, rules_version) values (:u, 1)"),
+            {"u": seeded.a},
+        )
+    with api_engine.begin() as conn:
+        as_user(conn, seeded.a)
+        assert count(conn, "message_projects") == 1
+        assert count(conn, "user_project_state") == 1
+    with api_engine.begin() as conn:
+        as_user(conn, seeded.b)
+        assert count(conn, "message_projects") == 0
+        assert count(conn, "user_project_state") == 0
+
+
+def test_other_user_cannot_update_state(
+    owner_engine: Engine, api_engine: Engine, seeded: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text("insert into user_project_state (user_id, rules_version) values (:u, 1)"),
+            {"u": seeded.a},
+        )
+    with api_engine.begin() as conn:
+        as_user(conn, seeded.b)
+        res = conn.execute(
+            text("update user_project_state set rules_version = 99 where user_id = :u"),
+            {"u": seeded.a},
+        )
+        assert res.rowcount == 0
+    assert state(owner_engine, seeded.a)[0] == 1
+
+
+@pytest.mark.parametrize("column", ["applied_rules_version", "scan_version", "scan_after_id"])
+def test_api_cannot_update_worker_progress_columns(
+    owner_engine: Engine, api_engine: Engine, seeded: SimpleNamespace, column: str
+) -> None:
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text("insert into user_project_state (user_id, rules_version) values (:u, 1)"),
+            {"u": seeded.a},
+        )
+    with pytest.raises(ProgrammingError) as ei, api_engine.begin() as conn:
+        as_user(conn, seeded.a)
+        conn.execute(text(f"update user_project_state set {column} = 5"))
+    assert isinstance(ei.value.orig, psycopg.errors.InsufficientPrivilege)
+
+
+def test_worker_cannot_write_projects(
+    owner_engine: Engine, worker_engine: Engine, seeded: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, seeded.a, "P")
+    for sql in (
+        "update projects set name = 'x'",
+        "delete from projects",
+        "insert into projects (user_id, name) values (:u, 'y')",
+    ):
+        with pytest.raises(ProgrammingError) as ei, worker_engine.begin() as conn:
+            as_user(conn, seeded.a)
+            conn.execute(text(sql), {"u": seeded.a} if ":u" in sql else {})
+        assert isinstance(ei.value.orig, psycopg.errors.InsufficientPrivilege), sql
+    with owner_engine.begin() as conn:
+        assert conn.scalar(text("select id from projects")) == pid

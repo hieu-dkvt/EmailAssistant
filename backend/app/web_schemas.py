@@ -393,11 +393,12 @@ def _clean_list(values: list[str]) -> list[str]:
     out: list[str] = []
     for raw in values:
         value = raw.strip()
+        # Kiểm tra độ dài trước khi chuẩn hóa NFKC để không xử lý giá trị quá lớn.
+        if len(value) > MAX_FILTER_VALUE:
+            raise ValueError(f"Mỗi giá trị tối đa {MAX_FILTER_VALUE} ký tự")
         # Giá trị trống (kể cả sau chuẩn hóa) sẽ khớp mọi mail vì "" in text luôn đúng.
         if not value or not normalize(value).strip():
             raise ValueError("Không được để giá trị trống")
-        if len(value) > MAX_FILTER_VALUE:
-            raise ValueError(f"Mỗi giá trị tối đa {MAX_FILTER_VALUE} ký tự")
         if _has_control(value):
             raise ValueError("Giá trị có ký tự điều khiển")
         key = normalize(value)
@@ -417,6 +418,8 @@ def _check_url(value: str) -> None:
         host, colon, path = rest.partition(":")
         if user != "git" or not sep or not colon or not host or not path or "@" in rest:
             raise bad
+        if host.startswith("-"):  # git/ssh hiểu nhầm là tùy chọn
+            raise bad
         return
     try:
         parts = urlsplit(value)
@@ -425,11 +428,15 @@ def _check_url(value: str) -> None:
         userinfo = "@" in parts.netloc
     except ValueError:
         raise bad from None
-    if parts.scheme not in URL_SCHEMES or not host:
+    if parts.scheme not in URL_SCHEMES or not host or host.startswith("-"):
         raise bad
+    if parts.query or parts.fragment or "?" in value or "#" in value:
+        raise ValueError("URL không được chứa tham số truy vấn hoặc đoạn #")
     if parts.scheme == "ssh":
         if password is not None:  # ssh://git@host/… không có mật khẩu thì được
             raise ValueError("URL không được chứa mật khẩu")
+        if parts.username not in (None, "git"):  # token có thể nằm ở vị trí tên đăng nhập
+            raise ValueError("URL ssh chỉ nhận tên đăng nhập git")
     elif userinfo:
         raise ValueError("URL không được chứa tên đăng nhập hoặc mật khẩu")
 
