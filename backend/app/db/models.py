@@ -277,6 +277,75 @@ class UserThreadState(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class Project(Base):
+    """Cấu hình dự án của một người (spec 2026-10-31-project-settings-design mục 4)."""
+
+    __tablename__ = "projects"
+    __table_args__ = (UniqueConstraint("user_id", "name"), UniqueConstraint("id", "user_id"))
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    name: Mapped[str] = mapped_column(Text)
+    filter_from: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    filter_to: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    filter_cc: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    filter_subject: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    docs_repo_url: Mapped[str | None] = mapped_column(Text)
+    docs_local_path: Mapped[str | None] = mapped_column(Text)
+    github_mail: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    review_repo_url: Mapped[str | None] = mapped_column(Text)
+    review_local_path: Mapped[str | None] = mapped_column(Text)
+    backlog_mail: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    backlog_space_url: Mapped[str | None] = mapped_column(Text)
+    backlog_project_key: Mapped[str | None] = mapped_column(Text)
+    redmine_url: Mapped[str | None] = mapped_column(Text)
+    redmine_project: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageProject(Base):
+    """Mail thuộc dự án nào; chỉ worker ghi. Không chép nội dung mail."""
+
+    __tablename__ = "message_projects"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "user_id"],
+            ["messages.id", "messages.user_id"],
+            name="fk_message_projects_message_user",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["project_id", "user_id"],
+            ["projects.id", "projects.user_id"],
+            name="fk_message_projects_project_user",
+            ondelete="CASCADE",
+        ),
+        Index("ix_message_projects_user_id_project_id", "user_id", "project_id"),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    project_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+
+
+class UserProjectState(Base):
+    """Bộ lọc đổi chưa áp dụng và tiến độ quét lại (spec 25 mục 4, 5)."""
+
+    __tablename__ = "user_project_state"
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    rules_version: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    applied_rules_version: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    scan_version: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    scan_after_id: Mapped[int] = mapped_column(BigInteger, server_default=text("0"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class MessageChunk(Base):
     """Một đoạn body_clean đã embed (spec 2026-10-19-mail-embedding-design mục 4).
 

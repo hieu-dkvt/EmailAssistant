@@ -53,6 +53,10 @@ def test_rls_enabled_flags(owner_engine: Engine, migrated: None) -> None:
         # 0016: bí mật (API key mã hóa) của provider AI tùy chỉnh.
         "user_ai_provider": True,
         "ai_calls": True,
+        # 0017: dự án và liên kết mail-dự án (spec 25).
+        "projects": True,
+        "message_projects": True,
+        "user_project_state": True,
     }
 
 
