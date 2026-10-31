@@ -330,6 +330,23 @@ async def _embed(user_id: int, limit: int) -> tuple[int, int]:
         await engine.dispose()
 
 
+async def _assign(user_id: int) -> tuple[bool, int, int]:
+    """Quét lại toàn bộ mail của người dùng. Trả (có state, số mail đã xét, số mail có dự án)."""
+    engine = create_worker_engine()
+    try:
+        if not await reset_scan(engine, user_id):
+            return False, 0, 0
+        stats = await assign_user(engine, user_id, budget_seconds=math.inf)
+        async with AsyncSession(engine) as s:
+            assigned = await s.scalar(
+                text("select count(distinct message_id) from message_projects where user_id = :u"),
+                {"u": user_id},
+            )
+        return True, stats.messages, int(assigned or 0)
+    finally:
+        await engine.dispose()
+
+
 def _run[T](coro: Coroutine[Any, Any, T]) -> T:
     # psycopg async không chạy trên ProactorEventLoop (mặc định của Windows).
     if sys.platform == "win32":
@@ -352,20 +369,3 @@ def format_process_result(user_id: int, result: ProcessResult) -> str:
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-async def _assign(user_id: int) -> tuple[bool, int, int]:
-    """Quét lại toàn bộ mail của người dùng. Trả (có state, số mail đã xét, số mail có dự án)."""
-    engine = create_worker_engine()
-    try:
-        if not await reset_scan(engine, user_id):
-            return False, 0, 0
-        stats = await assign_user(engine, user_id, budget_seconds=math.inf)
-        async with AsyncSession(engine) as s:
-            assigned = await s.scalar(
-                text("select count(distinct message_id) from message_projects where user_id = :u"),
-                {"u": user_id},
-            )
-        return True, stats.messages, int(assigned or 0)
-    finally:
-        await engine.dispose()

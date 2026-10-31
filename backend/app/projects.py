@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.db.locks import USER_MAIL_LOCK
@@ -214,6 +214,8 @@ async def delete_project(s: AsyncSession, user_id: int, project_id: int) -> None
 log = logging.getLogger("app.projects")
 
 ASSIGN_BATCH = 2_000
+ASSIGN_WRITE_ATTEMPTS = 3  # số lần ghi một lô khi dự án / mail đang bị xóa
+RETRY_SQLSTATES = frozenset({"23503", "40P01"})  # foreign_key_violation, deadlock_detected
 ASSIGN_JOB_SECONDS = 10.0  # một job assign_user_projects chạy tối đa ngần này rồi nhường worker
 
 LOAD_RULES = text(
@@ -316,10 +318,30 @@ async def assign_messages(
             for pid in sorted(matched):
                 mids.append(r.id)
                 pids.append(pid)
-        await s.execute(DELETE_LINKS, {"u": user_id, "ids": [r.id for r in rows]})
-        if mids:
-            await s.execute(INSERT_LINKS, {"u": user_id, "mids": mids, "pids": pids})
+        await _write_links(s, user_id, [r.id for r in rows], mids, pids)
     return with_project
+
+
+async def _write_links(
+    s: AsyncSession, user_id: int, ids: list[int], mids: list[int], pids: list[int]
+) -> None:
+    """Xóa rồi ghi liên kết của một lô, trong SAVEPOINT; thử lại khi dự án / mail đang bị xóa.
+
+    Xóa chưa commit của người khác vẫn lọt qua JOIN trong INSERT_LINKS; FK chờ rồi báo 23503
+    (hoặc 40P01 khi hai bên chờ nhau). Sau khi xóa commit, lần thử lại thấy dòng đã mất và bỏ qua.
+    """
+    for attempt in range(1, ASSIGN_WRITE_ATTEMPTS + 1):
+        try:
+            async with s.begin_nested():
+                await s.execute(DELETE_LINKS, {"u": user_id, "ids": ids})
+                if mids:
+                    await s.execute(INSERT_LINKS, {"u": user_id, "mids": mids, "pids": pids})
+            return
+        except DBAPIError as e:
+            sqlstate = getattr(e.orig, "sqlstate", None)
+            if sqlstate not in RETRY_SQLSTATES or attempt == ASSIGN_WRITE_ATTEMPTS:
+                raise
+            log.warning("assign user=%s retry sqlstate=%s attempt=%d", user_id, sqlstate, attempt)
 
 
 async def assign_batch(engine: AsyncEngine, user_id: int, batch: int = ASSIGN_BATCH) -> AssignStats:

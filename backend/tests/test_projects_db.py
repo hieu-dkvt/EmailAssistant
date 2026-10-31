@@ -1,6 +1,10 @@
 """Bảng dự án và liên kết mail (spec 25 mục 4): RLS, GRANT, FK kép, xóa lan truyền."""
 
+import asyncio
 import logging
+import os
+import subprocess
+import sys
 from types import SimpleNamespace
 
 import psycopg.errors
@@ -19,7 +23,7 @@ from app.projects import (
     pending_rule_users,
     reset_scan,
 )
-from tests.dbutil import add_mail, add_project, add_user, as_user
+from tests.dbutil import BACKEND_DIR, add_mail, add_project, add_user, as_user, url_for_test_db
 
 
 def link(conn, user_id: int, message_id: int, project_id: int) -> None:  # noqa: ANN001
@@ -404,3 +408,95 @@ async def test_worker_logs_have_no_filter_values(
     await assign_user(worker, two_users.a)
     assert "assign user=" in caplog.text
     assert "bí-mật" not in caplog.text and "Tên-dự-án" not in caplog.text
+
+
+async def hold_delete_then_assign(
+    owner_engine: Engine,
+    worker: AsyncEngine,
+    user_id: int,
+    delete_sql: str,
+    params: dict,
+    run,  # noqa: ANN001
+) -> None:
+    """Giữ một DELETE chưa commit, chạy `run(session)` ở task khác, commit DELETE sau ~0,5 giây."""
+    conn = owner_engine.connect()
+    trans = conn.begin()
+    try:
+        conn.execute(text(delete_sql), params)
+
+        async def work() -> None:
+            async with AsyncSession(worker) as s, s.begin():
+                await run(s)
+
+        task = asyncio.create_task(work())
+        await asyncio.sleep(0.5)
+        assert not task.done()  # đang chờ khóa FK của DELETE chưa commit
+        trans.commit()
+        await asyncio.wait_for(task, 10)
+    finally:
+        if trans.is_active:
+            trans.rollback()
+        conn.close()
+
+
+async def test_assign_survives_project_delete_in_flight(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        gone = add_project(conn, two_users.a, "Gone", filter_from=["a.example.jp"])
+        kept = add_project(conn, two_users.a, "Kept", filter_from=["a.example.jp"])
+        mid = add_mail(conn, two_users.a, "m1@x.example")
+
+    async def run(s: AsyncSession) -> None:
+        rules = await load_rules(s, two_users.a)
+        assert await assign_messages(s, two_users.a, [mid], rules) == 1
+
+    await hold_delete_then_assign(
+        owner_engine, worker, two_users.a, "delete from projects where id = :id", {"id": gone}, run
+    )
+    assert linked(owner_engine, two_users.a) == {("m1@x.example", kept)}
+
+
+async def test_assign_survives_mail_delete_in_flight(
+    worker: AsyncEngine, owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pid = add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        gone = add_mail(conn, two_users.a, "gone@x.example")
+        add_mail(conn, two_users.a, "kept@x.example")
+        ids = [gone, gone + 1]
+
+    async def run(s: AsyncSession) -> None:
+        rules = await load_rules(s, two_users.a)
+        await assign_messages(s, two_users.a, ids, rules)
+
+    await hold_delete_then_assign(
+        owner_engine, worker, two_users.a, "delete from messages where id = :id", {"id": gone}, run
+    )
+    assert linked(owner_engine, two_users.a) == {("kept@x.example", pid)}
+
+
+def test_cli_assign_projects_real_entry_point(
+    owner_engine: Engine, two_users: SimpleNamespace
+) -> None:
+    """Chạy `python -m app.cli` thật: lệnh phải được định nghĩa trước khối __main__."""
+    with owner_engine.begin() as conn:
+        add_project(conn, two_users.a, "P", filter_from=["a.example.jp"])
+        add_mail(conn, two_users.a, "m1@x.example")
+    set_rules_version(owner_engine, two_users.a, 1)
+    env = {
+        **os.environ,
+        "DATABASE_URL_WORKER": url_for_test_db("worker"),
+        "PYTHONIOENCODING": "utf-8",
+    }
+    result = subprocess.run(
+        [sys.executable, "-m", "app.cli", "assign-projects", "--email", "a@example.com"],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    assert f"Người dùng id={two_users.a}: đã xét 1 mail, 1 mail có dự án." in result.stdout
