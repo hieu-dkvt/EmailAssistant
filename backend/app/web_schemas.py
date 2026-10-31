@@ -4,10 +4,12 @@ Spec: 2026-10-18-web-login-design.md, 2026-10-18-keyword-search-design.md,
 2026-10-18-thread-api-design.md. Đổi schema thì sinh lại client của web.
 """
 
+import unicodedata
 from datetime import date, datetime
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas import MAX_BIGINT, StrictModel
 
@@ -344,3 +346,180 @@ class AiUsage(BaseModel):
     rows: list[AiUsageRow]
     total_calls: int
     total_estimated_usd: float
+
+
+# --- dự án (spec 2026-10-31-project-settings-design mục 6) ---
+
+MAX_PROJECT_NAME = 200
+MAX_FILTER_VALUES = 20
+MAX_FILTER_VALUE = 255
+MAX_URL = 2000
+MAX_LOCAL_PATH = 1000
+MAX_PROJECT_KEY = 200
+URL_SCHEMES = ("http", "https", "ssh")
+PROJECT_LIST_FIELDS = (
+    "filter_from",
+    "filter_to",
+    "filter_cc",
+    "filter_subject",
+    "github_mail",
+    "backlog_mail",
+)
+PROJECT_URL_FIELDS = ("docs_repo_url", "review_repo_url", "backlog_space_url", "redmine_url")
+PROJECT_PATH_FIELDS = ("docs_local_path", "review_local_path")
+PROJECT_KEY_FIELDS = ("backlog_project_key", "redmine_project")
+
+
+def _has_control(value: str) -> bool:
+    return any(unicodedata.category(c) == "Cc" for c in value)
+
+
+def _clean_list(values: list[str]) -> list[str]:
+    """Bỏ khoảng trắng, từ chối giá trị trống/quá dài/ký tự điều khiển, bỏ trùng sau chuẩn hóa.
+
+    Thông báo lỗi là chuỗi cố định, không chứa giá trị đã gửi.
+    """
+    from app.projects import normalize  # nhập muộn: app.projects nhập web_schemas
+
+    if len(values) > MAX_FILTER_VALUES:
+        raise ValueError(f"Tối đa {MAX_FILTER_VALUES} giá trị")
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in values:
+        value = raw.strip()
+        # Giá trị trống (kể cả sau chuẩn hóa) sẽ khớp mọi mail vì "" in text luôn đúng.
+        if not value or not normalize(value).strip():
+            raise ValueError("Không được để giá trị trống")
+        if len(value) > MAX_FILTER_VALUE:
+            raise ValueError(f"Mỗi giá trị tối đa {MAX_FILTER_VALUE} ký tự")
+        if _has_control(value):
+            raise ValueError("Giá trị có ký tự điều khiển")
+        key = normalize(value)
+        if key not in seen:
+            seen.add(key)
+            out.append(value)
+    return out
+
+
+def _check_url(value: str) -> None:
+    """Nhận http(s)://, ssh:// và git@host:path. Không gọi tới URL. Lỗi: ValueError cố định."""
+    bad = ValueError("URL không hợp lệ")
+    if any(c.isspace() for c in value) or _has_control(value):
+        raise bad
+    if "://" not in value:
+        user, sep, rest = value.partition("@")
+        host, colon, path = rest.partition(":")
+        if user != "git" or not sep or not colon or not host or not path or "@" in rest:
+            raise bad
+        return
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+        password = parts.password
+        userinfo = "@" in parts.netloc
+    except ValueError:
+        raise bad from None
+    if parts.scheme not in URL_SCHEMES or not host:
+        raise bad
+    if parts.scheme == "ssh":
+        if password is not None:  # ssh://git@host/… không có mật khẩu thì được
+            raise ValueError("URL không được chứa mật khẩu")
+    elif userinfo:
+        raise ValueError("URL không được chứa tên đăng nhập hoặc mật khẩu")
+
+
+def _optional_text(value: str | None, max_len: int, *, url: bool = False) -> str | None:
+    """Bỏ khoảng trắng; trống → None."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    if len(value) > max_len:
+        raise ValueError(f"Tối đa {max_len} ký tự")
+    if url:
+        _check_url(value)
+    elif _has_control(value):
+        raise ValueError("Có ký tự điều khiển")
+    return value
+
+
+class ProjectInput(StrictModel):
+    """Body của POST/PUT /projects. Validator theo từng trường để web hiện lỗi đúng ô (loc)."""
+
+    name: str
+    filter_from: list[str] = []
+    filter_to: list[str] = []
+    filter_cc: list[str] = []
+    filter_subject: list[str] = []
+    docs_repo_url: str | None = None
+    docs_local_path: str | None = None
+    github_mail: list[str] = []
+    review_repo_url: str | None = None
+    review_local_path: str | None = None
+    backlog_mail: list[str] = []
+    backlog_space_url: str | None = None
+    backlog_project_key: str | None = None
+    redmine_url: str | None = None
+    redmine_project: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def _name(cls, value: str) -> str:
+        value = value.strip()
+        if not value or len(value) > MAX_PROJECT_NAME:
+            raise ValueError(f"Tên dự án dài 1–{MAX_PROJECT_NAME} ký tự")
+        if _has_control(value):
+            raise ValueError("Tên dự án có ký tự điều khiển")
+        return value
+
+    @field_validator(*PROJECT_LIST_FIELDS)
+    @classmethod
+    def _list(cls, value: list[str]) -> list[str]:
+        return _clean_list(value)
+
+    @field_validator(*PROJECT_URL_FIELDS)
+    @classmethod
+    def _url(cls, value: str | None) -> str | None:
+        return _optional_text(value, MAX_URL, url=True)
+
+    @field_validator(*PROJECT_PATH_FIELDS)
+    @classmethod
+    def _path(cls, value: str | None) -> str | None:
+        return _optional_text(value, MAX_LOCAL_PATH)
+
+    @field_validator(*PROJECT_KEY_FIELDS)
+    @classmethod
+    def _key(cls, value: str | None) -> str | None:
+        return _optional_text(value, MAX_PROJECT_KEY)
+
+
+class Project(BaseModel):
+    id: int
+    name: str
+    filter_from: list[str]
+    filter_to: list[str]
+    filter_cc: list[str]
+    filter_subject: list[str]
+    docs_repo_url: str | None
+    docs_local_path: str | None
+    github_mail: list[str]
+    review_repo_url: str | None
+    review_local_path: str | None
+    backlog_mail: list[str]
+    backlog_space_url: str | None
+    backlog_project_key: str | None
+    redmine_url: str | None
+    redmine_project: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ProjectList(BaseModel):
+    items: list[Project]
+    assigning: bool  # rules_version > applied_rules_version: worker đang gán lại mail
+
+
+class ProjectRef(BaseModel):
+    id: int
+    name: str
