@@ -10,7 +10,7 @@ Tạo embedding (bge-m3, spec 17) cho nội dung đã làm sạch của mỗi ma
 
 - Embedding bản tóm tắt thread (`thread_embeddings` trong kế hoạch): chưa có tóm tắt (giai đoạn 6).
 - Ưu tiên theo dự án đang chạy: chưa có gán dự án. Hiện chỉ ưu tiên theo ngày gửi.
-- Giới hạn phạm vi theo năm: embedding chạy self-host, không tốn tiền, nên embed toàn bộ (khác với gọi Claude: quyết định mở số 3 "phạm vi xử lý AI lần đầu" vẫn chờ người dùng, áp dụng cho giai đoạn 6).
+- Giới hạn phạm vi theo năm: embedding chạy self-host, không tốn tiền, nên embed toàn bộ (khác với gọi Claude: từ 2026-10-31 AI tự động chỉ xử lý mail từ mốc lùi 14 ngày, áp dụng cho giai đoạn 6).
 
 ## 3. Cắt đoạn (`app/embedding.py`, `CHUNKER_VERSION`)
 

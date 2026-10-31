@@ -205,7 +205,7 @@ audit_log            (user_id, action, target, at)
 - [ ] **Lớp 3:** chuẩn hóa subject (bỏ `Re:`, `RE[2]:`, `Fw:`, `返信:`, `転送:`, `【至急】`, khoảng trắng full-width) kết hợp cùng nhóm người tham gia và khoảng thời gian gần nhau.
 - [ ] **Lớp 4 (làm sau, ở giai đoạn 5):** dùng embedding và AI để gợi ý gộp các thread rời. Người dùng xác nhận.
 - [ ] Hỗ trợ sửa tay (gộp/tách thread), lưu vào `thread_overrides`.
-- [ ] Gán dự án tự động theo domain khách và mã dự án trong subject (quy tắc cấu hình trong `projects`).
+- [ ] Gán dự án tự động theo bộ lọc From, To, CC, Subject do người dùng khai báo cho từng dự án (spec 25, quyết định 2026-10-31).
 
 **Tiêu chí hoàn thành:** kiểm tra ngẫu nhiên 100 thread, tỷ lệ gom đúng ≥ 95%.
 
@@ -277,6 +277,7 @@ audit_log            (user_id, action, target, at)
 ### Giai đoạn 8 (mở rộng sau)
 - Đồng bộ QA表 (Excel / Google Sheet).
 - Liên kết thread với Backlog, Redmine hoặc Jira.
+- **Đợi, chưa đối ứng** (quyết định của người dùng 2026-10-31): xử lý mail Backlog → Redmine và xử lý mail GitHub review. Chưa làm, chưa viết tài liệu; người dùng sẽ quyết định khi nào thực hiện.
 - Báo cáo tuần (週報) tự động.
 - Kết hợp dữ liệu task, bug, commit để hỏi đáp về toàn bộ dự án.
 
@@ -318,6 +319,6 @@ audit_log            (user_id, action, target, at)
 
 - [ ] Nơi đặt server: máy cá nhân (giai đoạn đầu) → server nội bộ hay cloud riêng?
 - [ ] Có lưu bản gốc mail (không gồm file đính kèm) lên server để người khác xem được bản đầy đủ không, hay chỉ lưu bản đã làm sạch?
-- [ ] Phạm vi xử lý AI lần đầu: toàn bộ lịch sử hay chỉ N năm gần nhất?
-- [ ] Danh sách dự án và quy tắc gán (domain khách, mã dự án).
+- [x] Phạm vi xử lý AI khi tự động xử lý mail: chỉ mail từ mốc, là ngày bật lùi 14 ngày, cố định (quyết định 2026-10-31). Mốc theo người dùng hay theo dự án chốt khi làm phân loại AI.
+- [x] Danh sách dự án và quy tắc gán: người dùng tự khai báo trên màn hình dự án, bộ lọc From, To, CC, Subject (quyết định 2026-10-31, spec 25).
 - [ ] Hệ thống SSO của công ty.

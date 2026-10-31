@@ -8,7 +8,7 @@ Gom mail của một người dùng thành thread, để xem dạng hội thoạ
 
 ## 2. Không làm
 
-- **Gán dự án tự động:** chờ người dùng chốt danh sách dự án và quy tắc gán (mục 9 kế hoạch).
+- **Gán dự án tự động:** nằm ở spec 25 (`2026-10-31-project-settings-design.md`).
 - API, giao diện xem thread và gộp/tách tay: làm ở giai đoạn 4, spec 15 (`2026-10-18-thread-api-design.md`) và 16. Spec này chỉ có bảng `thread_overrides` và thuật toán tôn trọng nó.
 - Lớp 4 (gợi ý gộp bằng embedding): giai đoạn 5.
 - **Không bao giờ gom mail của hai người dùng với nhau.** Mỗi người có bản mail riêng, nên cùng một mail ở hai người là hai bản, nằm trong hai thread riêng.

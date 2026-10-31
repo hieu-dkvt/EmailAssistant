@@ -2,6 +2,20 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-10-31: lộ trình mail tự động
+
+### Quyết định của người dùng (2026-10-31)
+- **Backlog → Redmine và GitHub review: đợi, chưa đối ứng.** Chỉ ghi trong kế hoạch, chưa làm và chưa viết tài liệu. Người dùng sẽ quyết định khi nào thực hiện.
+- **Việc đầu tiên là màn hình cấu hình dự án và gán mail theo bộ lọc** (spec 25). Trường Git, Backlog, Redmine có trên màn hình và được lưu nhưng chưa dùng, không lưu API key hay token.
+- **Quy tắc gán dự án: người dùng tự khai báo bộ lọc From, To, CC, Subject** cho từng dự án, thay cho chốt danh sách trong code. Mail khớp nhiều dự án được gán vào tất cả dự án khớp.
+- **Phạm vi AI khi tự động xử lý mail: chỉ mail từ mốc.** Mốc là ngày bật lùi 14 ngày, cố định, không trượt theo thời gian; mail cũ hơn mốc vẫn tìm kiếm được nhưng không gọi AI. Lý do: tránh chi phí xử lý lịch sử mà vẫn theo dõi được các việc đang dở. Mốc theo người dùng hay theo dự án sẽ chốt khi làm phân loại AI.
+- **Không làm import `.eml`, `.msg`:** Thunderbird đã cung cấp đủ mail qua mbox.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Dự án là của từng người dùng, chưa chia sẻ cho thành viên.
+- Bộ lọc so với địa chỉ mail và subject, không so tên hiển thị. Trống cả 4 ô thì dự án không nhận mail nào.
+- Thread hiện tên dự án khi có ít nhất một mail trong thread thuộc dự án đó.
+
 ## 2026-10-25: nhà cung cấp AI tùy chỉnh (spec 24)
 
 ### Quyết định của người dùng (2026-10-25)

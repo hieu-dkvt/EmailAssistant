@@ -86,7 +86,7 @@ tests/                   # pytest trên database mailassist_test; tests/dbutil.p
 Dự kiến thêm:
 
 ```
-app/projects.py  # gán dự án (chờ người dùng chốt danh sách dự án và quy tắc)
+app/projects.py  # bộ lọc From, To, CC, Subject và gán mail vào dự án (spec 25, đang làm)
 ```
 
 ## DB
@@ -158,7 +158,7 @@ Spec: `docs/superpowers/specs/2026-10-17-threading-design.md`.
 - `thread_overrides` (split/merge, tham chiếu mail) luôn được áp dụng lại, thuật toán không ghi bảng này. Web ghi qua `app/overrides.py` (spec 15), kèm tăng `user_thread_state.overrides_version`; `rethread_user` đọc version **trước** khi đọc override rồi ghi `applied_overrides_version` (sửa tay commit giữa lúc gom không bị mất).
 - Không bao giờ gom mail của hai người dùng với nhau; code chạy bằng role worker phải lọc `user_id` ở mọi truy vấn.
 
-Gán dự án tự động theo domain khách và mã dự án trong subject: chưa làm, chờ người dùng chốt danh sách dự án và quy tắc.
+Gán dự án tự động theo bộ lọc From, To, CC, Subject do người dùng khai báo: đang làm (spec 25).
 
 ## Embedding và tìm kiếm ngữ nghĩa
 
