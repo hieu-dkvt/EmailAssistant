@@ -91,6 +91,11 @@ class SearchResult(BaseModel):
 # --- thread ---
 
 
+class ProjectRef(BaseModel):
+    id: int
+    name: str
+
+
 class ThreadSummary(BaseModel):
     id: int
     subject: str | None
@@ -100,6 +105,7 @@ class ThreadSummary(BaseModel):
     last_from_name: str | None
     last_from_addr: str | None
     has_attachments: bool
+    projects: list[ProjectRef]  # dự án của các mail trong thread, sắp theo tên
 
 
 class ThreadPage(BaseModel):
@@ -518,8 +524,3 @@ class Project(BaseModel):
 class ProjectList(BaseModel):
     items: list[Project]
     assigning: bool  # rules_version > applied_rules_version: worker đang gán lại mail
-
-
-class ProjectRef(BaseModel):
-    id: int
-    name: str

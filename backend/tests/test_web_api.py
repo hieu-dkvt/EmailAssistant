@@ -21,7 +21,7 @@ from app import threads_view
 from app.db.session import create_api_engine
 from app.processing import process_user
 from app.search import keyword
-from tests.dbutil import T0, add_ownership, add_source, as_user, url_for_test_db
+from tests.dbutil import T0, add_ownership, add_project, add_source, as_user, url_for_test_db
 from tests.webutil import CSRF, add_web_user, login, web_client
 
 PM = "pm@vn-outsource.example.com"
@@ -399,6 +399,83 @@ async def test_thread_list_filters(
         resolved["sent_before"] = (T0 + timedelta(days=5)).isoformat()
     r = await client_a.get("/api/v1/threads", params=resolved)
     assert [t["id"] for t in r.json()["items"]] == [getattr(box, k) for k in expected]
+
+
+def link_project(conn: Connection, user_id: int, message_id: int, project_id: int) -> None:
+    conn.execute(
+        text("insert into message_projects (user_id, message_id, project_id) values (:u, :m, :p)"),
+        {"u": user_id, "m": message_id, "p": project_id},
+    )
+
+
+def projects_by_thread(r: Any) -> dict[int, list[dict[str, Any]]]:
+    return {t["id"]: t["projects"] for t in r.json()["items"]}
+
+
+async def test_thread_list_shows_project_when_one_mail_matches(
+    client_a: AsyncClient, owner_engine: Engine, box: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        p = add_project(conn, box.a, "Dự án Alpha")
+        link_project(conn, box.a, box.a2, p)  # chỉ 1 trong 3 mail của thread t1
+    by_thread = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert by_thread[box.t1] == [{"id": p, "name": "Dự án Alpha"}]
+
+
+async def test_thread_list_shows_all_projects_sorted_by_name(
+    client_a: AsyncClient, owner_engine: Engine, box: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        pb = add_project(conn, box.a, "Beta")
+        pa = add_project(conn, box.a, "Alpha")
+        link_project(conn, box.a, box.a1, pb)
+        link_project(conn, box.a, box.a2, pa)
+        link_project(conn, box.a, box.a3, pb)  # trùng dự án: chỉ hiện một lần
+    by_thread = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert by_thread[box.t1] == [{"id": pa, "name": "Alpha"}, {"id": pb, "name": "Beta"}]
+
+
+async def test_thread_list_empty_projects_when_no_match(
+    client_a: AsyncClient, box: SimpleNamespace
+) -> None:
+    by_thread = projects_by_thread(await client_a.get("/api/v1/threads"))
+    assert by_thread == {box.t2: [], box.t1: [], box.t3: []}
+
+
+async def test_thread_list_pagination_unchanged_with_projects(
+    client_a: AsyncClient, owner_engine: Engine, box: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        p = add_project(conn, box.a, "Alpha")
+        link_project(conn, box.a, box.a4, p)
+    seen: list[int] = []
+    cursors: list[str | None] = []
+    cursor = None
+    while True:
+        params: dict[str, Any] = {"limit": 1}
+        if cursor:
+            params["cursor"] = cursor
+        page = (await client_a.get("/api/v1/threads", params=params)).json()
+        seen += [t["id"] for t in page["items"]]
+        cursors.append(page["next_cursor"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+        assert len(page["items"]) == 1
+    assert seen == [box.t2, box.t1, box.t3]
+    assert [c is None for c in cursors] == [False, False, True]
+
+
+async def test_thread_list_hides_other_users_projects(
+    client_a: AsyncClient, client_b: AsyncClient, owner_engine: Engine, box: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        p = add_project(conn, box.a, "Secret")
+        link_project(conn, box.a, box.a1, p)
+    assert projects_by_thread(await client_b.get("/api/v1/threads")) == {box.tb: []}
+    assert projects_by_thread(await client_a.get("/api/v1/threads"))[box.t1] == [
+        {"id": p, "name": "Secret"}
+    ]
 
 
 async def test_thread_list_bad_cursor(client_a: AsyncClient) -> None:
