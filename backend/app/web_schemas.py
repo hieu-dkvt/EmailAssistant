@@ -413,6 +413,8 @@ def _check_url(value: str) -> None:
     bad = ValueError("URL không hợp lệ")
     if any(c.isspace() for c in value) or _has_control(value):
         raise bad
+    if "?" in value or "#" in value:
+        raise ValueError("URL không được chứa tham số truy vấn hoặc đoạn #")
     if "://" not in value:
         user, sep, rest = value.partition("@")
         host, colon, path = rest.partition(":")
@@ -430,8 +432,6 @@ def _check_url(value: str) -> None:
         raise bad from None
     if parts.scheme not in URL_SCHEMES or not host or host.startswith("-"):
         raise bad
-    if parts.query or parts.fragment or "?" in value or "#" in value:
-        raise ValueError("URL không được chứa tham số truy vấn hoặc đoạn #")
     if parts.scheme == "ssh":
         if password is not None:  # ssh://git@host/… không có mật khẩu thì được
             raise ValueError("URL không được chứa mật khẩu")

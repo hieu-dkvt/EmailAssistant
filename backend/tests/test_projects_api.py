@@ -234,6 +234,8 @@ SECRET = "sekret-value-77"
         {"docs_repo_url": f"ssh://{SECRET}@host.example/repo.git"},
         {"docs_repo_url": f"git@-oProxyCommand={SECRET}:a"},
         {"docs_repo_url": f"ssh://-oProxyCommand={SECRET}/a"},
+        {"docs_repo_url": f"git@host.example:repo.git#{SECRET}"},
+        {"docs_repo_url": f"git@host.example:repo?x={SECRET}"},
         {"docs_local_path": "p" * 1001},
         {"backlog_project_key": "k" * 201},
         {"unknown": SECRET},
@@ -290,3 +292,11 @@ async def test_filter_values_not_logged(ca: AsyncClient, caplog: pytest.LogCaptu
     await post(ca, {"name": "Tên-bí-mật-khách"})  # 409
     await ca.delete(f"{URL}/{pid}", headers=CSRF)
     assert "bimat" not in caplog.text and "Tên-bí-mật-khách" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "url", ["ssh://git@host.example/a.git", "git@host.example:a/b.git", "https://host.example/a"]
+)
+async def test_valid_urls_still_accepted(ca: AsyncClient, url: str) -> None:
+    r = await post(ca, {"name": "P", "docs_repo_url": url})
+    assert r.status_code == 201, r.text
