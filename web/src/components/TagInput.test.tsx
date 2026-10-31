@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -96,5 +96,20 @@ describe("TagInput", () => {
     expect(draft.current).toBe("dở");
     await userEvent.tab();
     expect(draft.current).toBe("");
+  });
+
+  it("Enter khi đang soạn bằng IME không thêm giá trị, Enter thường sau đó thì thêm", async () => {
+    const onSubmit = vi.fn();
+    render(<Harness onSubmit={onSubmit} />);
+    const input = screen.getByLabelText("From");
+    await userEvent.type(input, "【サンプルA");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(values()).toEqual([]);
+    expect(input).toHaveValue("【サンプルA");
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(values()).toEqual(["【サンプルA"]);
+    expect(input).toHaveValue("");
+    expect(onSubmit).not.toHaveBeenCalled();
   });
 });

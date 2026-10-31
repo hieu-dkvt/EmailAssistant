@@ -69,6 +69,8 @@ export function TagInput({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    // Đang gõ bằng IME (tiếng Nhật): Enter chỉ xác nhận chuyển đổi, chưa phải thêm giá trị.
+    if (event.nativeEvent.isComposing || event.keyCode === 229) return;
     if (event.key === "Enter") {
       event.preventDefault(); // Enter trong ô không gửi form
       commit([draft]);
@@ -131,7 +133,13 @@ export function TagInput({
           aria-describedby={
             [hint ? hintId : "", error ? errorId : ""].filter(Boolean).join(" ") || undefined
           }
-          onChange={(e) => onInput(e.target.value)}
+          onChange={(e) =>
+            // Đang soạn bằng IME: giữ nguyên chữ, tách dấu phẩy sau khi soạn xong.
+            e.nativeEvent instanceof InputEvent && e.nativeEvent.isComposing
+              ? setDraft(e.target.value)
+              : onInput(e.target.value)
+          }
+          onCompositionEnd={(e) => onInput(e.currentTarget.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
           onBlur={onBlur}
