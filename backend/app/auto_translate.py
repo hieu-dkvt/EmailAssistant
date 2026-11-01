@@ -300,13 +300,11 @@ async def _record_failure(
 
 
 async def _produce(
-    engine: AsyncEngine, ml: MlClient, llm: LlmClient, user_id: int, message_id: int, custom: bool
+    engine: AsyncEngine, ml: MlClient, llm: LlmClient, user_id: int, message_id: int
 ) -> tuple[TranslationResult | None, str | None]:
     """(bản dịch, error_code). Mail rỗng không gọi AI, vẫn đi tiếp để ghi done và chuyển folder."""
     try:
-        result = await produce_translation(
-            engine, ml, llm, user_id, message_id, custom_provider=custom
-        )
+        result = await produce_translation(engine, ml, llm, user_id, message_id)
     except TranslateError as e:
         if e.code != NOTHING_TO_TRANSLATE:
             raise
@@ -321,14 +319,14 @@ async def translate_next(
     started = time.monotonic()
     stop = RunStats(handled=False, more=False)
     try:
-        llm, custom = await resolver.for_user(api_engine, user_id)
+        llm = await resolver.for_user(api_engine, user_id)
     except LlmError as e:
         log.info("auto_translate user=%s stopped code=%s", user_id, e.code)
         return stop
     if llm is None:
         return stop
     async with user_session(api_engine, user_id) as s:
-        if custom and TASK_TRANSLATE not in await user_models(s):
+        if TASK_TRANSLATE not in await user_models(s):
             return stop
         picked = await next_message(s, user_id)
         if picked is None:
@@ -339,9 +337,7 @@ async def translate_next(
     code: str
     try:
         result, error_code = (
-            (None, None)
-            if translated
-            else await _produce(api_engine, ml, llm, user_id, message_id, custom)
+            (None, None) if translated else await _produce(api_engine, ml, llm, user_id, message_id)
         )
         stats = await _finish(api_engine, user_id, message_id, result, error_code)
     except (TranslateError, LlmError) as e:

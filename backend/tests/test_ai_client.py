@@ -10,7 +10,7 @@ import httpx2
 import pytest
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 
-from app.ai.client import AnthropicLlm, LlmError, anthropic_base_url
+from app.ai.client import AnthropicLlm, LlmError
 
 SCHEMA: dict[str, object] = {
     "type": "object",
@@ -57,7 +57,7 @@ def message(stop_reason: str = "end_turn", text: str = '{"answer": "ok"}') -> ht
     )
 
 
-async def call(llm: AnthropicLlm, *, fallbacks: bool) -> Any:
+async def call(llm: AnthropicLlm) -> Any:
     return await llm.create(
         model="claude-sonnet-5-5",
         system="SYSTEM",
@@ -65,13 +65,12 @@ async def call(llm: AnthropicLlm, *, fallbacks: bool) -> Any:
         schema=SCHEMA,
         max_tokens=100,
         effort="medium",
-        fallbacks=fallbacks,
     )
 
 
-async def test_request_shape_with_fallbacks() -> None:
+async def test_request_shape() -> None:
     llm, seen = make(lambda _: message())
-    resp = await call(llm, fallbacks=True)
+    resp = await call(llm)
     assert (resp.text, resp.model, resp.stop_reason) == (
         '{"answer": "ok"}',
         "claude-sonnet-5-5",
@@ -85,8 +84,8 @@ async def test_request_shape_with_fallbacks() -> None:
     (req,) = seen
     body = json.loads(req.content)
     assert req.url.path == "/v1/messages"
-    assert "server-side-fallback-2026-07-01" in req.headers["anthropic-beta"]
-    assert body["fallbacks"] == "default"
+    assert "anthropic-beta" not in req.headers
+    assert "fallbacks" not in body
     assert body["output_config"] == {
         "effort": "medium",
         "format": {"type": "json_schema", "schema": SCHEMA},
@@ -95,13 +94,10 @@ async def test_request_shape_with_fallbacks() -> None:
     assert body["messages"] == [{"role": "user", "content": "[PERSON_1]さんの見積"}]
 
 
-async def test_request_without_fallbacks() -> None:
-    llm, seen = make(lambda _: message(stop_reason="refusal", text=""))
-    resp = await call(llm, fallbacks=False)
+async def test_refusal_is_returned_not_raised() -> None:
+    llm, _ = make(lambda _: message(stop_reason="refusal", text=""))
+    resp = await call(llm)
     assert resp.stop_reason == "refusal"
-    body = json.loads(seen[0].content)
-    assert "fallbacks" not in body
-    assert "anthropic-beta" not in seen[0].headers
 
 
 @pytest.mark.parametrize(
@@ -120,7 +116,7 @@ async def test_api_errors(status: int, code: str, http_status: int) -> None:
         )
     )
     with pytest.raises(LlmError) as exc:
-        await call(llm, fallbacks=False)
+        await call(llm)
     assert (exc.value.code, exc.value.http_status) == (code, http_status)
     assert "SECRET-ERR" not in exc.value.message
 
@@ -131,20 +127,11 @@ async def test_connection_error() -> None:
 
     llm, _ = make(boom)
     with pytest.raises(LlmError) as exc:
-        await call(llm, fallbacks=False)
+        await call(llm)
     assert exc.value.code == "ai_unavailable"
 
 
-def test_base_url_pinned_to_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
-    # ANTHROPIC_BASE_URL (vd. gateway của máy dev) không được dùng: NDA chỉ cho phép Claude API.
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "http://gateway.example.com")
-    monkeypatch.delenv("PMM_ANTHROPIC_BASE_URL", raising=False)
-    llm = AnthropicLlm()
-    assert str(llm._client.base_url).rstrip("/") == "https://api.anthropic.com"
-    monkeypatch.setenv("PMM_ANTHROPIC_BASE_URL", "https://eu.api.anthropic.com")
-    assert anthropic_base_url() == "https://eu.api.anthropic.com"
-    for bad in ("http://api.anthropic.com", "https://anthropic.com.evil.example", "https://x.io"):
-        monkeypatch.setenv("PMM_ANTHROPIC_BASE_URL", bad)
-        with pytest.raises(ValueError):
-            anthropic_base_url()
+def test_client_is_required() -> None:
+    # Không còn client dựng sẵn từ biến môi trường: chỉ nhận client đã cấu hình base_url.
+    with pytest.raises(TypeError):
+        AnthropicLlm()  # type: ignore[call-arg]

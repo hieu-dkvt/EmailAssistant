@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.ai.ask import AskGuard
-from app.ai.client import LlmClient, default_llm
+from app.ai.client import LlmClient
 from app.ai.provider import LlmResolver
 from app.api import (
     ai_routes,
@@ -97,8 +97,9 @@ def create_app(
     )
     app.state.engine = api_engine
     app.state.ml = ml or HttpMlClient()
-    app.state.llm = llm if llm is not None else default_llm()
-    app.state.llm_resolver = LlmResolver(app.state.llm)
+    # llm chỉ để test truyền client giả; chạy thật thì client lấy từ nhà cung cấp trong DB.
+    app.state.llm = llm
+    app.state.llm_resolver = LlmResolver(llm)
     app.state.ask_guard = AskGuard()
     app.state.translate_guard = AskGuard()
     app.state.limits = Limits(max_body_bytes, max_decompressed_bytes)

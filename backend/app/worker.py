@@ -17,7 +17,7 @@ from typing import Any
 from procrastinate import App
 
 from app import tasks
-from app.ai.provider import LlmResolver, env_llm
+from app.ai.provider import LlmResolver
 from app.db.session import create_api_engine
 from app.ml_client import HttpMlClient
 from app.processing import create_worker_engine
@@ -74,7 +74,7 @@ async def run() -> None:
                     "engine": engine,
                     "api_engine": api_engine,
                     "ml": HttpMlClient(),
-                    "resolver": LlmResolver(env_llm()),
+                    "resolver": LlmResolver(),
                 },
                 # Hỏi bảng job định kỳ thay vì LISTEN: NOTIFY không phân quyền được, role nào
                 # cũng gửi được lệnh hủy job giả. Hỏi mỗi giây: sửa tay từ web (apply_overrides

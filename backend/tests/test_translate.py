@@ -30,7 +30,7 @@ from app.ai.translate import (
 from app.db.session import user_session
 from app.ml_client import MlUnavailable, NerEntity
 from app.processing import process_user
-from tests.dbutil import add_glossary, add_project
+from tests.dbutil import add_glossary, add_project, set_ai_models
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_ai_api import SECRETS, api, fresh_people_cache, llm, ml, world  # noqa: F401
 from tests.test_web_api import put_mail
@@ -43,9 +43,9 @@ GOOD = TranslationOut(
 
 
 async def produce(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, user: int, mid: int, *, custom: bool = False
+    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, user: int, mid: int
 ) -> TranslationResult:
-    return await produce_translation(api, ml, llm, user, mid, custom_provider=custom)
+    return await produce_translation(api, ml, llm, user, mid)
 
 
 def tag(sent: str, name: str) -> str:
@@ -132,7 +132,7 @@ async def test_result_metadata(
         TranslationOut(subject="[ORG_1]", body="[MONEY_1]", notes=[f"n{i}" for i in range(9)])
     ]
     r = await produce(api, ml, llm, world.a, world.est)
-    assert r.model == "claude-sonnet-5-5" and r.prompt_version == 1
+    assert r.model == "test-model" and r.prompt_version == 1
     assert len(r.source_hash) == 32
     assert len(r.notes) == 5
     assert llm.requests[0]["max_tokens"] == 16_000 and llm.requests[0]["effort"] == "low"
@@ -609,25 +609,22 @@ async def test_not_ready_and_empty(
     assert llm.requests == []
 
 
-async def test_custom_provider_uses_own_model_and_requires_it(
+async def test_uses_own_model_and_requires_it(
     api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace, owner_engine: Engine
 ) -> None:
     """Job gọi thẳng produce_translation, không qua kiểm tra của route."""
+    with owner_engine.begin() as conn:
+        conn.execute(text("delete from user_ai_settings where user_id = :u"), {"u": world.a})
     with pytest.raises(LlmError) as e:
-        await produce(api, ml, llm, world.a, world.est, custom=True)
+        await produce(api, ml, llm, world.a, world.est)
     assert e.value.code == "ai_model_missing"
     assert llm.requests == []
     with owner_engine.begin() as conn:
-        conn.execute(
-            text(
-                "insert into user_ai_settings (user_id, task, model) values (:u, 'translate', 'm1')"
-            ),
-            {"u": world.a},
-        )
+        set_ai_models(conn, world.a, translate="m1")
     llm.responses = [GOOD]
-    r = await produce(api, ml, llm, world.a, world.est, custom=True)
+    r = await produce(api, ml, llm, world.a, world.est)
     assert llm.requests[0]["model"] == "m1" and r.model == "m1"
-    assert llm.requests[0]["fallbacks"] is False
+    assert "fallbacks" not in llm.requests[0]
 
 
 async def test_no_connection_held_while_waiting_for_ai(

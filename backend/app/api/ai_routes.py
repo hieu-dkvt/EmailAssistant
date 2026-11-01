@@ -16,9 +16,9 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai import secrets
-from app.ai.ask import AskBusy, AskFilters, ask
-from app.ai.client import LlmClient, LlmError, LlmResponse, LlmUsage, configured, record_call
-from app.ai.models import TASK_TRANSLATE, TASKS, TIER_INFO, TIERS, model_for
+from app.ai.ask import ASK_TASKS, AskBusy, AskFilters, ask
+from app.ai.client import LlmClient, LlmError, LlmResponse, LlmUsage, record_call
+from app.ai.models import TASK_TRANSLATE, TASKS
 from app.ai.provider import (
     PROTOCOLS,
     LlmResolver,
@@ -30,14 +30,7 @@ from app.ai.provider import (
     save_provider,
     validate_base_url,
 )
-from app.ai.settings import (
-    month_start,
-    save_models,
-    save_tiers,
-    usage_since,
-    user_models,
-    user_tiers,
-)
+from app.ai.settings import month_start, save_models, usage_since, user_models
 from app.ai.translate import (
     TranslateError,
     ensure_translatable,
@@ -61,7 +54,6 @@ from app.web_schemas import (
     AiSettings,
     AiSettingsUpdate,
     AiTaskInfo,
-    AiTierInfo,
     AiUsage,
     AiUsageRow,
     AskRequest,
@@ -91,7 +83,6 @@ TEST_SCHEMA: dict[str, object] = {
     "required": ["ok"],
     "additionalProperties": False,
 }
-ASK_TASKS = ("question_analysis", "answer")
 MASKED_CATEGORIES = [
     "Email, điện thoại, URL, địa chỉ",
     "Tên người",
@@ -110,32 +101,14 @@ def get_resolver(request: Request) -> LlmResolver:
 
 async def _settings(engine: AsyncEngine, user_id: int) -> AiSettings:
     async with user_session(engine, user_id) as s:
-        tiers = await user_tiers(s)
         models = await user_models(s)
-    custom = await load_provider(engine, user_id) is not None
     return AiSettings(
-        configured=custom or configured(),
-        custom_provider=custom,
+        configured=await load_provider(engine, user_id) is not None,
         tasks=[
             AiTaskInfo(
-                task=t.task,
-                label=t.label,
-                description=t.description,
-                tier=tiers[t.task],
-                default_tier=t.default_tier,
-                model=models.get(t.task),
+                task=t.task, label=t.label, description=t.description, model=models.get(t.task)
             )
             for t in TASKS.values()
-        ],
-        tiers=[
-            AiTierInfo(
-                tier=tier,
-                label=TIER_INFO[tier].label,
-                model=model_for(tier),
-                input_price=TIER_INFO[tier].input_price,
-                output_price=TIER_INFO[tier].output_price,
-            )
-            for tier in TIERS
         ],
         masking=MASKED_CATEGORIES,
     )
@@ -143,29 +116,28 @@ async def _settings(engine: AsyncEngine, user_id: int) -> AiSettings:
 
 async def _llm_for(
     engine: AsyncEngine, resolver: LlmResolver, user_id: int, tasks: Sequence[str]
-) -> tuple[LlmClient, bool]:
-    """Client AI của người dùng; nhà cung cấp tùy chỉnh phải có tên model cho đúng các tác vụ cần
-    dùng (spec 26 mục 6), không phải mọi tác vụ trong TASKS."""
+) -> LlmClient:
+    """Client AI của người dùng; phải có tên model cho đúng các tác vụ cần dùng (spec 26 mục 6),
+    không phải mọi tác vụ trong TASKS."""
     try:
-        llm, custom = await resolver.for_user(engine, user_id)
+        llm = await resolver.for_user(engine, user_id)
     except LlmError as e:
         raise ApiError(e.http_status, e.message, e.code) from None
     if llm is None:
         raise ApiError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Chưa cấu hình AI: nhập nhà cung cấp ở Cài đặt AI hoặc đặt ANTHROPIC_API_KEY",
+            "Chưa cấu hình AI: nhập nhà cung cấp ở Cài đặt AI",
             "ai_not_configured",
         )
-    if custom:
-        async with user_session(engine, user_id) as s:
-            models = await user_models(s)
-        if any(t not in models for t in tasks):
-            raise ApiError(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "Nhà cung cấp tùy chỉnh cần tên model cho tác vụ này (Cài đặt AI)",
-                "ai_model_missing",
-            )
-    return llm, custom
+    async with user_session(engine, user_id) as s:
+        models = await user_models(s)
+    if any(t not in models for t in tasks):
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Cần nhập tên model cho tác vụ này ở Cài đặt AI",
+            "ai_model_missing",
+        )
+    return llm
 
 
 @router.get("/ai/settings", response_model=AiSettings, responses=UNAUTHORIZED)
@@ -186,9 +158,8 @@ async def put_settings(request: Request, user_id: WebUserId, engine: Engine) -> 
     except ValidationError as e:
         raise validation_error_response(e.errors()) from None
     errors: list[dict[str, Any]] = [
-        {"loc": ("body", field, t), "msg": "Không có tác vụ này", "type": "unknown_task"}
-        for field, names in (("tiers", req.tiers), ("models", req.models))
-        for t in names
+        {"loc": ("body", "models", t), "msg": "Không có tác vụ này", "type": "unknown_task"}
+        for t in req.models
         if t not in TASKS
     ]
     models: dict[str, str | None] = {}
@@ -202,7 +173,6 @@ async def put_settings(request: Request, user_id: WebUserId, engine: Engine) -> 
     if errors:
         raise validation_error_response(errors)
     async with user_session(engine, user_id) as s:
-        await save_tiers(s, user_id, req.tiers)
         await save_models(s, user_id, models)
     return await _settings(engine, user_id)
 
@@ -216,7 +186,6 @@ async def get_usage(user_id: WebUserId, engine: Engine) -> AiUsage:
         since=since,
         rows=rows,
         total_calls=sum(r.calls for r in rows),
-        total_estimated_usd=round(sum(r.estimated_usd or 0.0 for r in rows), 6),
     )
 
 
@@ -246,15 +215,13 @@ async def post_ask(
         raise validation_error_response(e.errors()) from None
     if not req.question.strip():
         raise ApiError(status.HTTP_400_BAD_REQUEST, "Câu hỏi đang trống", "question_empty")
-    llm, custom = await _llm_for(engine, resolver, user_id, ASK_TASKS)
+    llm = await _llm_for(engine, resolver, user_id, ASK_TASKS)
     filters = AskFilters(
         folder_id=req.folder_id, sent_after=req.sent_after, sent_before=req.sent_before
     )
     try:
         with request.app.state.ask_guard.hold(user_id):
-            return await ask(
-                engine, ml, llm, user_id, req.question, filters, custom_provider=custom
-            )
+            return await ask(engine, ml, llm, user_id, req.question, filters)
     except AskBusy:
         raise ApiError(
             status.HTTP_409_CONFLICT, "Đang có một câu hỏi chưa trả lời xong", "ask_in_progress"
@@ -309,11 +276,9 @@ async def post_translate(
         if message_id in saved:
             return saved[message_id]
         ensure_translatable(mail)
-        llm, custom = await _llm_for(engine, resolver, user_id, (TASK_TRANSLATE,))
+        llm = await _llm_for(engine, resolver, user_id, (TASK_TRANSLATE,))
         with request.app.state.translate_guard.hold(user_id):
-            result = await produce_translation(
-                engine, ml, llm, user_id, message_id, custom_provider=custom
-            )
+            result = await produce_translation(engine, ml, llm, user_id, message_id)
             async with user_session(engine, user_id) as s:
                 await save_translation(s, user_id, message_id, result)
                 return (await saved_translations(s, user_id, [message_id]))[message_id]
@@ -481,9 +446,7 @@ async def _provider_info(engine: AsyncEngine, user_id: int) -> AiProvider:
             api_key_hint=key_hint(key),
             public_host=await is_public_host(stored.base_url),
         )
-    return AiProvider(
-        configured_env=configured(), secret_key_ready=secrets.secret_key_ready(), custom=custom
-    )
+    return AiProvider(secret_key_ready=secrets.secret_key_ready(), custom=custom)
 
 
 def _field_error(field: str, msg: str, type_: str) -> Any:
@@ -578,9 +541,9 @@ async def test_provider(
 ) -> AiProviderTest:
     """Gửi một câu cố định, không có dữ liệu mail, bằng model đã nhập cho tác vụ "answer"."""
     try:
-        llm, custom = await resolver.for_user(engine, user_id)
-        if llm is None or not custom:
-            raise LlmError("ai_not_configured", 503, "Chưa lưu nhà cung cấp tùy chỉnh")
+        llm = await resolver.for_user(engine, user_id)
+        if llm is None:
+            raise LlmError("ai_not_configured", 503, "Chưa lưu nhà cung cấp AI")
         async with user_session(engine, user_id) as s:
             model = (await user_models(s)).get("answer")
         if not model:
@@ -595,7 +558,6 @@ async def test_provider(
                 schema=TEST_SCHEMA,
                 max_tokens=50,
                 effort="low",
-                fallbacks=False,
             )
             status_ = "ok"
         finally:

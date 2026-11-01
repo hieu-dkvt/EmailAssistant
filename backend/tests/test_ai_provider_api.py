@@ -26,6 +26,7 @@ from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
     fresh_people_cache,
     llm,
     ml,
+    no_llm_client,
     plan,
     world,
 )
@@ -169,16 +170,16 @@ async def test_ask_uses_custom_provider_and_models(
 ) -> None:
     assert (await put_provider(client)).status_code == 200
     r = await set_models(client)
-    assert r.status_code == 200 and r.json()["custom_provider"] is True
-    assert {t["task"]: t["model"] for t in r.json()["tasks"]} == {**MODELS, "translate": None}
+    assert r.status_code == 200 and r.json()["configured"] is True
+    assert {t["task"]: t["model"] for t in r.json()["tasks"]} == {
+        **MODELS,
+        "translate": "test-model",
+    }
     gateway.responses = [plan(), ANSWER]
     resp = await ask(client)
     assert resp.status_code == 200
     assert llm.requests == []  # client môi trường không được dùng
-    assert [(q["model"], q["fallbacks"]) for q in gateway.requests] == [
-        (MODELS["question_analysis"], False),
-        (MODELS["answer"], False),
-    ]
+    assert [q["model"] for q in gateway.requests] == list(MODELS.values())
     # Che thông tin vẫn bắt buộc với provider ngoài.
     sent = gateway.sent_text()
     for secret in ("田中", "tanaka@", "1,250,000", "CT-2026-0042", "03-0000-0001"):
@@ -186,23 +187,19 @@ async def test_ask_uses_custom_provider_and_models(
     with owner_engine.connect() as conn:
         models = [r[0] for r in conn.execute(text("select model from ai_calls order by id"))]
     assert models == list(MODELS.values())
-    usage = (await client.get("/api/v1/ai/usage")).json()
-    assert {r["model"]: r["estimated_usd"] for r in usage["rows"]}[
-        MODELS["question_analysis"]
-    ] is None
 
 
 async def test_ask_without_models_is_503(
     client: AsyncClient, secret_key: str, gateway: FakeLlm, world: SimpleNamespace
 ) -> None:
     await put_provider(client)
-    await set_models(client, {"answer": MODELS["answer"]})
+    await set_models(client, {"question_analysis": None, "answer": MODELS["answer"]})
     r = await ask(client)
     assert r.status_code == 503 and r.json()["code"] == "ai_model_missing"
     assert gateway.requests == []
 
 
-async def test_delete_returns_to_environment_client(
+async def test_delete_returns_to_default_client(
     client: AsyncClient, secret_key: str, gateway: FakeLlm, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     await put_provider(client)
@@ -212,7 +209,7 @@ async def test_delete_returns_to_environment_client(
     llm.responses = [plan(), ANSWER]
     assert (await ask(client)).status_code == 200
     assert gateway.requests == [] and len(llm.requests) == 2
-    assert (await client.get("/api/v1/ai/settings")).json()["custom_provider"] is False
+    assert (await client.get("/api/v1/ai/settings")).json()["configured"] is False
 
 
 async def test_wrong_secret_key_does_not_crash(
@@ -226,12 +223,16 @@ async def test_wrong_secret_key_does_not_crash(
     assert r.status_code == 503 and r.json()["code"] == "ai_auth_failed"
 
 
+async def test_provider_test_without_provider_is_503(no_llm_client: AsyncClient) -> None:
+    r = await no_llm_client.post("/api/v1/ai/provider/test", headers=CSRF)
+    assert r.status_code == 503 and r.json()["code"] == "ai_not_configured"
+
+
 async def test_provider_test_endpoint(
     client: AsyncClient, secret_key: str, gateway: FakeLlm, owner_engine: Engine
 ) -> None:
-    r = await client.post("/api/v1/ai/provider/test", headers=CSRF)
-    assert r.status_code == 503 and r.json()["code"] == "ai_not_configured"
     await put_provider(client)
+    await set_models(client, {"answer": None})
     r = await client.post("/api/v1/ai/provider/test", headers=CSRF)
     assert r.status_code == 503 and r.json()["code"] == "ai_model_missing"
     await set_models(client)
@@ -259,8 +260,9 @@ async def test_other_user_cannot_see_provider(
         await login(cb, "b@example.com")
         assert (await cb.get("/api/v1/ai/provider")).json()["custom"] is None
         settings = (await cb.get("/api/v1/ai/settings")).json()
-        assert settings["custom_provider"] is False
-        assert [t["model"] for t in settings["tasks"]] == [None, None, None]
+        assert settings["configured"] is False
+        # Model của A (MODELS) không lộ sang B: B vẫn là "test-model" của world.
+        assert [t["model"] for t in settings["tasks"]] == ["test-model"] * 3
 
 
 @pytest.mark.parametrize(
@@ -275,12 +277,6 @@ async def test_clear_model_with_blank(client: AsyncClient, secret_key: str) -> N
     await set_models(client)
     r = await set_models(client, {"answer": "  "})
     assert {t["task"]: t["model"] for t in r.json()["tasks"]}["answer"] is None
-    # Chỉ có model, chưa chọn cấp: cấp vẫn là mặc định của tác vụ.
-    assert {t["task"]: t["tier"] for t in r.json()["tasks"]} == {
-        "question_analysis": "haiku",
-        "answer": "sonnet",
-        "translate": "sonnet",
-    }
 
 
 async def test_lan_gateway_is_accepted_and_not_public(

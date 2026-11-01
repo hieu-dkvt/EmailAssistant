@@ -2,17 +2,14 @@
 
 - Output có cấu trúc: structured outputs (output_config.format, schema từ Pydantic) rồi tự kiểm tra
   bằng Pydantic, để luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
-- Sonnet, Opus: bật server-side fallback ("default") khi model từ chối (refusal); Haiku không có.
 - Lỗi SDK được thay bằng LlmError (mã cho web); log chỉ có tên lớp lỗi, không có thông điệp.
 - Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20).
 """
 
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Protocol
-from urllib.parse import urlparse
 
 import anthropic
 from anthropic import AsyncAnthropic, transform_schema
@@ -20,14 +17,13 @@ from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.ai.models import TASKS, TIER_INFO, Effort, Tier, model_for
+from app.ai.models import TASKS, Effort
 from app.db.session import user_session
 
 log = logging.getLogger("app.ai")
 
 TIMEOUT_SECONDS = 120.0
 MAX_RETRIES = 2
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
 @dataclass(frozen=True)
@@ -78,36 +74,7 @@ class LlmClient(Protocol):
         schema: dict[str, object],
         max_tokens: int,
         effort: Effort,
-        fallbacks: bool,
     ) -> LlmResponse: ...
-
-
-def configured() -> bool:
-    """Có khóa API của AI trong biến môi trường của backend (không đọc giá trị ra ngoài)."""
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-
-
-def fallbacks_enabled() -> bool:
-    return os.environ.get("PMM_AI_FALLBACKS", "1") != "0"
-
-
-API_BASE_URL = "https://api.anthropic.com"
-
-
-def anthropic_base_url() -> str:
-    """NDA: mail (đã che) chỉ được gửi tới Claude API của Anthropic.
-
-    Không dùng ANTHROPIC_BASE_URL hay profile của SDK (máy dev có thể trỏ tới gateway khác);
-    PMM_ANTHROPIC_BASE_URL chỉ nhận https://*.anthropic.com.
-    """
-    raw = os.environ.get("PMM_ANTHROPIC_BASE_URL")
-    if not raw:
-        return API_BASE_URL
-    url = urlparse(raw)
-    host = url.hostname or ""
-    if url.scheme == "https" and (host == "anthropic.com" or host.endswith(".anthropic.com")):
-        return raw.rstrip("/")
-    raise ValueError("PMM_ANTHROPIC_BASE_URL phải là https://*.anthropic.com")
 
 
 def _quiet_sdk_logs() -> None:
@@ -117,16 +84,9 @@ def _quiet_sdk_logs() -> None:
 
 
 class AnthropicLlm:
-    def __init__(self, client: AsyncAnthropic | None = None) -> None:
-        if client is None:
-            _quiet_sdk_logs()
-            client = AsyncAnthropic(
-                base_url=anthropic_base_url(),
-                timeout=TIMEOUT_SECONDS,
-                max_retries=MAX_RETRIES,
-                # OpenTelemetry bật sẵn trong SDK (có chế độ đưa nội dung vào span): tắt.
-                open_telemetry=False,
-            )
+    def __init__(self, client: AsyncAnthropic) -> None:
+        # Client luôn do _anthropic_llm (provider.py) dựng với base_url, key của người dùng:
+        # không có đường nào đọc khóa hay địa chỉ từ biến môi trường.
         self._client = client
 
     async def create(
@@ -138,29 +98,17 @@ class AnthropicLlm:
         schema: dict[str, object],
         max_tokens: int,
         effort: Effort,
-        fallbacks: bool,
     ) -> LlmResponse:
         output_config = {"effort": effort, "format": {"type": "json_schema", "schema": schema}}
         messages = [{"role": "user", "content": user}]
         try:
-            if fallbacks:
-                resp = await self._client.beta.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=messages,  # type: ignore[arg-type]
-                    output_config=output_config,  # type: ignore[arg-type]
-                    betas=[FALLBACK_BETA],
-                    fallbacks="default",
-                )
-            else:
-                resp = await self._client.messages.create(
-                    model=model,
-                    max_tokens=max_tokens,
-                    system=system,
-                    messages=messages,  # type: ignore[arg-type]
-                    output_config=output_config,  # type: ignore[arg-type]
-                )
+            resp = await self._client.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,  # type: ignore[arg-type]
+                output_config=output_config,  # type: ignore[arg-type]
+            )
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise _api_error("ai_auth_failed", 503, "Khóa API của AI không hợp lệ", e) from None
         except anthropic.RateLimitError as e:
@@ -193,13 +141,6 @@ def _api_error(code: str, http_status: int, message: str, e: Exception) -> LlmEr
         "ai api error type=%s request_id=%s", type(e).__name__, getattr(e, "request_id", None)
     )
     return LlmError(code, http_status, message)
-
-
-def default_llm() -> LlmClient | None:
-    if not configured():
-        return None
-    log.info("claude api host=%s", urlparse(anthropic_base_url()).hostname)
-    return AnthropicLlm()
 
 
 @dataclass
@@ -263,18 +204,15 @@ async def call_task[T: BaseModel](
     llm: LlmClient,
     user_id: int,
     task: str,
-    tier: Tier,
+    model: str,
     *,
     system: str,
     user: str,
     output_type: type[T],
     log_to: CallLog,
-    custom_model: str | None = None,
 ) -> T:
-    """Gọi AI cho một tác vụ với cấp model đã chọn (hoặc tên model tự nhập khi có provider
-    tùy chỉnh, spec 24); ghi ai_calls mọi trường hợp."""
+    """Gọi AI cho một tác vụ bằng tên model người dùng nhập; ghi ai_calls mọi trường hợp."""
     spec = TASKS[task]
-    model = custom_model or model_for(tier)
     started = time.monotonic()
     status = "error"
     usage = LlmUsage()
@@ -287,7 +225,6 @@ async def call_task[T: BaseModel](
             schema=transform_schema(output_type),
             max_tokens=spec.max_tokens,
             effort=spec.effort,
-            fallbacks=custom_model is None and TIER_INFO[tier].fallbacks and fallbacks_enabled(),
         )
         usage, served = resp.usage, resp.model or model
         if resp.stop_reason == "refusal":

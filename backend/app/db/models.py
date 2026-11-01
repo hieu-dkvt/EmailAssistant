@@ -500,18 +500,19 @@ class MessageChunk(Base):
 
 
 class UserAiSetting(Base):
-    """Cấp model AI theo tác vụ của từng người (spec 2026-10-19-ai-settings-design mục 5)."""
+    """Tên model AI theo tác vụ của từng người (spec 2026-10-19 mục 5, spec 28)."""
 
     __tablename__ = "user_ai_settings"
-    __table_args__ = (CheckConstraint("tier IN ('haiku', 'sonnet', 'opus')", name="tier"),)
+    __table_args__ = (
+        CheckConstraint("length(model) BETWEEN 1 AND 200 AND model = btrim(model)", name="model"),
+    )
 
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
     )
     task: Mapped[str] = mapped_column(Text, primary_key=True)
-    tier: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Tên model người dùng nhập (spec 2026-10-25-ai-provider-design mục 4); NULL = dùng cấp.
-    model: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Tên model người dùng nhập (spec 2026-10-25-ai-provider-design mục 4); bỏ cấp ở migration 0019.
+    model: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

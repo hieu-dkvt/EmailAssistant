@@ -41,7 +41,15 @@ from app.ml_client import NerEntity
 from app.processing import process_user
 from app.projects import update_project
 from app.web_schemas import ProjectInput
-from tests.dbutil import T0, add_auto_run, add_project, add_source, add_translation, add_user
+from tests.dbutil import (
+    T0,
+    add_auto_run,
+    add_project,
+    add_source,
+    add_translation,
+    add_user,
+    set_ai_models,
+)
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_ai_api import api, fresh_people_cache, llm, ml  # noqa: F401
 from tests.test_web_api import put_mail
@@ -64,17 +72,6 @@ class HookLlm(FakeLlm):
         return await super().create(**kwargs)
 
 
-class CustomResolver(LlmResolver):
-    """Như người dùng có nhà cung cấp riêng (không cần gateway thật)."""
-
-    def __init__(self, llm: LlmClient) -> None:
-        super().__init__(None)
-        self.llm = llm
-
-    async def for_user(self, engine: AsyncEngine, user_id: int) -> tuple[LlmClient | None, bool]:
-        return self.llm, True
-
-
 class WrongCountNer(FakeMl):
     """NER trả sai số phần tử: Masker ném ValueError, không phải MlUnavailable."""
 
@@ -87,6 +84,7 @@ async def world(owner_engine: Engine, worker: AsyncEngine, clean: None) -> Simpl
     with owner_engine.begin() as conn:
         a = add_user(conn, "a@example.com")
         b = add_user(conn, "b@example.com")
+        set_ai_models(conn, a)
         inbox = add_source(conn, a, INBOX_PATH)
         folder = add_source(conn, a, FOLDER_PATH)
         project = add_project(
@@ -546,18 +544,14 @@ async def test_only_one_mail_per_call_and_more_flag(
     assert len(llm.requests) == 2
 
 
-async def test_custom_provider_needs_translate_model_only(
+async def test_needs_translate_model_only(
     api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
-    execute(
-        world.owner,
-        "insert into user_ai_settings (user_id, task, tier, model) "
-        "values (:u, 'translate', 'sonnet', 'gw/model-x')",
-        u=world.a,
-    )
+    execute(world.owner, "delete from user_ai_settings where task <> 'translate'")
+    execute(world.owner, "update user_ai_settings set model = 'gw/model-x'")
     llm.responses = [OUT]
-    stats = await translate_next(api, ml, CustomResolver(llm), world.a)
+    stats = await translate_next(api, ml, LlmResolver(llm), world.a)
     assert stats.handled
     assert llm.requests[0]["model"] == "gw/model-x"
     assert run_row(world.owner, world.a, m).status == "done"
@@ -577,18 +571,16 @@ async def test_transient_errors_stop_without_row(
     elif case == "ner_down":
         ml.ner_down = True
     elif case == "no_ai":
-        resolver = LlmResolver(None)
+        resolver = LlmResolver()
     elif case == "no_model":
-        resolver = CustomResolver(llm)
+        execute(world.owner, "delete from user_ai_settings")
     else:
 
         class BadKey(LlmResolver):
-            async def for_user(
-                self, engine: AsyncEngine, user_id: int
-            ) -> tuple[LlmClient | None, bool]:
+            async def for_user(self, engine: AsyncEngine, user_id: int) -> LlmClient | None:
                 raise LlmError("ai_auth_failed", 503, "")
 
-        resolver = BadKey(None)
+        resolver = BadKey()
     assert await translate_next(api, ml, resolver, world.a) == RunStats(False, False)
     assert run_row(world.owner, world.a, m) is None
     assert translation_of(world.owner, world.a, m) is None
@@ -648,12 +640,10 @@ async def test_bad_request_from_resolver_stops_without_row(
     m = await put(world, "m1@x.example")
 
     class BlockedHost(LlmResolver):
-        async def for_user(
-            self, engine: AsyncEngine, user_id: int
-        ) -> tuple[LlmClient | None, bool]:
+        async def for_user(self, engine: AsyncEngine, user_id: int) -> LlmClient | None:
             raise LlmError("ai_bad_request", 502, "")
 
-    assert await translate_next(api, ml, BlockedHost(None), world.a) == RunStats(False, False)
+    assert await translate_next(api, ml, BlockedHost(), world.a) == RunStats(False, False)
     assert run_row(world.owner, world.a, m) is None
 
 

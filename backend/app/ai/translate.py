@@ -36,7 +36,7 @@ from app.ai.prompts import (
     TranslationOut,
     translate_message,
 )
-from app.ai.settings import user_models, user_tiers
+from app.ai.settings import user_models
 from app.db.session import user_session
 from app.embedding import MAX_SUBJECT_CHARS
 from app.ml_client import MlClient
@@ -326,8 +326,6 @@ async def produce_translation(
     llm: LlmClient,
     user_id: int,
     message_id: int,
-    *,
-    custom_provider: bool,
 ) -> TranslationResult:
     """Chạy luồng dịch, chưa lưu. Ném TranslateError, LlmError, MlUnavailable; không gửi gì nếu
     che lỗi. Không kiểm tra bản đã lưu: bên gọi quyết định có dịch lại không."""
@@ -336,13 +334,12 @@ async def produce_translation(
         mail = await read_mail(s, user_id, message_id)
         ensure_translatable(mail)
         previous = await _previous_mail(s, user_id, mail)
-        tiers = await user_tiers(s)
-        models = await user_models(s) if custom_provider else {}
+        models = await user_models(s)
         entries = await load_entries(s, user_id, message_id)
         rows = [mail] if previous is None else [mail, previous]
         masker = await build_masker(s, ml, user_id, rows)
-    # Job không qua kiểm tra của route; thiếu thì call_task sẽ gửi tên model mặc định sai chỗ.
-    if custom_provider and TASK_TRANSLATE not in models:
+    # Job không qua kiểm tra của route: tự kiểm tên model trước khi che và gọi AI.
+    if TASK_TRANSLATE not in models:
         raise LlmError("ai_model_missing", 503, "Nhập tên model cho tác vụ dịch mail (Cài đặt AI)")
 
     context = previous.body_clean if previous is not None else ""
@@ -354,12 +351,11 @@ async def produce_translation(
         llm,
         user_id,
         TASK_TRANSLATE,
-        tiers[TASK_TRANSLATE],
+        models[TASK_TRANSLATE],
         system=TRANSLATE_SYSTEM,
         user=translate_message(masked.context, masked.glossary, masked.subject, masked.body),
         output_type=TranslationOut,
         log_to=calls,
-        custom_model=models.get(TASK_TRANSLATE),
     )
     if not (out.body if mail.body_clean.strip() else out.subject).strip():
         raise LlmError("ai_bad_output", 502, "AI trả bản dịch trống")

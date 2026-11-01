@@ -77,7 +77,7 @@ async def test_sweep_skips_without_ml(
     job_app: App, api: AsyncEngine, world: SimpleNamespace
 ) -> None:
     await put(world, "m1@x.example")
-    ctx = {"engine": world.worker, "api_engine": api, "resolver": LlmResolver(None)}
+    ctx = {"engine": world.worker, "api_engine": api, "resolver": LlmResolver()}
     await job_app.configure_task(tasks.TRANSLATE_SWEEP).defer_async(timestamp=0)
     await run_queue(job_app, "default", ctx)
     assert jobs(world.owner, tasks.TRANSLATE_USER) == []

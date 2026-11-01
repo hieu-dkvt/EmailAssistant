@@ -6,7 +6,14 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import Base
 from tests.conftest import MAIL_TABLES, truncate_mail_tables
-from tests.dbutil import add_message, add_ownership, add_source, add_user, run_alembic
+from tests.dbutil import (
+    add_message,
+    add_ownership,
+    add_source,
+    add_user,
+    as_user,
+    run_alembic,
+)
 
 UNICODE_TEXT = "【至急】①㈱Ⅲ お見積り – Báo giá dự án 🚀"
 
@@ -127,3 +134,46 @@ def test_downgrade_upgrade_roundtrip(owner_engine: Engine, clean: None) -> None:
     assert not set(MAIL_TABLES) & set(inspect(owner_engine).get_table_names())
     run_alembic("upgrade", "head")
     assert set(MAIL_TABLES) <= set(inspect(owner_engine).get_table_names())
+
+
+def test_migration_drops_tier(owner_engine: Engine, api_engine: Engine, clean: None) -> None:
+    columns = "select column_name, is_nullable from information_schema.columns "
+    columns += "where table_name = 'user_ai_settings'"
+    run_alembic("downgrade", "0018")
+    try:
+        with owner_engine.begin() as conn:
+            a = add_user(conn, "a@example.com")
+            b = add_user(conn, "b@example.com")
+            for user, task, tier, model in (
+                (a, "answer", "sonnet", None),  # chỉ có cấp: bị xóa
+                (a, "translate", None, "gw/model-a"),
+                (b, "translate", "haiku", "gw/model-b"),
+            ):
+                conn.execute(
+                    text(
+                        "insert into user_ai_settings (user_id, task, tier, model) "
+                        "values (:u, :t, :tier, :m)"
+                    ),
+                    {"u": user, "t": task, "tier": tier, "m": model},
+                )
+        run_alembic("upgrade", "head")
+        with owner_engine.connect() as conn:
+            cols = {r.column_name: r.is_nullable for r in conn.execute(text(columns))}
+            rows = conn.execute(
+                text("select user_id, task, model from user_ai_settings order by user_id")
+            ).all()
+        assert "tier" not in cols and cols["model"] == "NO"
+        assert [tuple(r) for r in rows] == [
+            (a, "translate", "gw/model-a"),
+            (b, "translate", "gw/model-b"),
+        ]
+        # app_api xóa được dòng của mình, không xóa được dòng của người khác (RLS).
+        with api_engine.begin() as conn:
+            as_user(conn, a)
+            assert conn.execute(text("delete from user_ai_settings")).rowcount == 1
+        with owner_engine.connect() as conn:
+            left = conn.execute(text("select user_id from user_ai_settings")).all()
+        assert [r.user_id for r in left] == [b]
+    finally:
+        truncate_mail_tables(owner_engine)
+        run_alembic("upgrade", "head")

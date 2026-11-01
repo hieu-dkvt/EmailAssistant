@@ -21,7 +21,7 @@ from app.ai.prompts import AnswerOut, QuestionPlan, TranslationOut
 from app.db.session import create_api_engine
 from app.main import create_app
 from app.processing import process_user
-from tests.dbutil import add_source, url_for_test_db
+from tests.dbutil import add_source, set_ai_models, url_for_test_db
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_web_api import put_mail
 from tests.webutil import CSRF, add_web_user, login
@@ -52,6 +52,8 @@ async def world(owner_engine: Engine, worker: AsyncEngine, clean: None) -> Simpl
     with owner_engine.begin() as conn:
         fa = add_source(conn, a, "ImapMail/imap.example.com/INBOX")
         fb = add_source(conn, b, "ImapMail/imap.example.com/INBOX")
+        for u in (a, b):
+            set_ai_models(conn, u)
         est = put_mail(
             conn,
             a,
@@ -170,14 +172,12 @@ async def test_ask_masks_everything_sent_and_unmasks_answer(
     assert [s["content"] for s in data["sent"]] == [req["user"] for req in llm.requests]
     assert data["mask_counts"]["PERSON"] >= 2 and data["mask_counts"]["MONEY"] == 1
     assert [c["task"] for c in data["calls"]] == ["question_analysis", "answer"]
-    # Model mặc định: Haiku phân tích (không fallback), Sonnet trả lời (có fallback).
-    assert [(q["model"], q["fallbacks"]) for q in llm.requests] == [
-        ("claude-haiku-5-5", False),
-        ("claude-sonnet-5-5", True),
-    ]
+    # Tên model là tên người dùng nhập; không còn tham số fallbacks.
+    assert [q["model"] for q in llm.requests] == ["test-model", "test-model"]
+    assert all("fallbacks" not in q for q in llm.requests)
     assert ai_calls(owner_engine) == [
-        (world.a, "question_analysis", "claude-haiku-5-5", "ok", 100),
-        (world.a, "answer", "claude-sonnet-5-5", "ok", 100),
+        (world.a, "question_analysis", "test-model", "ok", 100),
+        (world.a, "answer", "test-model", "ok", 100),
     ]
 
 
@@ -214,33 +214,28 @@ async def test_no_sources_skips_answer_call(
 async def test_settings_choose_model_per_task(
     client: AsyncClient, llm: FakeLlm, owner_engine: Engine, world: SimpleNamespace
 ) -> None:
-    r = await client.get("/api/v1/ai/settings")
-    data = r.json()
-    assert {t["task"]: t["tier"] for t in data["tasks"]} == {
-        "question_analysis": "haiku",
-        "answer": "sonnet",
-        "translate": "sonnet",
+    data = (await client.get("/api/v1/ai/settings")).json()
+    assert {t["task"]: t["model"] for t in data["tasks"]} == {
+        "question_analysis": "test-model",
+        "answer": "test-model",
+        "translate": "test-model",
     }
-    assert [t["model"] for t in data["tiers"]] == [
-        "claude-haiku-5-5",
-        "claude-sonnet-5-5",
-        "claude-opus-5-5",
-    ]
-    assert len(data["masking"]) == 4
+    assert "tiers" not in data and "custom_provider" not in data
+    assert all("tier" not in t and "default_tier" not in t for t in data["tasks"])
     r = await client.put(
         "/api/v1/ai/settings",
-        json={"tiers": {"question_analysis": "sonnet", "answer": "opus"}},
+        json={"models": {"question_analysis": "m-analysis", "answer": "m-answer"}},
         headers=CSRF,
     )
     assert r.status_code == 200
-    assert {t["task"]: t["tier"] for t in r.json()["tasks"]} == {
-        "question_analysis": "sonnet",
-        "answer": "opus",
-        "translate": "sonnet",
+    assert {t["task"]: t["model"] for t in r.json()["tasks"]} == {
+        "question_analysis": "m-analysis",
+        "answer": "m-answer",
+        "translate": "test-model",
     }
     llm.responses = [plan(), ANSWER]
     await ask(client)
-    assert [q["model"] for q in llm.requests] == ["claude-sonnet-5-5", "claude-opus-5-5"]
+    assert [q["model"] for q in llm.requests] == ["m-analysis", "m-answer"]
     # B không bị ảnh hưởng (RLS).
     async with AsyncClient(
         transport=ASGITransport(
@@ -251,15 +246,36 @@ async def test_settings_choose_model_per_task(
         base_url="http://test",
     ) as cb:
         await login(cb, "b@example.com")
-        tiers = {
-            t["task"]: t["tier"] for t in (await cb.get("/api/v1/ai/settings")).json()["tasks"]
+        models = {
+            t["task"]: t["model"] for t in (await cb.get("/api/v1/ai/settings")).json()["tasks"]
         }
-    assert tiers == {"question_analysis": "haiku", "answer": "sonnet", "translate": "sonnet"}
+    assert set(models.values()) == {"test-model"}
+
+
+async def test_clearing_model_deletes_row(
+    client: AsyncClient, owner_engine: Engine, world: SimpleNamespace
+) -> None:
+    r = await client.put("/api/v1/ai/settings", json={"models": {"answer": None}}, headers=CSRF)
+    assert r.status_code == 200
+    assert {t["task"]: t["model"] for t in r.json()["tasks"]}["answer"] is None
+    with owner_engine.connect() as conn:
+        rows = conn.execute(
+            text("select user_id, task from user_ai_settings where task = 'answer'")
+        ).all()
+    assert [tuple(x) for x in rows] == [(world.b, "answer")]  # dòng của B còn nguyên
+    # Xóa lại khi không còn dòng: không lỗi.
+    r = await client.put("/api/v1/ai/settings", json={"models": {"answer": "  "}}, headers=CSRF)
+    assert r.status_code == 200
+
+
+async def test_settings_rejects_tiers(client: AsyncClient) -> None:
+    r = await client.put("/api/v1/ai/settings", json={"tiers": {"answer": "opus"}}, headers=CSRF)
+    assert r.status_code == 422
 
 
 @pytest.mark.parametrize(
     "body",
-    [{"tiers": {"answer": "gpt"}}, {"tiers": {"unknown_task": "haiku"}}, {"tiers": "x"}],
+    [{"models": {"unknown_task": "x"}}, {"models": "x"}, {"models": {"answer": "x" * 201}}],
 )
 async def test_settings_validation(client: AsyncClient, body: dict[str, object]) -> None:
     r = await client.put("/api/v1/ai/settings", json=body, headers=CSRF)
@@ -267,7 +283,7 @@ async def test_settings_validation(client: AsyncClient, body: dict[str, object])
 
 
 async def test_settings_requires_csrf_and_login(app: FastAPI, client: AsyncClient) -> None:
-    r = await client.put("/api/v1/ai/settings", json={"tiers": {}})
+    r = await client.put("/api/v1/ai/settings", json={"models": {}})
     assert r.status_code == 403
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as anon:
         assert (await anon.get("/api/v1/ai/settings")).status_code == 401
@@ -285,25 +301,30 @@ async def test_usage_this_month(
         conn.execute(
             text(
                 "insert into ai_calls (user_id, task, model, status, input_tokens, output_tokens) "
-                "values (:b, 'answer', 'claude-opus-5-5', 'ok', 999, 999)"
+                "values (:b, 'answer', 'other-model', 'ok', 999, 999)"
             ),
             {"b": world.b},
         )
         conn.execute(
             text(
                 "insert into ai_calls (user_id, task, model, status, input_tokens, created_at) "
-                "values (:a, 'answer', 'claude-opus-5-5', 'ok', 999, now() - interval '40 days')"
+                "values (:a, 'answer', 'other-model', 'ok', 999, now() - interval '40 days')"
             ),
             {"a": world.a},
         )
     data = (await client.get("/api/v1/ai/usage")).json()
     assert [(r["model"], r["calls"], r["input_tokens"]) for r in data["rows"]] == [
-        ("claude-haiku-5-5", 1, 100),
-        ("claude-sonnet-5-5", 1, 100),
+        ("test-model", 2, 200),
     ]
-    expected = (100 * 0.10 + 20 * 0.50 + 100 * 2.0 + 20 * 10.0) / 1_000_000
-    assert data["total_estimated_usd"] == pytest.approx(expected)
     assert data["total_calls"] == 2
+
+
+async def test_usage_has_no_price(client: AsyncClient, llm: FakeLlm) -> None:
+    llm.responses = [plan(), ANSWER]
+    await ask(client)
+    data = (await client.get("/api/v1/ai/usage")).json()
+    assert data["rows"] and "estimated_usd" not in data["rows"][0]
+    assert "total_estimated_usd" not in data
 
 
 async def test_ner_failure_sends_nothing(client: AsyncClient, ml: FakeMl, llm: FakeLlm) -> None:
@@ -347,17 +368,35 @@ async def test_one_question_at_a_time(
     assert (r.status_code, r.json()["code"]) == (409, "ask_in_progress")
 
 
-async def test_not_configured(
-    api: AsyncEngine, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    app = create_app(api, ml=FakeMl(), web_dist=None)
+@pytest.fixture
+async def no_llm_client(
+    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
+) -> AsyncIterator[AsyncClient]:
+    """Như client nhưng app không có client AI giả: chỉ còn nhà cung cấp lưu trong DB."""
+    app = create_app(api, ml=ml, web_dist=None)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         await login(c, "a@example.com")
-        r = await ask(c)
-        assert (r.status_code, r.json()["code"]) == (503, "ai_not_configured")
-        assert (await c.get("/api/v1/ai/settings")).json()["configured"] is False
+        yield c
+
+
+async def test_env_key_ignored_without_provider(
+    no_llm_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.setenv(name, "x")
+    r = await ask(no_llm_client)
+    assert (r.status_code, r.json()["code"]) == (503, "ai_not_configured")
+    assert (await no_llm_client.get("/api/v1/ai/settings")).json()["configured"] is False
+
+
+async def test_user_with_provider_but_no_model_gets_model_missing(
+    client: AsyncClient, owner_engine: Engine, world: SimpleNamespace, llm: FakeLlm
+) -> None:
+    with owner_engine.begin() as conn:  # người dùng cũ: chỉ có cấp, migration đã xóa dòng đó
+        conn.execute(text("delete from user_ai_settings where user_id = :u"), {"u": world.a})
+    r = await ask(client)
+    assert (r.status_code, r.json()["code"]) == (503, "ai_model_missing")
+    assert llm.requests == []
 
 
 async def test_ask_log_has_no_question(
@@ -376,23 +415,13 @@ async def test_ask_requires_csrf_header(client: AsyncClient, llm: FakeLlm) -> No
     assert llm.requests == []
 
 
-@pytest.fixture
-def custom_provider(app: FastAPI, llm: FakeLlm, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Người dùng dùng nhà cung cấp tùy chỉnh (mọi tác vụ cần tên model tự nhập, spec 24)."""
-
-    async def for_user(engine: AsyncEngine, user_id: int) -> tuple[FakeLlm, bool]:
-        return llm, True
-
-    monkeypatch.setattr(app.state.llm_resolver, "for_user", for_user)
-
-
 ASK_MODELS = {"question_analysis": "m-analysis", "answer": "m-answer"}
 
 
-async def test_ask_ignores_missing_translate_model(
-    client: AsyncClient, llm: FakeLlm, custom_provider: None
-) -> None:
-    await client.put("/api/v1/ai/settings", json={"models": ASK_MODELS}, headers=CSRF)
+async def test_ask_ignores_missing_translate_model(client: AsyncClient, llm: FakeLlm) -> None:
+    await client.put(
+        "/api/v1/ai/settings", json={"models": {**ASK_MODELS, "translate": None}}, headers=CSRF
+    )
     llm.responses = [plan(), ANSWER]
     r = await ask(client)
     assert r.status_code == 200, r.text
@@ -400,18 +429,24 @@ async def test_ask_ignores_missing_translate_model(
 
 
 async def test_translate_requires_its_own_model(
-    client: AsyncClient, llm: FakeLlm, world: SimpleNamespace, custom_provider: None
+    client: AsyncClient, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    await client.put("/api/v1/ai/settings", json={"models": ASK_MODELS}, headers=CSRF)
+    await client.put(
+        "/api/v1/ai/settings", json={"models": {**ASK_MODELS, "translate": None}}, headers=CSRF
+    )
     r = await client.post(f"/api/v1/messages/{world.est}/translate", json={}, headers=CSRF)
     assert (r.status_code, r.json()["code"]) == (503, "ai_model_missing")
     assert llm.requests == []
 
 
 async def test_translate_needs_only_its_own_model(
-    client: AsyncClient, llm: FakeLlm, world: SimpleNamespace, custom_provider: None
+    client: AsyncClient, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    await client.put("/api/v1/ai/settings", json={"models": {"translate": "m-t"}}, headers=CSRF)
+    await client.put(
+        "/api/v1/ai/settings",
+        json={"models": {"translate": "m-t", "question_analysis": None, "answer": None}},
+        headers=CSRF,
+    )
     llm.responses = [TranslationOut(subject="s", body="b", notes=[])]
     r = await client.post(f"/api/v1/messages/{world.est}/translate", json={}, headers=CSRF)
     assert r.status_code == 200, r.text

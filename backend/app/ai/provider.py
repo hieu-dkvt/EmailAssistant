@@ -31,7 +31,6 @@ from app.ai.client import (
     LlmError,
     LlmResponse,
     LlmUsage,
-    default_llm,
 )
 from app.ai.models import Effort
 from app.db.session import user_session
@@ -190,7 +189,6 @@ class OpenAiLlm:
         schema: dict[str, object],
         max_tokens: int,
         effort: Effort,  # noqa: ARG002 (gateway không có tham số tương đương)
-        fallbacks: bool,  # noqa: ARG002 (chỉ có ở Claude API)
     ) -> LlmResponse:
         strict: dict[str, Any] = {
             "type": "json_schema",
@@ -384,10 +382,13 @@ def _close_later(client: LlmClient) -> None:
 
 
 class LlmResolver:
-    """Chọn client theo người dùng: có provider tùy chỉnh thì dùng, không thì client môi trường."""
+    """Chọn client theo người dùng từ nhà cung cấp đã lưu trong DB; chưa nhập thì None.
 
-    def __init__(self, env_llm: LlmClient | None) -> None:
-        self.env_llm = env_llm
+    `default` chỉ để test truyền client giả: không có đường đọc môi trường (spec 28 mục 4).
+    """
+
+    def __init__(self, default: LlmClient | None = None) -> None:
+        self.default = default
         self._cache: dict[int, tuple[str, LlmClient]] = {}
 
     def forget(self, user_id: int) -> None:
@@ -395,12 +396,12 @@ class LlmResolver:
         if cached is not None:
             _close_later(cached[1])
 
-    async def for_user(self, engine: AsyncEngine, user_id: int) -> tuple[LlmClient | None, bool]:
-        """(client hoặc None nếu chưa cấu hình, có dùng provider tùy chỉnh hay không)."""
+    async def for_user(self, engine: AsyncEngine, user_id: int) -> LlmClient | None:
+        """Client của người dùng, hoặc None nếu chưa cấu hình."""
         stored = await load_provider(engine, user_id)
         if stored is None:
             self.forget(user_id)
-            return self.env_llm, False
+            return self.default
         key = stored.key()
         if key is None:
             raise LlmError("ai_auth_failed", 503, "Không đọc được API key đã lưu, hãy nhập lại")
@@ -416,8 +417,4 @@ class LlmResolver:
             self.forget(user_id)
             cached = (config.fingerprint(), build_llm(config))
             self._cache[user_id] = cached
-        return cached[1], True
-
-
-def env_llm() -> LlmClient | None:
-    return default_llm()
+        return cached[1]

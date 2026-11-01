@@ -218,8 +218,6 @@ class SimilarThreads(BaseModel):
 
 # --- hỏi đáp AI (spec 21) ---
 
-type TierName = Literal["haiku", "sonnet", "opus"]
-
 
 class AskRequest(StrictModel):
     question: str = Field(min_length=1, max_length=1000)
@@ -281,31 +279,16 @@ class AiTaskInfo(BaseModel):
     task: str
     label: str
     description: str
-    tier: TierName
-    default_tier: TierName
-    model: str | None  # tên model người dùng nhập (chỉ dùng khi có provider tùy chỉnh, spec 24)
-
-
-class AiTierInfo(BaseModel):
-    tier: TierName
-    label: str
-    model: str
-    input_price: float  # USD / 1 triệu token
-    output_price: float
+    model: str | None  # tên model người dùng nhập; None = chưa nhập (spec 24, 28)
 
 
 class AiSettings(BaseModel):
-    configured: bool
-    custom_provider: bool  # đang dùng nhà cung cấp tự nhập thay cho ANTHROPIC_API_KEY (spec 24)
+    configured: bool  # đã nhập nhà cung cấp AI
     tasks: list[AiTaskInfo]
-    tiers: list[AiTierInfo]
     masking: list[str]
 
 
 class AiSettingsUpdate(StrictModel):
-    # Literal viết thẳng (không dùng alias TierName): schema của body nằm trong openapi_extra
-    # (json_body), không có $defs để tham chiếu.
-    tiers: dict[str, Literal["haiku", "sonnet", "opus"]] = {}
     # Tên model theo tác vụ; null hoặc rỗng = xóa (spec 24 mục 7).
     models: dict[str, str | None] = {}
 
@@ -322,7 +305,6 @@ class AiProviderCustom(BaseModel):
 
 
 class AiProvider(BaseModel):
-    configured_env: bool  # có ANTHROPIC_API_KEY trong môi trường backend
     secret_key_ready: bool  # có PMM_SECRET_KEY hợp lệ (cần để lưu key)
     custom: AiProviderCustom | None
 
@@ -346,14 +328,12 @@ class AiUsageRow(BaseModel):
     output_tokens: int
     cache_read_tokens: int
     cache_write_tokens: int
-    estimated_usd: float | None
 
 
 class AiUsage(BaseModel):
     since: datetime
     rows: list[AiUsageRow]
     total_calls: int
-    total_estimated_usd: float
 
 
 # --- dự án (spec 2026-10-31-project-settings-design mục 6) ---

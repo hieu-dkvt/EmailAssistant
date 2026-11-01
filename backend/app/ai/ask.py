@@ -18,7 +18,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai import people as people_mod
-from app.ai.client import CallLog, LlmClient, call_task
+from app.ai.client import CallLog, LlmClient, LlmError, call_task
 from app.ai.masking import URL_BREAK_CHARS, Masker, cut_masked
 from app.ai.names import companies_in
 from app.ai.prompts import (
@@ -29,7 +29,7 @@ from app.ai.prompts import (
     analysis_message,
     answer_message,
 )
-from app.ai.settings import user_models, user_tiers
+from app.ai.settings import user_models
 from app.db.session import user_session
 from app.embedding import CHUNK_CHARS, MAX_CHUNKS, MAX_SUBJECT_CHARS, split_chunks
 from app.ml_client import MlClient
@@ -49,6 +49,7 @@ KEYWORD_K = 40  # mail khớp từ khóa
 RRF_K = 60
 MAX_QUERIES = 3
 MAX_KEYWORDS = 6
+ASK_TASKS = ("question_analysis", "answer")  # tác vụ cần tên model (Cài đặt AI)
 NO_SOURCES_ANSWER = (
     "Không tìm thấy mail liên quan tới câu hỏi trong phạm vi bạn được xem "
     "(hoặc mail chưa được xử lý cho tìm kiếm ngữ nghĩa)."
@@ -324,7 +325,6 @@ async def ask(
     filters: AskFilters,
     *,
     today: date | None = None,
-    custom_provider: bool = False,
 ) -> AskResult:
     started = time.monotonic()
     question = question.replace("\x00", "").strip()
@@ -333,8 +333,11 @@ async def ask(
     sent: list[AskSent] = []
 
     async with user_session(engine, user_id) as s:
-        tiers = await user_tiers(s)
-        models = await user_models(s) if custom_provider else {}
+        models = await user_models(s)
+        if any(t not in models for t in ASK_TASKS):
+            raise LlmError(
+                "ai_model_missing", 503, "Nhập tên model cho tác vụ hỏi đáp (Cài đặt AI)"
+            )
         masker = await build_masker(s, ml, user_id, [])
 
     # 1. Phân tích câu hỏi (câu hỏi đã che).
@@ -346,12 +349,11 @@ async def ask(
         llm,
         user_id,
         "question_analysis",
-        tiers["question_analysis"],
+        models["question_analysis"],
         system=ANALYSIS_SYSTEM,
         user=content,
         output_type=QuestionPlan,
         log_to=calls,
-        custom_model=models.get("question_analysis"),
     )
     queries = [masker.unmask(q).strip() for q in plan.search_queries if q.strip()][:MAX_QUERIES]
     keywords = [masker.unmask(k).strip() for k in plan.keywords if k.strip()][:MAX_KEYWORDS]
@@ -445,12 +447,11 @@ async def ask(
         llm,
         user_id,
         "answer",
-        tiers["answer"],
+        models["answer"],
         system=ANSWER_SYSTEM,
         user=content,
         output_type=AnswerOut,
         log_to=calls,
-        custom_model=models.get("answer"),
     )
     n_sources = len(rows)
     answer = masker.unmask(out.answer)

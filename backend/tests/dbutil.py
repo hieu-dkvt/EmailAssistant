@@ -201,3 +201,18 @@ def add_ownership(
         ),
         {"m": message_id, "u": user_id, "s": source_id, "o": mbox_offset},
     )
+
+
+AI_TASKS = ("question_analysis", "answer", "translate")
+
+
+def set_ai_models(conn: Connection, user_id: int, **models: str) -> None:
+    """Tên model theo tác vụ của người dùng (spec 28); tác vụ không nêu dùng "test-model"."""
+    for task, model in {**dict.fromkeys(AI_TASKS, "test-model"), **models}.items():
+        conn.execute(
+            text(
+                "insert into user_ai_settings (user_id, task, model) values (:u, :t, :m) "
+                "on conflict (user_id, task) do update set model = excluded.model"
+            ),
+            {"u": user_id, "t": task, "m": model},
+        )

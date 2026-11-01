@@ -153,7 +153,6 @@ async def create(llm: OpenAiLlm) -> Any:
         schema=SCHEMA,
         max_tokens=100,
         effort="low",
-        fallbacks=False,
     )
 
 
@@ -400,7 +399,6 @@ async def test_anthropic_protocol_does_not_follow_redirects() -> None:
             schema=SCHEMA,
             max_tokens=10,
             effort="low",
-            fallbacks=False,
         )
     assert all(u.startswith("https://gateway.example") for u in hits)
 
