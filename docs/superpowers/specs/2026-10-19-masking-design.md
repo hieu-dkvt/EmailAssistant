@@ -1,6 +1,6 @@
 # Spec: Che thông tin nhạy cảm trước khi gửi AI
 
-Ngày: 2026-10-19 · Thành phần: `backend/app/ai/masking.py`, `backend/app/ai/names.py`, `backend/app/ai/people.py`, NER ở `ml-service/app/ner.py` · Trạng thái: xong (sửa sau review bảo mật: mục 9)
+Ngày: 2026-10-19 · Thành phần: `backend/app/ai/masking.py`, `backend/app/ai/names.py`, `backend/app/ai/people.py`, NER ở `ml-service/app/ner.py` · Trạng thái: xong (sửa sau review bảo mật: mục 9; sửa 2026-11-01 khi làm spec 26: mục 10)
 
 ## 1. Mục đích
 
@@ -33,6 +33,8 @@ Bốn nhóm phải che (người dùng chọn cả bốn):
 Phát hiện theo nhiều nguồn rồi gộp: các khoảng chồng nhau cùng loại gộp thành một; khác loại thì giữ khoảng dài hơn, dài bằng nhau theo thứ tự ưu tiên EMAIL > URL > PHONE > CONTRACT > MONEY > ADDRESS > ORG > PERSON.
 
 **Chuẩn hóa**: mẫu (4.1, 4.3) và từ điển (4.2) chạy trên bản NFKC của text (`nfkc_map`: chuẩn hóa theo cụm ký tự gốc + các dấu tổ hợp theo sau, nên chữ Việt dạng NFD và `ｶﾞ` cũng ghép đúng; giữ bảng vị trí gốc), rồi đổi vị trí về text gốc để thay. Nhờ vậy `Ｙａｍａｄａ`, `ｻﾝﾌﾟﾙ太郎`, `tanaka＠…`, số full-width, `Hiếu` gõ bằng bộ gõ tổ hợp cũng bị che. NER chạy trên text gốc.
+
+**Ranh giới từ chỉ xét chữ Latin** (từ 2026-11-01): mẫu EMAIL, URL (tên miền), PHONE, MONEY, kính ngữ Latin và lời chào dùng lớp `WORD_CHARS` (chữ Latin, số, `_`; `names.py`: `NOT_AFTER_WORD`, `NOT_BEFORE_WORD`) thay cho `\w` (gồm cả chữ Nhật). Trước đó địa chỉ, số điện thoại liền sau chữ Nhật (`連絡先:tanaka@…`, `電話0312345678`) không có ranh giới nên không được che.
 
 **Regex tuyến tính**: text là nội dung mail do người ngoài gửi (subject tới 10.000 ký tự, chữ ký tới 20.000): mọi lượng từ đều có giới hạn (`{0,30}`…), không có lượng từ lồng nhau không giới hạn. Phần regex và dựng từ điển chạy ở thread riêng (`asyncio.to_thread`), không chặn event loop.
 
@@ -75,7 +77,7 @@ Header của nguồn được che **theo từng giá trị** (người gửi, ng
 
 ### 4.5 Lan truyền
 
-Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dài ≥ 2 ký tự) được tìm và thay ở **tất cả** text của lần hỏi: tên NER nhận ra ở đoạn 3 cũng bị che ở đoạn 1 nơi NER bỏ sót. Không lan: chuỗi 1 ký tự (vd. họ một chữ `林`) và chuỗi chỉ có chữ số ít hơn 6 số (`2026` bắt nhầm là tiền, `12` sau `Order No.`): chỉ che ở đúng chỗ đã phát hiện, nếu lan thì mọi năm/ngày ở nguồn khác bị che theo.
+Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dài ≥ 2 ký tự) được tìm và thay ở **tất cả** text của lần hỏi: tên NER nhận ra ở đoạn 3 cũng bị che ở đoạn 1 nơi NER bỏ sót. Chuỗi dài hơn `MAX_SURFACE_CHARS` = 500 ký tự (và biến thể `upper()` dài hơn 500) không vào từ điển: cây tiền tố của từ điển sâu bằng độ dài chuỗi và `_trie_pattern` đệ quy theo độ sâu đó (URL dài làm `RecursionError`); nơi khác mẫu vẫn che nó ở từng text. Không lan: chuỗi 1 ký tự (vd. họ một chữ `林`) và chuỗi chỉ có chữ số ít hơn 6 số (`2026` bắt nhầm là tiền, `12` sau `Order No.`): chỉ che ở đúng chỗ đã phát hiện, nếu lan thì mọi năm/ngày ở nguồn khác bị che theo.
 
 ## 5. Thay ngược (unmask)
 
@@ -84,6 +86,7 @@ Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dà
 
 ## 6. Phân quyền và dữ liệu
 
+- Giới hạn đầu vào và **cắt sau khi che**: mỗi text đưa đi che tối đa `MAX_MASK_INPUT_CHARS` = 40.000 ký tự (dưới giới hạn 50.000 của `/ner`; đuôi URL cũng giới hạn bằng cỡ này). Việc cắt theo giới hạn gửi đi (`cut_masked`) chỉ chạy trên text **đã che**: cắt trước làm địa chỉ, số điện thoại cụt không khớp mẫu và phần đầu lọt ra ngoài. `cut_masked(text, limit, capped=…)` cắt ở ranh giới đoạn (`\n\n`), rồi cuối dòng, trong nửa sau giới hạn; không có thì cắt tại giới hạn nhưng không cắt giữa nhãn; `capped` (text gốc đã bị chặn ở 40.000) thì bỏ thêm `CAPPED_TAIL_CHARS` = 512 ký tự đuôi vì đoạn đó có thể là mảnh chưa che được. Ai dùng `Masker` để gửi đi (hỏi đáp, dịch) phải theo thứ tự này.
 - Từ điển chỉ đọc header mail của người hỏi trong `user_session` (RLS). Cache chỉ trong bộ nhớ process, theo `user_id`, hết hạn 10 phút (mục hết hạn của mọi người bị xóa ở lần đọc sau); đăng xuất không cần xóa vì không trả ra ngoài.
 - Không log text, không log bảng nhãn. Log: số nhãn theo nhóm.
 
@@ -102,6 +105,10 @@ Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dà
 - E2E (scratchpad, không commit): 1.050 mail giả + ml-service thật + AI giả ghi lại request: quét request không còn tên, công ty, tên miền, điện thoại nào của dữ liệu giả.
 
 ## 8. Giới hạn đã biết
+
+- **Che thừa cạnh chữ Nhật** (hệ quả của ranh giới chỉ xét chữ Latin): `user.idが`, `System.IOで`, `PRJ-2026-1234-5678まで`, `0123456789件` bị che; từ thường như "Friday. Reach", "đã" bị thay bằng `[PERSON_n]`. Chấp nhận (lọt NDA nặng hơn che thừa), làm giảm chất lượng dịch.
+- Loại trừ chuỗi dài hơn 500 ký tự khỏi từ điển có thể để lọt ở text sau nếu mẫu không bắt lại chuỗi đó; giới hạn 40.000 áp trên text NFKC.
+- Che mail dài có nhiều tên miền tốn thời gian (bậc hai: khoảng 6 giây mỗi lần với 40.000 ký tự).
 
 - Tên người không có trong header, không có kính ngữ, NER không nhận ra (đặc biệt tên tiếng Việt viết trong mail tiếng Việt không kèm `anh/chị`) sẽ lọt.
 - Từ viết hoa trùng tên trong từ điển bị che thừa (vd. `Bình` ở đầu câu "Bình thường…", `An` ở đầu câu "An toàn…"). Tên phòng ban lạ có thể bị coi là tên người.
@@ -130,3 +137,11 @@ security-reviewer kiểm bằng `Masker` trên chuỗi giả, tìm ra các dạn
 - Lan truyền số ngắn làm che cả năm/ngày (`予算 2026年度` → mọi `2026年` bị che): không lan số ngắn, `AMOUNT_AFTER_WORD` bỏ năm/ngày. `ASP.NET`, `VB.NET` không còn bị coi là tên miền. Thêm `TANAKA-san`, địa chỉ `4丁目2番8号`.
 - Script kiểm của reviewer (chuỗi giả) chạy lại trên code mới: mọi dạng đã báo đều được che, regex trên 17 chuỗi dựng sẵn ≤ 0,08 giây.
 - Còn để sau (giới hạn mục 8): `a Tuấn` giữa câu, `弊社山田が対応します` (không kính ngữ, chỉ trông NER).
+
+## 10. Sửa 2026-11-01 (khi làm spec 26)
+
+- `Masker.mask(texts, keep=None)`: tham số `keep` song song với `texts`, mỗi phần tử là `(đầu, cuối)` hoặc `None`. Cả text vẫn đi qua mẫu và NER nên giá trị có nhãn nằm ngoài phần giữ vẫn được nhận ra; chỉ phần `[đầu, cuối)` được xuất, khoảng phát hiện vắt qua biên thì biên mở rộng theo khoảng (`_widen`) nên không còn mảnh chưa che. Chuỗi phát hiện ngoài phần giữ vào từ điển nhưng không có nhãn, nên bảng nhãn và `mask_counts` chỉ tính thứ đã gửi. Không truyền `keep` thì hành vi như cũ. `/ask` dùng để che theo cửa sổ (spec 21 mục 11).
+- `Masker.known_surfaces` (số chuỗi trong từ điển) và `counts` dùng để phát hiện từ điển còn đổi (dịch lặp tới khi ổn định, spec 26 mục 6).
+- Ranh giới từ Latin cho EMAIL/URL/PHONE/MONEY và mẫu tên (mục 4); bỏ chuỗi dài khỏi từ điển (mục 4.5); giới hạn đầu vào 40.000 và `cut_masked` (mục 6).
+- Hằng `URL_BREAK_CHARS` (`<>"'）)】」、。`) là phần ký tự kết thúc URL của `_URL_TAIL`, dùng chung với `ask._chunk_range`.
+- Kiểm thử thêm: giá trị có nhãn bị cắt đôi ở mọi vị trí, địa chỉ liền chữ Nhật, từ thường không bị che, URL dài không làm `RecursionError`, `keep` với khoảng vắt qua biên, `mask_counts` chỉ tính phần giữ.

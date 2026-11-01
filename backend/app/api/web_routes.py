@@ -25,7 +25,7 @@ from app.search.keyword import MessageFilters, SortOrder, search_messages
 from app.search.query import MAX_QUERY_CHARS, ParsedQuery, QueryError, parse_query
 from app.search.semantic import MAX_RESULTS, hybrid_search
 from app.search.similar import similar_threads
-from app.sources import list_sources
+from app.sources import list_folders
 from app.threads_view import (
     BadCursor,
     get_thread,
@@ -97,7 +97,7 @@ def get_ml(request: Request) -> MlClient:
 @router.get("/folders", response_model=list[FolderInfo], responses=UNAUTHORIZED)
 async def folders(user_id: WebUserId, engine: Engine) -> list[FolderInfo]:
     async with user_session(engine, user_id) as s:
-        return [FolderInfo(**f.model_dump()) for f in await list_sources(s)]
+        return [FolderInfo(**f.model_dump()) for f in await list_folders(s)]
 
 
 @router.get(

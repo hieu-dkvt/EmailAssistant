@@ -15,7 +15,8 @@ from procrastinate.exceptions import AlreadyEnqueued
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app import embedding, processing, projects
+from app import auto_translate, embedding, processing, projects
+from app.ai.provider import LlmResolver
 from app.config import database_url
 from app.ml_client import EmbeddingModelMismatch, MlClient, MlUnavailable
 from app.safe_errors import sanitized
@@ -30,6 +31,9 @@ EMBED_SWEEP = f"{NAMESPACE}:embed_sweep"
 EMBED_USER = f"{NAMESPACE}:embed_user"
 PROJECT_RULES_SWEEP = f"{NAMESPACE}:project_rules_sweep"
 ASSIGN_USER_PROJECTS = f"{NAMESPACE}:assign_user_projects"
+TRANSLATE_SWEEP = f"{NAMESPACE}:translate_sweep"
+TRANSLATE_USER = f"{NAMESPACE}:translate_user"
+TRANSLATE_QUEUE = "translate"
 
 
 def conninfo(url: str | None = None) -> str:
@@ -140,6 +144,37 @@ def _blueprint() -> Blueprint:
             await defer_assign(context.app, user_id)
         return stats.messages
 
+    # Dịch tự động (spec 26 mục 5). translate_user chờ AI tới 120 giây nên chạy ở queue riêng;
+    # translate_sweep chỉ quét và đẩy job, ở queue default để không phải chờ một job dịch dài.
+    @bp.periodic(cron="* * * * *", periodic_id="translate_sweep")
+    @bp.task(name="translate_sweep", pass_context=True, queueing_lock="translate_sweep")
+    async def translate_sweep(context: JobContext, timestamp: int) -> int:
+        if _ml(context) is None:
+            return 0
+        try:
+            users = await auto_translate.pending_translate_users(_engine(context))
+        except Exception as e:
+            raise sanitized("translate_sweep", e) from None
+        deferred = 0
+        for user_id in users:
+            deferred += await defer_translate(context.app, user_id)
+        return deferred
+
+    @bp.task(name="translate_user", pass_context=True, queue=TRANSLATE_QUEUE)
+    async def translate_user(context: JobContext, user_id: int) -> bool:
+        ml = _ml(context)
+        if ml is None:
+            return False
+        try:
+            stats = await auto_translate.translate_next(
+                _api_engine(context), ml, _resolver(context), user_id
+            )
+        except Exception as e:
+            raise sanitized(f"translate_user user={user_id}", e) from None
+        if stats.more:
+            await defer_translate(context.app, user_id)
+        return stats.handled
+
     return bp
 
 
@@ -154,6 +189,15 @@ def _engine(context: JobContext) -> AsyncEngine:
 def _ml(context: JobContext) -> MlClient | None:
     """Client ml-service; None khi worker chạy không có embedding (vd. test cũ)."""
     return context.additional_context.get("ml")
+
+
+def _api_engine(context: JobContext) -> AsyncEngine:
+    """Engine role app_api: job dịch đọc, ghi dữ liệu mail qua user_session (spec 26 mục 5)."""
+    return context.additional_context["api_engine"]
+
+
+def _resolver(context: JobContext) -> LlmResolver:
+    return context.additional_context["resolver"]
 
 
 def embed_lock(user_id: int) -> str:
@@ -176,6 +220,17 @@ async def defer_assign(app: App, user_id: int) -> int:
     try:
         await app.configure_task(
             ASSIGN_USER_PROJECTS, lock=user_lock(user_id), queueing_lock=f"projects:{user_id}"
+        ).defer_async(user_id=user_id)
+        return 1
+    except AlreadyEnqueued:
+        return 0
+
+
+async def defer_translate(app: App, user_id: int) -> int:
+    """Đẩy translate_user cho người dùng; đã có job chờ thì bỏ qua. Trả 1 nếu đã đẩy."""
+    try:
+        await app.configure_task(
+            TRANSLATE_USER, queue=TRANSLATE_QUEUE, queueing_lock=f"translate:{user_id}"
         ).defer_async(user_id=user_id)
         return 1
     except AlreadyEnqueued:

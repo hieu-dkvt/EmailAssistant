@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { Project, ProjectList } from "@/api/client";
+import type { FolderInfo, Project, ProjectList } from "@/api/client";
 
 import { ProjectsPage } from "./ProjectsPage";
 
@@ -24,11 +24,25 @@ function project(over: Partial<Project> & Pick<Project, "id" | "name">): Project
     backlog_project_key: null,
     redmine_url: null,
     redmine_project: null,
+    customer_domains: [],
+    processed_source_id: null,
+    ai_since: null,
     created_at: "2026-10-31T00:00:00Z",
     updated_at: "2026-10-31T00:00:00Z",
     ...over,
   };
 }
+
+function folder(id: number, folder_path: string, account: string): FolderInfo {
+  return { id, folder_path, account, kind: "imap", message_count: 5, last_scan_at: null };
+}
+
+const FOLDERS = [
+  folder(10, "ImapMail/imap.example.com/INBOX", "imap.example.com"),
+  folder(11, "ImapMail/imap.example.com/INBOX.sbd/SampleA", "imap.example.com"),
+  folder(12, "Mail/Local Folders/Inbox", "Local Folders"),
+  folder(13, "Mail/Local Folders/Archive", "Local Folders"),
+];
 
 const A = project({
   id: 1,
@@ -57,7 +71,11 @@ interface Call {
 /** Stub fetch: danh sách dự án giữ trong bộ nhớ, ghi lại các lệnh ghi. */
 function stub(
   items: Project[],
-  opts: { assigning?: boolean; reply?: (call: Call) => Response | null } = {},
+  opts: {
+    assigning?: boolean;
+    folders?: FolderInfo[];
+    reply?: (call: Call) => Response | null;
+  } = {},
 ) {
   const calls: Call[] = [];
   let list = [...items];
@@ -72,6 +90,7 @@ function stub(
           : ((await request.json()) as Record<string, unknown>);
       const call = { method, path, body };
       if (method !== "GET") calls.push(call);
+      if (path === "/api/v1/folders") return json(200, opts.folders ?? FOLDERS);
       // Độ trễ như mạng thật: stub tức thì che lỗi callback bị bỏ khi form đã gỡ (xóa dự án).
       await new Promise((resolve) => setTimeout(resolve, 20));
       const custom = opts.reply?.(call);
@@ -170,6 +189,8 @@ describe("ProjectsPage", () => {
       backlog_project_key: null,
       redmine_url: "https://redmine.example.jp",
       redmine_project: null,
+      customer_domains: [],
+      processed_source_id: null,
     });
     await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("?project=9"));
   });
@@ -307,7 +328,7 @@ describe("ProjectsPage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(
       within(dialog).getByText(
-        "Xóa dự án Cổng khách hàng Sample A? Mail không bị xóa, chỉ bỏ liên kết với dự án.",
+        "Xóa dự án Cổng khách hàng Sample A? Mail không bị xóa, chỉ bỏ liên kết với dự án. Glossary của dự án cũng bị xóa theo.",
       ),
     ).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Hủy" }));
@@ -360,5 +381,119 @@ describe("ProjectsPage", () => {
     expect(await screen.findByText(/Chọn một dự án/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Bảo trì Sample B/ })).toBeInTheDocument();
     expect(screen.queryByLabelText("Tên dự án")).not.toBeInTheDocument();
+  });
+
+  it("lưu domain đang gõ dở", async () => {
+    const calls = stub([A]);
+    renderPage("/settings/projects?project=1");
+    await userEvent.type(await screen.findByLabelText("Domain mail khách"), "@Sample-A.example.jp");
+    await userEvent.click(screen.getByRole("button", { name: "Lưu dự án" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body?.customer_domains).toEqual(["@Sample-A.example.jp"]);
+  });
+
+  it("lỗi domain hiện đúng ô", async () => {
+    stub([A], {
+      reply: (c) =>
+        c.method === "PUT"
+          ? json(422, {
+              detail: [
+                { loc: ["body", "customer_domains"], msg: "Value error, Domain sai", type: "x" },
+              ],
+            })
+          : null,
+    });
+    renderPage("/settings/projects?project=1");
+    await userEvent.type(await screen.findByLabelText("Domain mail khách"), "x{Enter}");
+    await userEvent.click(screen.getByRole("button", { name: "Lưu dự án" }));
+    expect(await screen.findByText("Domain sai")).toBeInTheDocument();
+    expect(screen.getByLabelText("Domain mail khách")).toBeInvalid();
+    expect(screen.getByLabelText("From")).not.toBeInvalid();
+  });
+
+  it("chọn folder gửi processed_source_id", async () => {
+    const calls = stub([A]);
+    renderPage("/settings/projects?project=1");
+    const select = await screen.findByRole("combobox", { name: "Folder mail dự án" });
+    await within(select).findByRole("option", { name: "SampleA" });
+    await userEvent.selectOptions(select, "SampleA");
+    await userEvent.click(screen.getByRole("button", { name: "Lưu dự án" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body?.processed_source_id).toBe(11);
+  });
+
+  it("chọn lại Không chuyển folder gửi null", async () => {
+    const calls = stub([project({ id: 3, name: "C", processed_source_id: 11 })]);
+    renderPage("/settings/projects?project=3");
+    const select = await screen.findByRole("combobox", { name: "Folder mail dự án" });
+    await waitFor(() => expect(select).toHaveValue("11"));
+    await userEvent.selectOptions(select, "");
+    await userEvent.click(screen.getByRole("button", { name: "Lưu dự án" }));
+    await waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls[0].body?.processed_source_id).toBeNull();
+  });
+
+  it("danh sách folder không có Inbox, nhóm theo tài khoản", async () => {
+    stub([A]);
+    renderPage("/settings/projects?project=1");
+    const select = await screen.findByRole("combobox", { name: "Folder mail dự án" });
+    await within(select).findByRole("option", { name: "SampleA" });
+    const names = within(select)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(names).toEqual(["Không chuyển folder", "SampleA", "Archive"]);
+    const groups = within(select)
+      .getAllByRole("group")
+      .map((g) => g.getAttribute("label"));
+    expect(groups).toEqual(["imap.example.com", "Local Folders"]);
+  });
+
+  it("project_folder_invalid hiện dưới ô folder", async () => {
+    stub([A], {
+      reply: (c) =>
+        c.method === "PUT"
+          ? json(422, { detail: "Folder không hợp lệ", code: "project_folder_invalid" })
+          : null,
+    });
+    renderPage("/settings/projects?project=1");
+    const select = await screen.findByRole("combobox", { name: "Folder mail dự án" });
+    await within(select).findByRole("option", { name: "SampleA" });
+    await userEvent.selectOptions(select, "SampleA");
+    await userEvent.click(screen.getByRole("button", { name: "Lưu dự án" }));
+    expect(await screen.findByText("Folder không hợp lệ")).toBeInTheDocument();
+    expect(select).toBeInvalid();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("hiện ngày mốc chỉ đọc", async () => {
+    stub([project({ id: 3, name: "C", ai_since: "2026-10-17T12:00:00Z" })]);
+    renderPage("/settings/projects?project=3");
+    expect(await screen.findByText("Dịch mail từ ngày 17/10/2026")).toBeInTheDocument();
+  });
+
+  it("chưa có mốc thì nói rõ khi nào đặt", async () => {
+    stub([B]);
+    renderPage("/settings/projects?project=2");
+    expect(
+      await screen.findByText("Mốc sẽ được đặt khi lưu domain đầu tiên (14 ngày trước)"),
+    ).toBeInTheDocument();
+  });
+
+  it("tab Glossary chỉ hiện với dự án đã lưu", async () => {
+    stub([A]);
+    renderPage("/settings/projects?project=1");
+    expect(await screen.findByRole("tab", { name: "Glossary" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Thêm dự án" }));
+    await screen.findByLabelText("Tên dự án");
+    expect(screen.queryByRole("tab", { name: "Glossary" })).not.toBeInTheDocument();
+  });
+
+  it("hộp thoại xóa nói rõ glossary bị xóa theo", async () => {
+    stub([A]);
+    renderPage("/settings/projects?project=1");
+    await userEvent.click(await screen.findByRole("button", { name: "Xóa dự án" }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(
+      /Glossary của dự án cũng bị xóa theo/,
+    );
   });
 });

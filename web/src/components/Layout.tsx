@@ -91,6 +91,9 @@ export function Layout({ me }: { me: Me }) {
             <NavLink to="/settings/projects" className={navClass}>
               Dự án
             </NavLink>
+            <NavLink to="/settings/glossary" className={navClass}>
+              Glossary
+            </NavLink>
             <NavLink to="/settings/ai" className={navClass}>
               Cài đặt AI
             </NavLink>

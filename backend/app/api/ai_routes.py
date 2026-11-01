@@ -6,17 +6,19 @@ câu trả lời: log chỉ có id, số lượng, thời gian (trong app/ai/).
 
 import logging
 import time
+from collections.abc import Sequence
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Path, Request, status
 from pydantic import ValidationError
+from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai import secrets
 from app.ai.ask import AskBusy, AskFilters, ask
-from app.ai.client import LlmError, LlmResponse, LlmUsage, configured, record_call
-from app.ai.models import TASKS, TIER_INFO, TIERS, model_for
+from app.ai.client import LlmClient, LlmError, LlmResponse, LlmUsage, configured, record_call
+from app.ai.models import TASK_TRANSLATE, TASKS, TIER_INFO, TIERS, model_for
 from app.ai.provider import (
     PROTOCOLS,
     LlmResolver,
@@ -35,11 +37,21 @@ from app.ai.settings import (
     user_models,
     user_tiers,
 )
+from app.ai.translate import (
+    TranslateError,
+    ensure_translatable,
+    produce_translation,
+    read_mail,
+    save_translation,
+    saved_translations,
+    thread_translations,
+)
 from app.api.deps import get_engine, read_body
 from app.api.errors import ApiError, validation_error_response
 from app.api.web_deps import WebUserId, json_body
 from app.db.session import user_session
 from app.ml_client import EmbeddingModelMismatch, MlClient, MlUnavailable
+from app.schemas import MAX_BIGINT
 from app.web_schemas import (
     AiProvider,
     AiProviderCustom,
@@ -54,6 +66,11 @@ from app.web_schemas import (
     AskRequest,
     AskResult,
     ErrorBody,
+    MailMoveOut,
+    MessageTranslationOut,
+    MoveInput,
+    ThreadTranslations,
+    TranslateInput,
 )
 
 log = logging.getLogger("app.api")
@@ -73,6 +90,7 @@ TEST_SCHEMA: dict[str, object] = {
     "required": ["ok"],
     "additionalProperties": False,
 }
+ASK_TASKS = ("question_analysis", "answer")
 MASKED_CATEGORIES = [
     "Email, điện thoại, URL, địa chỉ",
     "Tên người",
@@ -120,6 +138,33 @@ async def _settings(engine: AsyncEngine, user_id: int) -> AiSettings:
         ],
         masking=MASKED_CATEGORIES,
     )
+
+
+async def _llm_for(
+    engine: AsyncEngine, resolver: LlmResolver, user_id: int, tasks: Sequence[str]
+) -> tuple[LlmClient, bool]:
+    """Client AI của người dùng; nhà cung cấp tùy chỉnh phải có tên model cho đúng các tác vụ cần
+    dùng (spec 26 mục 6), không phải mọi tác vụ trong TASKS."""
+    try:
+        llm, custom = await resolver.for_user(engine, user_id)
+    except LlmError as e:
+        raise ApiError(e.http_status, e.message, e.code) from None
+    if llm is None:
+        raise ApiError(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Chưa cấu hình AI: nhập nhà cung cấp ở Cài đặt AI hoặc đặt ANTHROPIC_API_KEY",
+            "ai_not_configured",
+        )
+    if custom:
+        async with user_session(engine, user_id) as s:
+            models = await user_models(s)
+        if any(t not in models for t in tasks):
+            raise ApiError(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "Nhà cung cấp tùy chỉnh cần tên model cho tác vụ này (Cài đặt AI)",
+                "ai_model_missing",
+            )
+    return llm, custom
 
 
 @router.get("/ai/settings", response_model=AiSettings, responses=UNAUTHORIZED)
@@ -200,25 +245,7 @@ async def post_ask(
         raise validation_error_response(e.errors()) from None
     if not req.question.strip():
         raise ApiError(status.HTTP_400_BAD_REQUEST, "Câu hỏi đang trống", "question_empty")
-    try:
-        llm, custom = await resolver.for_user(engine, user_id)
-    except LlmError as e:
-        raise ApiError(e.http_status, e.message, e.code) from None
-    if llm is None:
-        raise ApiError(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "Chưa cấu hình AI: nhập nhà cung cấp ở Cài đặt AI hoặc đặt ANTHROPIC_API_KEY",
-            "ai_not_configured",
-        )
-    if custom:
-        async with user_session(engine, user_id) as s:
-            missing = [t for t in TASKS if t not in await user_models(s)]
-        if missing:
-            raise ApiError(
-                status.HTTP_503_SERVICE_UNAVAILABLE,
-                "Nhà cung cấp tùy chỉnh cần tên model cho mọi tác vụ (Cài đặt AI)",
-                "ai_model_missing",
-            )
+    llm, custom = await _llm_for(engine, resolver, user_id, ASK_TASKS)
     filters = AskFilters(
         folder_id=req.folder_id, sent_after=req.sent_after, sent_before=req.sent_before
     )
@@ -242,6 +269,200 @@ async def post_ask(
         raise ApiError(
             status.HTTP_500_INTERNAL_SERVER_ERROR, "Lỗi khi xử lý câu hỏi", "ask_failed"
         ) from None
+
+
+# --- dịch mail (spec 26 mục 6, 10) ---
+
+
+@router.post(
+    "/messages/{message_id}/translate",
+    response_model=MessageTranslationOut,
+    responses={
+        **UNAUTHORIZED,
+        400: {"model": ErrorBody, "description": "nothing_to_translate"},
+        403: {"model": ErrorBody, "description": "Thiếu header X-PMM-Request"},
+        404: {"model": ErrorBody, "description": "message_not_found"},
+        409: {"model": ErrorBody, "description": "mail_not_ready, translate_in_progress"},
+        502: {"model": ErrorBody, "description": "ai_refused, ai_truncated, ai_bad_output…"},
+        503: {"model": ErrorBody, "description": "ai_not_configured, ai_unavailable, ml_…"},
+    },
+    openapi_extra=json_body(TranslateInput),
+)
+async def post_translate(
+    request: Request,
+    message_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)],
+    user_id: WebUserId,
+    engine: Engine,
+    ml: Annotated[MlClient, Depends(get_ml)],
+    resolver: Annotated[LlmResolver, Depends(get_resolver)],
+) -> MessageTranslationOut:
+    raw = await read_body(request)
+    try:
+        req = TranslateInput.model_validate_json(raw)
+    except ValidationError as e:
+        raise validation_error_response(e.errors()) from None
+    try:
+        async with user_session(engine, user_id) as s:
+            mail = await read_mail(s, user_id, message_id)
+            saved = {} if req.force else await saved_translations(s, user_id, [message_id])
+        if message_id in saved:
+            return saved[message_id]
+        ensure_translatable(mail)
+        llm, custom = await _llm_for(engine, resolver, user_id, (TASK_TRANSLATE,))
+        with request.app.state.translate_guard.hold(user_id):
+            result = await produce_translation(
+                engine, ml, llm, user_id, message_id, custom_provider=custom
+            )
+            async with user_session(engine, user_id) as s:
+                await save_translation(s, user_id, message_id, result)
+                return (await saved_translations(s, user_id, [message_id]))[message_id]
+    except AskBusy:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "Đang có một mail chưa dịch xong", "translate_in_progress"
+        ) from None
+    except TranslateError as e:
+        raise ApiError(e.status_code, e.detail, e.code) from None
+    except LlmError as e:
+        raise ApiError(e.http_status, e.message, e.code) from None
+    except (ApiError, MlUnavailable, EmbeddingModelMismatch, DBAPIError):
+        raise  # đã có handler riêng, không lộ nội dung
+    except Exception as e:
+        # Thông điệp lỗi có thể chứa nội dung mail: uvicorn sẽ log cả traceback.
+        log.error("translate failed user=%s error=%s", user_id, type(e).__name__)
+        raise ApiError(
+            status.HTTP_500_INTERNAL_SERVER_ERROR, "Lỗi khi dịch mail", "translate_failed"
+        ) from None
+
+
+@router.get(
+    "/threads/{thread_id}/translations",
+    response_model=ThreadTranslations,
+    responses={**UNAUTHORIZED, 404: {"model": ErrorBody, "description": "thread_not_found"}},
+)
+async def get_thread_translations(
+    thread_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)], user_id: WebUserId, engine: Engine
+) -> ThreadTranslations:
+    async with user_session(engine, user_id) as s:
+        result = await thread_translations(s, user_id, thread_id)
+    if result is None:
+        raise ApiError(status.HTTP_404_NOT_FOUND, "Không có thread này", "thread_not_found")
+    return result
+
+
+# --- chuyển mail sang folder dự án, chỉ trên web (spec 26 mục 8) ---
+
+MOVE_ERRORS: dict[int | str, dict[str, Any]] = {
+    **UNAUTHORIZED,
+    403: {"model": ErrorBody, "description": "Thiếu header X-PMM-Request"},
+    404: {"model": ErrorBody, "description": "message_not_found"},
+}
+OWN_MESSAGE = text("SELECT EXISTS (SELECT 1 FROM messages WHERE id = :m AND user_id = :u)")
+RUN_STATE = text(
+    "SELECT status, target_source_id, move_note FROM message_auto_runs "
+    "WHERE user_id = :u AND message_id = :m"
+)
+PROJECT_FOLDER = text(
+    "SELECT p.processed_source_id FROM projects p "
+    "JOIN message_projects mp ON mp.project_id = p.id AND mp.user_id = p.user_id "
+    "WHERE p.id = :p AND p.user_id = :u AND mp.message_id = :m AND mp.user_id = :u "
+    "AND p.processed_source_id IS NOT NULL"
+)
+SET_TARGET = text(
+    "UPDATE message_auto_runs SET target_source_id = :t, move_note = NULL, updated_at = now() "
+    "WHERE user_id = :u AND message_id = :m AND status = 'done'"
+)
+DELETE_FAILED_RUN = text(
+    "WITH d AS (DELETE FROM message_auto_runs WHERE user_id = :u AND message_id = :m "
+    "AND status = 'failed' RETURNING 1) SELECT count(*) FROM d"
+)
+
+
+async def _require_own_message(s: AsyncSession, user_id: int, message_id: int) -> None:
+    if not await s.scalar(OWN_MESSAGE, {"m": message_id, "u": user_id}):
+        raise ApiError(status.HTTP_404_NOT_FOUND, "Không có mail này", "message_not_found")
+
+
+@router.post(
+    "/messages/{message_id}/move-back",
+    response_model=MailMoveOut,
+    responses=MOVE_ERRORS,
+)
+async def post_move_back(
+    message_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)], user_id: WebUserId, engine: Engine
+) -> MailMoveOut:
+    """Đưa mail về chỗ cũ (Inbox). Dòng run vẫn `done`: không dịch hay chuyển lại."""
+    async with user_session(engine, user_id) as s:
+        await _require_own_message(s, user_id, message_id)
+        await s.execute(SET_TARGET, {"t": None, "u": user_id, "m": message_id})
+        row = (await s.execute(RUN_STATE, {"u": user_id, "m": message_id})).first()
+    return MailMoveOut(
+        message_id=message_id,
+        folder_id=None if row is None else row.target_source_id,
+        move_note=None if row is None else row.move_note,
+    )
+
+
+@router.post(
+    "/messages/{message_id}/move",
+    response_model=MailMoveOut,
+    responses={
+        **MOVE_ERRORS,
+        409: {"model": ErrorBody, "description": "move_not_ready"},
+        422: {"model": ErrorBody, "description": "move_invalid"},
+    },
+    openapi_extra=json_body(MoveInput),
+)
+async def post_move(
+    request: Request,
+    message_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)],
+    user_id: WebUserId,
+    engine: Engine,
+) -> MailMoveOut:
+    """Chọn dự án cho mail (thường là `ambiguous`): dự án phải chứa mail và có folder."""
+    raw = await read_body(request)
+    try:
+        req = MoveInput.model_validate_json(raw)
+    except ValidationError as e:
+        raise validation_error_response(e.errors()) from None
+    async with user_session(engine, user_id) as s:
+        await _require_own_message(s, user_id, message_id)
+        run = (await s.execute(RUN_STATE, {"u": user_id, "m": message_id})).first()
+        if run is None or run.status != "done":
+            raise ApiError(
+                status.HTTP_409_CONFLICT, "Mail chưa được xử lý tự động", "move_not_ready"
+            )
+        target = await s.scalar(
+            PROJECT_FOLDER, {"p": req.project_id, "u": user_id, "m": message_id}
+        )
+        if target is None:
+            raise ApiError(
+                422,
+                "Dự án không chứa mail này hoặc chưa có folder",
+                "move_invalid",
+            )
+        await s.execute(SET_TARGET, {"t": target, "u": user_id, "m": message_id})
+    return MailMoveOut(message_id=message_id, folder_id=target, move_note=None)
+
+
+@router.post(
+    "/messages/{message_id}/auto-retry",
+    status_code=status.HTTP_204_NO_CONTENT,
+    responses={
+        **MOVE_ERRORS,
+        409: {"model": ErrorBody, "description": "auto_retry_invalid"},
+    },
+)
+async def post_auto_retry(
+    message_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)], user_id: WebUserId, engine: Engine
+) -> None:
+    """Xóa dòng `failed` để lần quét sau thử lại."""
+    async with user_session(engine, user_id) as s:
+        await _require_own_message(s, user_id, message_id)
+        deleted = await s.scalar(DELETE_FAILED_RUN, {"u": user_id, "m": message_id})
+    if not deleted:
+        raise ApiError(
+            status.HTTP_409_CONFLICT, "Mail không ở trạng thái lỗi", "auto_retry_invalid"
+        )
 
 
 # --- nhà cung cấp AI tùy chỉnh (spec 24) ---

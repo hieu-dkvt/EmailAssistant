@@ -1,9 +1,11 @@
-import { FileText, Paperclip, Scissors } from "lucide-react";
-import { useState } from "react";
+import { BookPlus, FileText, Paperclip, Scissors } from "lucide-react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 
-import { errorMessage, type ThreadMessage } from "@/api/client";
+import { errorMessage, type ThreadMessage, type ThreadTranslationItem } from "@/api/client";
 import { useCreateOverride, useMessageFull } from "@/api/hooks";
+import { AddGlossaryDialog } from "@/components/AddGlossaryDialog";
 import { Highlighted } from "@/components/Highlighted";
+import { MessageTranslation } from "@/components/MessageTranslation";
 import { useRethread } from "@/components/rethread-context";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -93,12 +95,64 @@ function SplitDialog({ message, onClose }: { message: ThreadMessage; onClose: ()
   );
 }
 
-export function MessageCard({ message, q }: { message: ThreadMessage; q: string }) {
+export function MessageCard({
+  message,
+  q,
+  translation,
+}: {
+  message: ThreadMessage;
+  q: string;
+  /** Bản dịch và trạng thái xử lý tự động của mail (undefined: chưa tải xong). */
+  translation: ThreadTranslationItem | undefined;
+}) {
   const [showFull, setShowFull] = useState(false);
   const [splitting, setSplitting] = useState(false);
+  const [selected, setSelected] = useState("");
+  const [glossaryTerm, setGlossaryTerm] = useState<string | null>(null);
   const rethread = useRethread();
+  const articleRef = useRef<HTMLElement>(null);
+
+  // Vùng chọn mất hoặc ra ngoài thẻ (bấm chỗ khác, gõ phím): bỏ nút cũ.
+  useEffect(() => {
+    function onChange() {
+      const sel = window.getSelection();
+      const inside = !!sel?.anchorNode && !!articleRef.current?.contains(sel.anchorNode);
+      if (!inside || sel.isCollapsed) setSelected("");
+    }
+    document.addEventListener("selectionchange", onChange);
+    return () => document.removeEventListener("selectionchange", onChange);
+  }, []);
+
+  // Đoạn chữ bôi đen nằm trong thẻ này: hiện nút thêm vào glossary.
+  function onSelect(e: SyntheticEvent<HTMLElement>) {
+    // Bấm nút (kể cả nút "Thêm vào glossary") hoặc thao tác trong hộp thoại không đổi vùng chọn.
+    if (e.target instanceof Element && e.target.closest("button, [role=dialog]")) return;
+    const sel = window.getSelection();
+    const text = sel?.toString().trim() ?? "";
+    const inside = !!sel?.anchorNode && e.currentTarget.contains(sel.anchorNode);
+    setSelected(inside ? text : "");
+  }
+
+  const original = showFull ? (
+    <FullText messageId={message.id} q={q} />
+  ) : (
+    <pre className="font-sans text-sm break-words whitespace-pre-wrap">
+      {message.body.length ? (
+        <Highlighted segments={message.body} />
+      ) : (
+        <span className="text-muted-foreground">(không có nội dung mới)</span>
+      )}
+    </pre>
+  );
+
   return (
-    <article id={`m-${message.id}`} className="scroll-mt-20 rounded-lg border p-4 target:ring-2">
+    <article
+      id={`m-${message.id}`}
+      className="scroll-mt-20 rounded-lg border p-4 target:ring-2"
+      ref={articleRef}
+      onMouseUp={onSelect}
+      onKeyUp={onSelect}
+    >
       <header className="mb-2 grid gap-0.5 text-sm">
         <div className="flex flex-wrap items-baseline gap-2">
           <span className="font-medium">{senderLabel(message.from_name, message.from_addr)}</span>
@@ -140,17 +194,7 @@ export function MessageCard({ message, q }: { message: ThreadMessage; q: string 
           Mail chưa được làm sạch (đang chờ worker): hiện nội dung đầy đủ.
         </p>
       )}
-      {showFull ? (
-        <FullText messageId={message.id} q={q} />
-      ) : (
-        <pre className="font-sans text-sm break-words whitespace-pre-wrap">
-          {message.body.length ? (
-            <Highlighted segments={message.body} />
-          ) : (
-            <span className="text-muted-foreground">(không có nội dung mới)</span>
-          )}
-        </pre>
-      )}
+      <MessageTranslation message={message} item={translation} original={original} />
       {message.body_truncated && !showFull && (
         <p className="mt-1 text-xs text-muted-foreground">
           Nội dung dài, chỉ hiện phần đầu: bấm "Toàn văn" để đọc hết.
@@ -166,6 +210,17 @@ export function MessageCard({ message, q }: { message: ThreadMessage; q: string 
             Đã ẩn {message.cut_count} đoạn trích dẫn/chữ ký
           </span>
         )}
+        {selected && (
+          <Button
+            variant="outline"
+            size="sm"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setGlossaryTerm(selected)}
+          >
+            <BookPlus />
+            Thêm vào glossary
+          </Button>
+        )}
         {message.thread_method !== "root" && (
           <Button
             variant="ghost"
@@ -179,6 +234,16 @@ export function MessageCard({ message, q }: { message: ThreadMessage; q: string 
           </Button>
         )}
       </footer>
+      {glossaryTerm !== null && (
+        <AddGlossaryDialog
+          initialTerm={glossaryTerm}
+          projects={translation?.projects ?? []}
+          onClose={() => {
+            setGlossaryTerm(null);
+            setSelected("");
+          }}
+        />
+      )}
       {splitting && <SplitDialog message={message} onClose={() => setSplitting(false)} />}
     </article>
   );

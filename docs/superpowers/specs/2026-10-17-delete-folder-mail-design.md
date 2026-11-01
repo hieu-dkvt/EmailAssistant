@@ -15,6 +15,7 @@ Ngày: 2026-10-17 · Thành phần: `backend/app/sources.py`, `backend/app/api/r
 - Xóa hẳn, không khôi phục. Phải xác nhận trên giao diện.
 - Chỉ xóa được folder đang **không được chọn** đồng bộ (tránh xóa trong lúc vẫn đồng bộ lại), **hoặc** folder không còn file mbox trong profile (đã đổi tên/xóa trong Thunderbird: không có dòng nào để bỏ tick, nhất là khi "tự thêm folder mới" đang bật). Sau khi xóa, collector reset state của folder đó, nên nếu sau này chọn lại thì đọc lại từ đầu.
 - Không chạy song song với đồng bộ (cùng khóa `sync.lock`).
+- **Folder hiệu lực (spec 26, 2026-11-01):** việc xóa luôn theo `message_ownership` vật lý. Mail dịch tự động được "chuyển" sang folder dự án chỉ trên web (`message_auto_runs.target_source_id`), ownership vẫn ở Inbox. Hệ quả: xóa mail của Inbox xóa cả mail đã chuyển đi (bản dịch và `message_auto_runs` đi theo bằng `ON DELETE CASCADE`); xóa folder dự án (đích) không xóa mail chuyển tới đó, dòng `target_source_id` về NULL và mail hiện lại ở Inbox trên web. Số mail của `/sources` (collector) vẫn là số vật lý; số mail theo folder hiệu lực chỉ ở `GET /folders` của web. Thuật ngữ glossary thêm từ đoạn bôi đen không bị xóa theo mail (không có khóa tới mail).
 
 ## 3. Backend
 

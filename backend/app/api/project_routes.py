@@ -38,6 +38,7 @@ WRITE: dict[int | str, dict[str, Any]] = {
     403: {"model": ErrorBody, "description": "Thiếu header X-PMM-Request"},
     404: {"model": ErrorBody, "description": "project_not_found"},
     409: {"model": ErrorBody, "description": "project_name_taken, project_limit"},
+    422: {"model": ErrorBody, "description": "project_folder_invalid"},
 }
 
 

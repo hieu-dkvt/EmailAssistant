@@ -11,6 +11,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.mail.domains import normalize_domain
 from app.schemas import MAX_BIGINT, StrictModel
 
 type PartKind = Literal["body", "quote", "signature"]
@@ -475,6 +476,8 @@ class ProjectInput(StrictModel):
     backlog_project_key: str | None = None
     redmine_url: str | None = None
     redmine_project: str | None = None
+    customer_domains: list[str] = []
+    processed_source_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
 
     @field_validator("name")
     @classmethod
@@ -490,6 +493,18 @@ class ProjectInput(StrictModel):
     @classmethod
     def _list(cls, value: list[str]) -> list[str]:
         return _clean_list(value)
+
+    @field_validator("customer_domains")
+    @classmethod
+    def _domains(cls, value: list[str]) -> list[str]:
+        if len(value) > MAX_FILTER_VALUES:
+            raise ValueError(f"Tối đa {MAX_FILTER_VALUES} domain")
+        out: list[str] = []
+        for raw in value:
+            domain = normalize_domain(raw)
+            if domain not in out:
+                out.append(domain)
+        return out
 
     @field_validator(*PROJECT_URL_FIELDS)
     @classmethod
@@ -524,6 +539,9 @@ class Project(BaseModel):
     backlog_project_key: str | None
     redmine_url: str | None
     redmine_project: str | None
+    customer_domains: list[str]
+    processed_source_id: int | None
+    ai_since: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -531,3 +549,134 @@ class Project(BaseModel):
 class ProjectList(BaseModel):
     items: list[Project]
     assigning: bool  # rules_version > applied_rules_version: worker đang gán lại mail
+
+
+# --- Glossary (spec 26 mục 9) ---
+
+MAX_GLOSSARY_TERM = 200
+MIN_GLOSSARY_TERM = 2
+MAX_GLOSSARY_TRANSLATION = 200
+MAX_GLOSSARY_NOTE = 500
+
+
+class GlossaryInput(StrictModel):
+    """Body của POST/PATCH /glossary. PATCH không đổi phạm vi: bỏ qua project_id."""
+
+    project_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
+    term: str
+    translation: str
+    note: str | None = None
+
+    @field_validator("term")
+    @classmethod
+    def _term(cls, value: str) -> str:
+        value = value.strip()
+        if not MIN_GLOSSARY_TERM <= len(value) <= MAX_GLOSSARY_TERM:
+            raise ValueError(f"Thuật ngữ dài {MIN_GLOSSARY_TERM}–{MAX_GLOSSARY_TERM} ký tự")
+        if _has_control(value):
+            raise ValueError("Có ký tự điều khiển")
+        return value
+
+    @field_validator("translation")
+    @classmethod
+    def _translation(cls, value: str) -> str:
+        value = value.strip()
+        if not 1 <= len(value) <= MAX_GLOSSARY_TRANSLATION:
+            raise ValueError(f"Bản dịch dài 1–{MAX_GLOSSARY_TRANSLATION} ký tự")
+        if _has_control(value):
+            raise ValueError("Có ký tự điều khiển")
+        return value
+
+    @field_validator("note")
+    @classmethod
+    def _note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if len(value) > MAX_GLOSSARY_NOTE:
+            raise ValueError(f"Ghi chú tối đa {MAX_GLOSSARY_NOTE} ký tự")
+        if any(unicodedata.category(c) == "Cc" and c not in "\n\t" for c in value):
+            raise ValueError("Có ký tự điều khiển")
+        return value or None
+
+
+class GlossaryItem(BaseModel):
+    id: int
+    project_id: int | None
+    term: str
+    translation: str
+    note: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class GlossaryPage(BaseModel):
+    items: list[GlossaryItem]
+    total: int
+
+
+class GlossaryImportInput(StrictModel):
+    project_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
+    text: str
+    format: Literal["csv", "lines"]
+    on_conflict: Literal["skip", "overwrite"] = "skip"
+    apply: bool = False
+
+
+class GlossaryImportResult(BaseModel):
+    added: int
+    duplicate: int
+    invalid: int
+    first_error: str | None  # chỉ có số dòng và tên ô, không chép giá trị
+
+
+# --- Dịch mail (spec 26 mục 6, 10) ---
+
+
+class TranslateInput(StrictModel):
+    force: bool = False  # true: gọi AI lại dù đã có bản dịch ("Dịch lại")
+
+
+class MoveInput(StrictModel):
+    project_id: int = Field(gt=0, le=MAX_BIGINT)
+
+
+class MailMoveOut(BaseModel):
+    """Trạng thái chuyển folder của mail sau thao tác (spec 26 mục 8)."""
+
+    message_id: int
+    folder_id: int | None  # folder đích; None: mail ở chỗ cũ
+    move_note: str | None  # no_folder, ambiguous
+
+
+class MessageTranslationOut(BaseModel):
+    message_id: int
+    translated_subject: str
+    translated_body: str
+    notes: list[str]
+    warnings: list[str]  # mã kiểm tra sau dịch, spec 26 mục 11
+    model: str
+    stale: bool  # mail, prompt hoặc thuật ngữ đã dùng đã đổi: nên dịch lại
+    created_at: datetime
+    updated_at: datetime
+
+
+class AutoState(BaseModel):
+    """Trạng thái xử lý tự động của một mail (spec 26 mục 8)."""
+
+    status: Literal["retry", "done", "failed"]
+    error_code: str | None
+    move_note: str | None
+    target_folder: str | None  # đường dẫn folder đã chuyển tới, None = mail ở chỗ cũ
+
+
+class ThreadTranslationItem(BaseModel):
+    message_id: int
+    translation: MessageTranslationOut | None
+    auto: AutoState | None
+    projects: list[ProjectRef]  # dự án của mail (message_projects), sắp theo tên
+    move_projects: list[ProjectRef]  # phần có folder đích: chọn được khi chuyển mail
+
+
+class ThreadTranslations(BaseModel):
+    items: list[ThreadTranslationItem]

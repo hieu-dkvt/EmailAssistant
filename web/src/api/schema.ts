@@ -314,6 +314,100 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/api/v1/messages/{message_id}/translate": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Post Translate */
+    post: operations["post_translate_api_v1_messages__message_id__translate_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/threads/{thread_id}/translations": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Thread Translations */
+    get: operations["get_thread_translations_api_v1_threads__thread_id__translations_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/messages/{message_id}/move-back": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Post Move Back
+     * @description Đưa mail về chỗ cũ (Inbox). Dòng run vẫn `done`: không dịch hay chuyển lại.
+     */
+    post: operations["post_move_back_api_v1_messages__message_id__move_back_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/messages/{message_id}/move": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Post Move
+     * @description Chọn dự án cho mail (thường là `ambiguous`): dự án phải chứa mail và có folder.
+     */
+    post: operations["post_move_api_v1_messages__message_id__move_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/messages/{message_id}/auto-retry": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Post Auto Retry
+     * @description Xóa dòng `failed` để lần quét sau thử lại.
+     */
+    post: operations["post_auto_retry_api_v1_messages__message_id__auto_retry_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/api/v1/ai/provider": {
     parameters: {
       query?: never;
@@ -384,6 +478,76 @@ export interface paths {
     post?: never;
     /** Remove Project */
     delete: operations["remove_project_api_v1_projects__project_id__delete"];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/glossary": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Get Glossary */
+    get: operations["get_glossary_api_v1_glossary_get"];
+    put?: never;
+    /** Post Glossary */
+    post: operations["post_glossary_api_v1_glossary_post"];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/glossary/export": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Export Glossary */
+    get: operations["export_glossary_api_v1_glossary_export_get"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  "/api/v1/glossary/{glossary_id}": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /** Delete Glossary */
+    delete: operations["delete_glossary_api_v1_glossary__glossary_id__delete"];
+    options?: never;
+    head?: never;
+    /** Patch Glossary */
+    patch: operations["patch_glossary_api_v1_glossary__glossary_id__patch"];
+    trace?: never;
+  };
+  "/api/v1/glossary/import": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Import Glossary */
+    post: operations["import_glossary_api_v1_glossary_import_post"];
+    delete?: never;
     options?: never;
     head?: never;
     patch?: never;
@@ -550,7 +714,7 @@ export interface components {
     };
     /**
      * AskSent
-     * @description Đúng nội dung (đã che) gửi Claude trong một lần gọi.
+     * @description Đúng nội dung (đã che) gửi AI trong một lần gọi.
      */
     AskSent: {
       /** Task */
@@ -585,6 +749,23 @@ export interface components {
       size: number;
       /** Content Type */
       content_type?: string | null;
+    };
+    /**
+     * AutoState
+     * @description Trạng thái xử lý tự động của một mail (spec 26 mục 8).
+     */
+    AutoState: {
+      /**
+       * Status
+       * @enum {string}
+       */
+      status: "retry" | "done" | "failed";
+      /** Error Code */
+      error_code: string | null;
+      /** Move Note */
+      move_note: string | null;
+      /** Target Folder */
+      target_folder: string | null;
     };
     /** DeleteResult */
     DeleteResult: {
@@ -622,6 +803,47 @@ export interface components {
       /** Path */
       path: string;
     };
+    /** GlossaryImportResult */
+    GlossaryImportResult: {
+      /** Added */
+      added: number;
+      /** Duplicate */
+      duplicate: number;
+      /** Invalid */
+      invalid: number;
+      /** First Error */
+      first_error: string | null;
+    };
+    /** GlossaryItem */
+    GlossaryItem: {
+      /** Id */
+      id: number;
+      /** Project Id */
+      project_id: number | null;
+      /** Term */
+      term: string;
+      /** Translation */
+      translation: string;
+      /** Note */
+      note: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
+    };
+    /** GlossaryPage */
+    GlossaryPage: {
+      /** Items */
+      items: components["schemas"]["GlossaryItem"][];
+      /** Total */
+      total: number;
+    };
     /** HTTPValidationError */
     HTTPValidationError: {
       /** Detail */
@@ -639,6 +861,18 @@ export interface components {
       duplicates: number;
       /** Mismatched */
       mismatched: number;
+    };
+    /**
+     * MailMoveOut
+     * @description Trạng thái chuyển folder của mail sau thao tác (spec 26 mục 8).
+     */
+    MailMoveOut: {
+      /** Message Id */
+      message_id: number;
+      /** Folder Id */
+      folder_id: number | null;
+      /** Move Note */
+      move_note: string | null;
     };
     /** Me */
     Me: {
@@ -679,6 +913,33 @@ export interface components {
       id: number;
       /** Thread Id */
       thread_id: number | null;
+    };
+    /** MessageTranslationOut */
+    MessageTranslationOut: {
+      /** Message Id */
+      message_id: number;
+      /** Translated Subject */
+      translated_subject: string;
+      /** Translated Body */
+      translated_body: string;
+      /** Notes */
+      notes: string[];
+      /** Warnings */
+      warnings: string[];
+      /** Model */
+      model: string;
+      /** Stale */
+      stale: boolean;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
     };
     /** OverrideInfo */
     OverrideInfo: {
@@ -740,6 +1001,12 @@ export interface components {
       redmine_url: string | null;
       /** Redmine Project */
       redmine_project: string | null;
+      /** Customer Domains */
+      customer_domains: string[];
+      /** Processed Source Id */
+      processed_source_id: number | null;
+      /** Ai Since */
+      ai_since: string | null;
       /**
        * Created At
        * Format: date-time
@@ -950,6 +1217,22 @@ export interface components {
       has_attachments: boolean;
       /** Projects */
       projects: components["schemas"]["ProjectRef"][];
+    };
+    /** ThreadTranslationItem */
+    ThreadTranslationItem: {
+      /** Message Id */
+      message_id: number;
+      translation: components["schemas"]["MessageTranslationOut"] | null;
+      auto: components["schemas"]["AutoState"] | null;
+      /** Projects */
+      projects: components["schemas"]["ProjectRef"][];
+      /** Move Projects */
+      move_projects: components["schemas"]["ProjectRef"][];
+    };
+    /** ThreadTranslations */
+    ThreadTranslations: {
+      /** Items */
+      items: components["schemas"]["ThreadTranslationItem"][];
     };
     /** @enum {string} */
     TierName: "haiku" | "sonnet" | "opus";
@@ -1982,6 +2265,356 @@ export interface operations {
       };
     };
   };
+  post_translate_api_v1_messages__message_id__translate_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        message_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /**
+           * Force
+           * @default false
+           */
+          force?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MessageTranslationOut"];
+        };
+      };
+      /** @description nothing_to_translate */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description message_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description mail_not_ready, translate_in_progress */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+      /** @description ai_refused, ai_truncated, ai_bad_output… */
+      502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description ai_not_configured, ai_unavailable, ml_… */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  get_thread_translations_api_v1_threads__thread_id__translations_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        thread_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ThreadTranslations"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description thread_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  post_move_back_api_v1_messages__message_id__move_back_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        message_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MailMoveOut"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description message_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  post_move_api_v1_messages__message_id__move_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        message_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Project Id */
+          project_id: number;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["MailMoveOut"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description message_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description move_not_ready */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description move_invalid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  post_auto_retry_api_v1_messages__message_id__auto_retry_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        message_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description message_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description auto_retry_invalid */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
   get_provider_api_v1_ai_provider_get: {
     parameters: {
       query?: never;
@@ -2244,6 +2877,13 @@ export interface operations {
           redmine_url?: string | null;
           /** Redmine Project */
           redmine_project?: string | null;
+          /**
+           * Customer Domains
+           * @default []
+           */
+          customer_domains?: string[];
+          /** Processed Source Id */
+          processed_source_id?: number | null;
         };
       };
     };
@@ -2286,6 +2926,15 @@ export interface operations {
       };
       /** @description project_name_taken, project_limit */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_folder_invalid */
+      422: {
         headers: {
           [name: string]: unknown;
         };
@@ -2355,6 +3004,13 @@ export interface operations {
           redmine_url?: string | null;
           /** Redmine Project */
           redmine_project?: string | null;
+          /**
+           * Customer Domains
+           * @default []
+           */
+          customer_domains?: string[];
+          /** Processed Source Id */
+          processed_source_id?: number | null;
         };
       };
     };
@@ -2404,13 +3060,13 @@ export interface operations {
           "application/json": components["schemas"]["ErrorBody"];
         };
       };
-      /** @description Validation Error */
+      /** @description project_folder_invalid */
       422: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["HTTPValidationError"];
+          "application/json": components["schemas"]["ErrorBody"];
         };
       };
     };
@@ -2469,6 +3125,58 @@ export interface operations {
           "application/json": components["schemas"]["ErrorBody"];
         };
       };
+      /** @description project_folder_invalid */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  get_glossary_api_v1_glossary_get: {
+    parameters: {
+      query?: {
+        project_id?: number | null;
+        q?: string;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlossaryPage"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
       /** @description Validation Error */
       422: {
         headers: {
@@ -2476,6 +3184,368 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  post_glossary_api_v1_glossary_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Project Id */
+          project_id?: number | null;
+          /** Term */
+          term: string;
+          /** Translation */
+          translation: string;
+          /** Note */
+          note?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlossaryItem"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found, glossary_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_duplicate, glossary_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+    };
+  };
+  export_glossary_api_v1_glossary_export_get: {
+    parameters: {
+      query?: {
+        project_id?: number | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": unknown;
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  delete_glossary_api_v1_glossary__glossary_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        glossary_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found, glossary_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_duplicate, glossary_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  patch_glossary_api_v1_glossary__glossary_id__patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        glossary_id: number;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Project Id */
+          project_id?: number | null;
+          /** Term */
+          term: string;
+          /** Translation */
+          translation: string;
+          /** Note */
+          note?: string | null;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlossaryItem"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found, glossary_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_duplicate, glossary_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["HTTPValidationError"];
+        };
+      };
+    };
+  };
+  import_glossary_api_v1_glossary_import_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        "application/json": {
+          /** Project Id */
+          project_id?: number | null;
+          /** Text */
+          text: string;
+          /**
+           * Format
+           * @enum {string}
+           */
+          format: "csv" | "lines";
+          /**
+           * On Conflict
+           * @default skip
+           * @enum {string}
+           */
+          on_conflict?: "skip" | "overwrite";
+          /**
+           * Apply
+           * @default false
+           */
+          apply?: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["GlossaryImportResult"];
+        };
+      };
+      /** @description Chưa đăng nhập */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description Thiếu header X-PMM-Request */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found, glossary_not_found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_duplicate, glossary_limit */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_import_too_large */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description glossary_import_too_many_lines */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
         };
       };
     };

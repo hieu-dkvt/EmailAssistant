@@ -10,6 +10,7 @@ import { AiSettingsPage } from "@/pages/AiSettingsPage";
 import { AskPage } from "@/pages/AskPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { OverridesPage } from "@/pages/OverridesPage";
+import { GlossaryPage } from "@/pages/GlossaryPage";
 import { ProjectsPage } from "@/pages/ProjectsPage";
 import { SearchPage } from "@/pages/SearchPage";
 import { ThreadListPage } from "@/pages/ThreadListPage";
@@ -57,6 +58,7 @@ export function App() {
         <Route path="/overrides" element={<OverridesPage />} />
         <Route path="/ask" element={<AskPage />} />
         <Route path="/settings/projects" element={<ProjectsPage />} />
+        <Route path="/settings/glossary" element={<GlossaryPage />} />
         <Route path="/settings/ai" element={<AiSettingsPage />} />
         <Route path="*" element={<p className="text-sm">Không có trang này.</p>} />
       </Route>

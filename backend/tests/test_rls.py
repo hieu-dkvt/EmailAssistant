@@ -57,6 +57,10 @@ def test_rls_enabled_flags(owner_engine: Engine, migrated: None) -> None:
         "projects": True,
         "message_projects": True,
         "user_project_state": True,
+        # 0018: glossary, bản dịch và trạng thái tự động (spec 26).
+        "glossary_terms": True,
+        "message_translations": True,
+        "message_auto_runs": True,
     }
 
 

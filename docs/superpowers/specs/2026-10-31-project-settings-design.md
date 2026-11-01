@@ -76,6 +76,9 @@ Bảng mới, chưa có dữ liệu, không cần `CONCURRENTLY`. RLS, GRANT vi�
 | `backlog_mail` | `text[]` | lưu sẵn |
 | `backlog_space_url`, `backlog_project_key` | `text` NULL | lưu sẵn |
 | `redmine_url`, `redmine_project` | `text` NULL | lưu sẵn |
+| `customer_domains` | `text[]`, mặc định `'{}'` | Domain mail khách, tối đa 20 giá trị, dùng cho dịch tự động (spec 26 mục 3). Thêm ở migration 0018 |
+| `processed_source_id` | `bigint` NULL | Folder mail dự án / AI đã xử lý: mail dịch xong chuyển tới đây trên web. FK kép `(processed_source_id, user_id)` tới `mail_sources`, xóa folder thì đặt NULL (spec 26). Migration 0018 |
+| `ai_since` | `timestamptz` NULL | Mốc dịch tự động của dự án: đặt một lần khi `customer_domains` lần đầu có giá trị (hiện tại trừ 14 ngày), do API đặt, web chỉ đọc (spec 26). Migration 0018 |
 | `created_at`, `updated_at` | `timestamptz` | |
 
 `UNIQUE (id, user_id)` cho FK kép. RLS owner theo `user_id` (`USING` và `WITH CHECK`). `app_api`: `SELECT`, `DELETE`, `INSERT` theo cột không có `id`, `UPDATE` theo cột không có `id`, `user_id`. `app_worker`: `SELECT`.
@@ -156,6 +159,7 @@ Path id dùng `Path(gt=0, le=MAX_BIGINT)`.
 - `docs_local_path`, `review_local_path`: có thể trống, tối đa 1.000 ký tự, không có ký tự điều khiển. Không kiểm tra tồn tại.
 - `backlog_project_key`, `redmine_project`: có thể trống, tối đa 200 ký tự.
 - Giá trị trống ghi `NULL`.
+- `customer_domains` (spec 26): tối đa 20 giá trị, mỗi giá trị chuẩn hóa (`normalize_domain`: NFKC, casefold, bỏ `@` đầu, phải có dấu chấm, không khoảng trắng hay ký tự điều khiển, không nhãn rỗng, tối đa 253 ký tự), bỏ trùng. `processed_source_id`: folder của chính người dùng và không phải Inbox, không thì 422 `project_folder_invalid`. `ai_since` chỉ có trong `Project` trả về, `ProjectInput` không nhận. Lưu dự án đổi `processed_source_id` sang folder khác thì xét lại mail `done` đang `no_folder` của dự án trong cùng transaction.
 
 `Project` = các trường trên, cộng `id`, `created_at`, `updated_at`.
 
@@ -228,6 +232,8 @@ Chỉ dùng dữ liệu giả `*.example.*`.
 - Giới hạn 100 dự án kiểm bằng đếm rồi chèn, nên nhiều lần tạo đồng thời có thể vượt nhẹ.
 - Ràng buộc `UNIQUE (id, user_id)` trên `projects` là mẫu làm đích FK kép, dùng chung với `messages`, `threads`, `mail_sources`.
 - Các tính năng về sau dùng `docs_repo_url` hoặc đường dẫn local phải truyền `--` cho git, giới hạn giao thức git, và chỉ cho phép trong danh sách folder gốc cho trước. Hiện UNC và `..` vẫn được nhận vì giá trị chưa bao giờ được dùng.
+
+Thêm 2026-11-01 (spec 26): `Project` và `ProjectInput` có `customer_domains`, `processed_source_id` (và `ai_since` chỉ đọc); xóa dự án xóa luôn `glossary_terms` của dự án (`ON DELETE CASCADE`), hộp thoại xóa nói rõ. Hợp đồng web đổi theo `npm run gen:api`; collector không bị ảnh hưởng.
 
 ## 11. Sửa sau review (2026-10-31)
 

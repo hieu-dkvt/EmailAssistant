@@ -1,0 +1,152 @@
+term,translation,note
+要件定義,định nghĩa yêu cầu,Giai đoạn đầu của dự án
+基本設計,thiết kế cơ bản,Basic design
+詳細設計,thiết kế chi tiết,Detailed design
+外部設計,thiết kế bên ngoài,Thiết kế hướng người dùng
+内部設計,thiết kế bên trong,
+画面設計,thiết kế màn hình,
+画面遷移,chuyển đổi màn hình,
+帳票,biểu mẫu báo cáo,
+設計書,tài liệu thiết kế,
+仕様書,tài liệu đặc tả,
+仕様変更,thay đổi đặc tả,
+仕様確認,xác nhận đặc tả,
+要件,yêu cầu,
+機能要件,yêu cầu chức năng,
+非機能要件,yêu cầu phi chức năng,
+実装,triển khai code,Implementation
+開発,phát triển,
+製造,lập trình,Giai đoạn coding
+単体テスト,kiểm thử đơn vị,Unit test
+結合テスト,kiểm thử tích hợp,Integration test
+総合テスト,kiểm thử hệ thống,System test
+受入テスト,kiểm thử chấp nhận,
+受け入れテスト,kiểm thử chấp nhận,
+テスト仕様書,tài liệu đặc tả kiểm thử,
+テスト項目,hạng mục kiểm thử,
+テストケース,test case,
+テスト結果,kết quả kiểm thử,
+回帰テスト,kiểm thử hồi quy,Regression test
+性能テスト,kiểm thử hiệu năng,
+負荷テスト,kiểm thử tải,
+テスト環境,môi trường kiểm thử,
+検証環境,môi trường kiểm chứng,Staging
+本番環境,môi trường production,
+開発環境,môi trường phát triển,
+リリース,phát hành,Release
+リリース手順書,tài liệu quy trình phát hành,
+デプロイ,triển khai lên môi trường,Deploy
+ロールバック,khôi phục phiên bản trước,Rollback
+バグ,lỗi,Bug
+不具合,lỗi,
+障害,sự cố,Incident
+障害対応,xử lý sự cố,
+障害報告書,báo cáo sự cố,
+原因調査,điều tra nguyên nhân,
+再現手順,các bước tái hiện lỗi,
+再現しない,không tái hiện được,
+修正,sửa lỗi,
+修正対応,xử lý sửa chữa,
+改修,chỉnh sửa cải tiến,
+暫定対応,xử lý tạm thời,
+恒久対応,xử lý lâu dài,
+影響範囲,phạm vi ảnh hưởng,
+影響調査,điều tra ảnh hưởng,
+レビュー,review,
+レビュー依頼,yêu cầu review,
+コードレビュー,review code,
+指摘事項,các điểm góp ý,
+指摘,góp ý chỉ ra lỗi,
+修正依頼,yêu cầu sửa,
+承認,phê duyệt,
+承認待ち,đang chờ phê duyệt,
+検収,nghiệm thu,
+納品,bàn giao,
+納品物,sản phẩm bàn giao,
+納期,thời hạn bàn giao,
+成果物,sản phẩm đầu ra,
+見積,báo giá ước tính,
+見積もり,báo giá ước tính,
+工数,man-hour,Khối lượng công việc
+人月,man-month,
+人日,man-day,
+スケジュール,lịch trình,
+進捗,tiến độ,
+進捗報告,báo cáo tiến độ,
+遅延,chậm trễ,
+前倒し,đẩy sớm lên,
+後ろ倒し,lùi lại,
+マイルストーン,cột mốc,Milestone
+課題,vấn đề tồn đọng,Issue
+課題管理表,bảng quản lý vấn đề,
+質問票,bảng câu hỏi,Q&A sheet
+回答,trả lời,
+回答待ち,đang chờ trả lời,
+確認依頼,yêu cầu xác nhận,
+ご確認ください,xin hãy xác nhận,
+ご査収ください,xin hãy kiểm tra và tiếp nhận,
+お手数ですが,xin phiền anh/chị,
+よろしくお願いします,xin nhờ anh/chị giúp đỡ,
+お世話になっております,cảm ơn anh/chị đã luôn giúp đỡ,Câu chào đầu mail
+お疲れ様です,cảm ơn anh/chị đã vất vả,
+申し訳ございません,xin lỗi,
+至急,khẩn cấp,
+対応,xử lý,
+対応済み,đã xử lý xong,
+対応中,đang xử lý,
+未対応,chưa xử lý,
+対応方針,phương châm xử lý,
+議事録,biên bản họp,
+定例会議,họp định kỳ,
+打ち合わせ,cuộc họp trao đổi,
+キックオフ,họp khởi động,Kickoff
+オフショア開発,phát triển offshore,
+ラボ型開発,mô hình phát triển lab,
+請負契約,hợp đồng khoán,
+準委任契約,hợp đồng ủy thác bán phần,
+発注,đặt hàng,
+受注,nhận đơn hàng,
+請求書,hóa đơn,
+作業指示,chỉ thị công việc,
+作業報告,báo cáo công việc,
+運用保守,vận hành bảo trì,
+保守,bảo trì,
+データ移行,chuyển đổi dữ liệu,
+マイグレーション,migration,
+バックアップ,sao lưu,
+リストア,khôi phục dữ liệu,
+権限,quyền hạn,
+ログイン,đăng nhập,
+ログアウト,đăng xuất,
+認証,xác thực,
+認可,phân quyền,
+セッション,phiên làm việc,
+パスワード,mật khẩu,
+データベース,cơ sở dữ liệu,
+テーブル定義書,tài liệu định nghĩa bảng,
+インデックス,index,
+トランザクション,transaction,
+排他制御,kiểm soát truy cập độc quyền,
+バッチ処理,xử lý batch,
+サーバー,máy chủ,
+クライアント,máy khách,
+フロントエンド,front-end,
+バックエンド,back-end,
+リファクタリング,refactoring,
+ソースコード,mã nguồn,
+ブランチ,branch,
+マージ,merge,
+プルリクエスト,pull request,
+コミット,commit,
+チケット,ticket,
+Backlog,Backlog,Giữ nguyên tên công cụ
+Redmine,Redmine,Giữ nguyên tên công cụ
+GitHub,GitHub,Giữ nguyên tên công cụ
+Slack,Slack,Giữ nguyên tên công cụ
+API,API,Giữ nguyên
+SQL,SQL,Giữ nguyên
+UI,UI,Giao diện người dùng
+UAT,UAT,User acceptance test
+SLA,SLA,Cam kết mức dịch vụ
+QA,QA,Đảm bảo chất lượng
+PM,PM,Quản lý dự án

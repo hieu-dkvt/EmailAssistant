@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useParams, useSearchParams } from "react-router";
 
 import { ApiError, errorMessage } from "@/api/client";
-import { useThread } from "@/api/hooks";
+import { useThread, useThreadTranslations } from "@/api/hooks";
 import { MergeDialog } from "@/components/MergeDialog";
 import { MessageCard } from "@/components/MessageCard";
 import { SimilarThreads } from "@/components/SimilarThreads";
@@ -19,6 +19,7 @@ export function ThreadPage() {
   const q = params.get("q")?.trim() ?? "";
   const location = useLocation();
   const thread = useThread(threadId, q);
+  const translations = useThreadTranslations(threadId);
   const rethread = useRethread();
   const [merging, setMerging] = useState(false);
 
@@ -73,7 +74,12 @@ export function ThreadPage() {
         </p>
       )}
       {t.messages.map((m) => (
-        <MessageCard key={m.id} message={m} q={q} />
+        <MessageCard
+          key={m.id}
+          message={m}
+          q={q}
+          translation={translations.data?.items.find((x) => x.message_id === m.id)}
+        />
       ))}
       {root && <SimilarThreads threadId={t.id} rootMessageId={root.id} />}
       {merging && root && (

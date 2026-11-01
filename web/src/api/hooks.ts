@@ -13,10 +13,13 @@ import type { ApiFilters } from "@/lib/filters";
 
 import {
   api,
+  toApiError,
   unwrap,
   type AiProviderBody,
   type AiSettingsBody,
   type AskBody,
+  type GlossaryBody,
+  type GlossaryImportBody,
   type LoginBody,
   type Me,
   type OverrideBody,
@@ -39,6 +42,7 @@ export const keys = {
   aiUsage: ["aiUsage"] as const,
   aiProvider: ["aiProvider"] as const,
   projects: ["projects"] as const,
+  threadTranslations: (id: number) => ["threadTranslations", id] as const,
 };
 
 export interface SearchParams extends ApiFilters {
@@ -319,5 +323,165 @@ export function useDeleteProject() {
     mutationFn: (id: number) =>
       unwrap(api.DELETE("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } })),
     onSuccess: (_data, id) => changed((l) => ({ ...l, items: l.items.filter((x) => x.id !== id) })),
+  });
+}
+
+// --- Glossary (spec 26 mục 9) ---
+
+export const GLOSSARY_PAGE = 50;
+
+/** projectId null: glossary chung. */
+export function useGlossary(projectId: number | null, q: string, offset: number) {
+  return useQuery({
+    queryKey: ["glossary", projectId, q, offset] as const,
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/glossary", {
+          params: {
+            query: {
+              project_id: projectId ?? undefined,
+              q: q || undefined,
+              limit: GLOSSARY_PAGE,
+              offset,
+            },
+          },
+        }),
+      ),
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Thêm (không có id) hoặc sửa (có id) một thuật ngữ; PATCH bỏ qua project_id. */
+export function useSaveGlossaryTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id?: number; body: GlossaryBody }) =>
+      id === undefined
+        ? unwrap(api.POST("/api/v1/glossary", { body }))
+        : unwrap(
+            api.PATCH("/api/v1/glossary/{glossary_id}", {
+              params: { path: { glossary_id: id } },
+              body,
+            }),
+          ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["glossary"] }),
+  });
+}
+
+export function useDeleteGlossaryTerm() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      unwrap(
+        api.DELETE("/api/v1/glossary/{glossary_id}", { params: { path: { glossary_id: id } } }),
+      ),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["glossary"] }),
+  });
+}
+
+/** apply=false chỉ xem trước; apply=true ghi (sau đó danh sách được tải lại). */
+export function useImportGlossary() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: GlossaryImportBody) => unwrap(api.POST("/api/v1/glossary/import", { body })),
+    onSuccess: (_result, body) => {
+      if (body.apply) return qc.invalidateQueries({ queryKey: ["glossary"] });
+    },
+  });
+}
+
+/** Tải CSV về bộ nhớ (Blob); không lưu vào storage trình duyệt. */
+export function useExportGlossary() {
+  return useMutation({
+    mutationFn: async (projectId: number | null) => {
+      const { data, error, response } = await api.GET("/api/v1/glossary/export", {
+        params: { query: { project_id: projectId ?? undefined } },
+        parseAs: "blob",
+      });
+      if (!response.ok) throw toApiError(response.status, error);
+      return data as unknown as Blob;
+    },
+  });
+}
+
+// --- Dịch mail (spec 26 mục 10, 12) ---
+
+export function useThreadTranslations(threadId: number) {
+  return useQuery({
+    queryKey: keys.threadTranslations(threadId),
+    queryFn: () =>
+      unwrap(
+        api.GET("/api/v1/threads/{thread_id}/translations", {
+          params: { path: { thread_id: threadId } },
+        }),
+      ),
+    retry: false,
+  });
+}
+
+/** Sau thao tác dịch/chuyển: tải lại bản dịch, folder và danh sách thread (folder hiệu lực đổi). */
+function useTranslationChanged() {
+  const qc = useQueryClient();
+  return () =>
+    Promise.all([
+      qc.invalidateQueries({ queryKey: ["threadTranslations"] }),
+      // Badge folder trên thẻ mail (folder hiệu lực) nằm trong chi tiết thread.
+      qc.invalidateQueries({ queryKey: ["thread"] }),
+      qc.invalidateQueries({ queryKey: keys.folders }),
+      qc.invalidateQueries({ queryKey: ["threads"] }),
+    ]);
+}
+
+export function useTranslateMessage() {
+  const changed = useTranslationChanged();
+  return useMutation({
+    mutationFn: ({ id, force }: { id: number; force: boolean }) =>
+      unwrap(
+        api.POST("/api/v1/messages/{message_id}/translate", {
+          params: { path: { message_id: id } },
+          body: { force },
+        }),
+      ),
+    onSuccess: changed,
+  });
+}
+
+export function useMoveBack() {
+  const changed = useTranslationChanged();
+  return useMutation({
+    mutationFn: (id: number) =>
+      unwrap(
+        api.POST("/api/v1/messages/{message_id}/move-back", {
+          params: { path: { message_id: id } },
+        }),
+      ),
+    onSuccess: changed,
+  });
+}
+
+export function useMoveMessage() {
+  const changed = useTranslationChanged();
+  return useMutation({
+    mutationFn: ({ id, projectId }: { id: number; projectId: number }) =>
+      unwrap(
+        api.POST("/api/v1/messages/{message_id}/move", {
+          params: { path: { message_id: id } },
+          body: { project_id: projectId },
+        }),
+      ),
+    onSuccess: changed,
+  });
+}
+
+export function useAutoRetry() {
+  const changed = useTranslationChanged();
+  return useMutation({
+    mutationFn: (id: number) =>
+      unwrap(
+        api.POST("/api/v1/messages/{message_id}/auto-retry", {
+          params: { path: { message_id: id } },
+        }),
+      ),
+    onSuccess: changed,
   });
 }

@@ -5,9 +5,48 @@ import unicodedata
 
 import pytest
 
-from app.ai.masking import Masker, nfkc_map, pattern_spans, resolve
+from app.ai.masking import MAX_SURFACE_CHARS, Masker, nfkc_map, pattern_spans, resolve
 from app.ai.names import Entity, companies_in, entities_from_display, fold_latin
 from app.ml_client import NerEntity
+
+
+async def test_keep_outputs_only_the_range() -> None:
+    text = "前置き 本文です 後書き"
+    start = text.index("本文")
+    masker = Masker(None)
+    assert await masker.mask([text], keep=[(start, start + 4)]) == ["本文です"]
+
+
+async def test_keep_none_is_whole_text() -> None:
+    text = "金額は1,250,000円です"
+    assert await Masker(None).mask([text, text], keep=[None, None]) == [
+        "金額は[MONEY_1]です",
+        "金額は[MONEY_1]です",
+    ]
+    assert await Masker(None).mask([text]) == ["金額は[MONEY_1]です"]
+
+
+async def test_keep_label_outside_range_still_masks_value() -> None:
+    text = "契約番号 CT-7731-0042 の件"
+    out = await Masker(None).mask([text], keep=[(text.index("CT-"), len(text))])
+    assert out == ["[CONTRACT_1] の件"]
+
+
+async def test_keep_range_widens_over_span_at_start_and_end() -> None:
+    text = "前 tanaka.taro@sample-a.example.jp 中 suzuki.jiro@sample-b.example.jp 後"
+    start = text.index("taro")  # cắt giữa địa chỉ đầu
+    end = text.index("jiro")  # cắt giữa địa chỉ sau
+    masker = Masker(None)
+    assert await masker.mask([text], keep=[(start, end)]) == ["[EMAIL_1] 中 [EMAIL_2]"]
+
+
+async def test_keep_labels_only_kept_spans_but_learns_the_rest() -> None:
+    text = "連絡先 03-0000-0009 本文 終わり"
+    start = text.index("本文")
+    masker = Masker(None)
+    assert await masker.mask([text], keep=[(start, start + 2)]) == ["本文"]
+    assert masker.counts == {}
+    assert await masker.mask(["再掲 03-0000-0009"]) == ["再掲 [PHONE_1]"]
 
 
 def kinds(text: str) -> set[tuple[str, str]]:
@@ -498,3 +537,159 @@ async def test_tech_names_and_more_addresses() -> None:
     )
     assert "ASP.NET" in out and "VB.NET" in out
     assert "TANAKA" not in out and "芝公園" not in out, out
+
+
+# --- giá trị viết liền chữ Nhật: \w gồm cả kana, kanji nên ranh giới \w làm mẫu không khớp ---
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        # email: trước, sau, cả hai phía
+        ("連絡先はtanaka@client.example.jpまで", "tanaka"),
+        ("あtanaka@client.example.jp", "tanaka"),
+        ("tanaka@client.example.jpです", "tanaka"),
+        ("メールｔａｎａｋａ＠client.example.jpへ", "client.example"),
+        # tên miền
+        ("サイトはclient.example.jpです", "client.example"),
+        ("あclient.example.jp", "client.example"),
+        ("client.example.jpまで", "client.example"),
+        ("詳細はclient.example.jp/path/aを参照", "client.example"),
+        # điện thoại
+        ("電話03-1234-5678まで", "1234"),
+        ("あ03-1234-5678", "1234"),
+        ("03-1234-5678まで", "1234"),
+        ("連絡は0912345678です", "0912345678"),
+        ("0912345678です", "0912345678"),
+        ("携帯09012345678へ", "09012345678"),
+        ("国際+81-90-1234-5678まで", "1234"),
+        ("代表03(1234)5678です", "5678"),
+        # số tiền, tên, công ty có cùng lỗi ranh giới
+        ("予算は$5kまで", "kまで"),
+        ("費用は500đです", "500đ"),
+        ("こんにちはTanaka-sanです", "Tanaka"),
+        ("担当はMr. Smithです", "Smith"),
+        ("宛先Dear Tanakaです", "Tanaka"),
+        ("取引先はAcme Corporationです", "Acme"),
+        ("ベンダーCông ty ABCです", "ABC"),
+    ],
+)
+async def test_values_next_to_japanese_are_masked(text: str, secret: str) -> None:
+    (out,) = await Masker(no_ner).mask([text])
+    assert secret not in out, out
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "仕様書を2026-10-31までに送付",
+        "納期は2026/10/31です",
+        "納期2026.10.31まで",
+        "開始は2026-10-31 10:00です",
+        "バージョン1.2.3で修正",
+        "v1.2.3です",
+        "Ver.10.2.1以降",
+        "第12-34号の件",
+        "3.5万件のデータ",
+        "1万件",
+        "12:34まで",
+        "PRJ-1234です",
+        "PRJ-1234まで",
+        "README.mdを更新",
+        "Vue.jsとNode.jsで開発",
+        "ASP.NETで開発",
+        "VB.NETです",
+        "tanaka_san と言う変数",
+    ],
+)
+async def test_ordinary_text_next_to_japanese_not_masked(text: str) -> None:
+    (out,) = await Masker(no_ner).mask([text])
+    assert out == text
+
+
+@pytest.mark.parametrize("text", ["abc0912345678", "0912345678abc", "file_03-1234-5678_x"])
+async def test_latin_boundary_still_applies(text: str) -> None:
+    """Sửa ranh giới chỉ đổi với chữ Nhật: dính chữ Latin hay số thì giữ hành vi cũ."""
+    (out,) = await Masker(no_ner).mask([text])
+    assert out == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "あ" + "a@" * 5_000,
+        "あ" + "a." * 5_000 + "まで",
+        "あ" + "1-" * 5_000 + "まで",
+        "あ" + "０" * 10_000,
+        "あTanaka-" * 1_500,
+        "Dear " * 2_000 + "あ",
+        "https://" * 5_000,
+        "www." * 10_000,
+        "a.jp/" * 8_000,
+    ],
+    ids=["email", "domain", "phone", "fullwidth", "romaji", "greeting", "url", "www", "path"],
+)
+async def test_japanese_boundary_patterns_stay_linear(text: str) -> None:
+    started = time.perf_counter()
+    await Masker(no_ner).mask([text])
+    assert time.perf_counter() - started < 3.0
+
+
+@pytest.mark.parametrize("length", [1_000, 2_000, 5_000])
+async def test_long_url_masked_without_error(length: int) -> None:
+    url = "https://u.example.jp/" + "a" * (length - 21)
+    m = Masker(no_ner)
+    one, two = await m.mask([f"詳細 {url} です", f"再掲 {url} まで"])
+    assert one == "詳細 [URL_1] です" and two == "再掲 [URL_1] まで"
+    assert m.unmask(one) == f"詳細 {url} です"
+
+
+async def test_long_domain_path_masked_to_the_end() -> None:
+    (out,) = await Masker(no_ner).mask(["client.example.jp/" + "a" * 3_000 + "SECRETTAIL まで"])
+    assert out == "[URL_1] まで"
+
+
+async def test_url_many_shared_prefixes_masked_without_error() -> None:
+    """Cây tiền tố phân nhánh sâu nhất có thể trong 40.000 ký tự: re.compile không được lỗi."""
+    urls = [f"https://x.example.jp/{'b' * i}a" for i in range(260)]
+    (out,) = await Masker(no_ner).mask([" ".join(urls)])
+    assert "example" not in out
+
+
+@pytest.mark.parametrize(
+    "tail",
+    ["ΐ" * 330, "ß" * 480, "ŉ" * 400],
+    ids=["triples", "doubles", "doubles-apostrophe"],
+)
+async def test_url_whose_uppercase_grows_past_limit(tail: str) -> None:
+    """upper() có thể làm chuỗi dài gấp ba: biến thể hoa thường cũng phải qua giới hạn độ dài."""
+    url = "https://a.jp/" + tail
+    m = Masker(no_ner)
+    (out,) = await m.mask([f"詳細 {url} です"])
+    assert out == "詳細 [URL_1] です"
+    assert all(len(s) <= MAX_SURFACE_CHARS for s in m._surfaces)
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        Entity("PERSON", ("ΐ" * 330,)),
+        Entity("PERSON", ("Ðươ" + "ΐ" * 330,)),  # đi qua fold_latin
+        Entity("ORG", ("ΐ" * 330 + " Inc.",)),  # đi qua company_core
+        Entity("ORG", ("株式会社" + "ΐ" * 330,)),
+    ],
+    ids=["person", "folded", "org-suffix", "org-prefix"],
+)
+async def test_every_route_into_dictionary_respects_limit(entity: Entity) -> None:
+    m = Masker(no_ner)
+    m.add_entities([entity])
+    (out,) = await m.mask(["普通の文章です"])
+    assert out == "普通の文章です"
+    assert all(len(s) <= MAX_SURFACE_CHARS for s in m._surfaces)
+
+
+async def test_short_values_still_propagate_as_dictionary() -> None:
+    """Giới hạn độ dài chỉ loại chuỗi rất dài khỏi từ điển: tên ngắn vẫn lan sang text khác."""
+    m = Masker(no_ner)
+    a, b = await m.mask(["田中様のご連絡", "田中からの返信"])
+    assert "田中" not in a and "田中" not in b

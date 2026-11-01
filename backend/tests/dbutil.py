@@ -10,6 +10,7 @@ from psycopg.types.json import Jsonb
 from sqlalchemy import Connection, text
 from sqlalchemy.engine import make_url
 
+from app.ai.glossary import normalize_term
 from app.config import DbRole, database_url
 
 TEST_DB = "mailassist_test"
@@ -127,6 +128,58 @@ def add_project(conn: Connection, user_id: int, name: str, **cols: Any) -> int:
     return conn.scalar(
         text(f"insert into projects ({names}) values ({params}) returning id"), values
     )
+
+
+def add_glossary(
+    conn: Connection,
+    user_id: int,
+    term: str,
+    translation: str,
+    *,
+    project_id: int | None = None,
+    note: str | None = None,
+) -> int:
+    """Thêm một mục glossary; term_norm tính đơn giản (NFKC, casefold, bỏ khoảng trắng)."""
+    norm = normalize_term(term)
+    return conn.scalar(
+        text(
+            "insert into glossary_terms (user_id, project_id, term, term_norm, translation, note) "
+            "values (:u, :p, :t, :n, :tr, :note) returning id"
+        ),
+        {"u": user_id, "p": project_id, "t": term, "n": norm, "tr": translation, "note": note},
+    )
+
+
+def _insert_by_message(
+    conn: Connection, table: str, user_id: int, message_id: int, values: dict[str, Any]
+) -> None:
+    values = {"user_id": user_id, "message_id": message_id, **values}
+    names = ", ".join(values)
+    params = ", ".join(f":{k}" for k in values)
+    conn.execute(text(f"insert into {table} ({names}) values ({params})"), values)
+
+
+def add_auto_run(
+    conn: Connection, user_id: int, message_id: int, status: str = "done", **cols: Any
+) -> None:
+    _insert_by_message(
+        conn, "message_auto_runs", user_id, message_id, {"status": status, "attempts": 1, **cols}
+    )
+
+
+def add_translation(conn: Connection, user_id: int, message_id: int, **cols: Any) -> None:
+    values: dict[str, Any] = {
+        "translated_subject": "Chủ đề",
+        "translated_body": "Nội dung",
+        "source_hash": b"\x00" * 32,
+        "model": "test-model",
+        "prompt_version": 1,
+        **cols,
+    }
+    for k in ("notes", "warnings", "glossary_used"):
+        if k in values:
+            values[k] = Jsonb(values[k])
+    _insert_by_message(conn, "message_translations", user_id, message_id, values)
 
 
 def add_thread(conn: Connection, user_id: int, message_count: int = 1, **cols: Any) -> int:
