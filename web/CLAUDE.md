@@ -16,16 +16,17 @@ openapi.json               # SINH bởi npm run gen:api (OpenAPI của backend),
 src/api/schema.ts          # SINH từ openapi.json, không sửa tay
 src/api/client.ts          # openapi-fetch: header X-PMM-Request cho request ghi, 401 → handler, unwrap/ApiError
 src/api/hooks.ts           # TanStack Query: useMe, useThreads (cursor), useSearch (mode), useThread,
-                           #   useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
+                           #   useProjects/useCreateProject/useUpdateProject/useDeleteProject, useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
                            #   useAiSettings/useSaveAiSettings, useAiUsage, mutation đăng nhập/đăng xuất/sửa tay
 src/lib/filters.ts         # bộ lọc trên URL ↔ tham số API (ngày theo giờ trình duyệt), safeNext
-src/lib/format.ts, links.ts
+src/lib/format.ts, links.ts, tags.ts (gộp giá trị cho TagInput)
 src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái xử lý), FilterBar, Highlighted,
                            #   MessageCard (toàn văn, tách), MergeDialog, SimilarThreads (gợi ý gộp),
-                           #   rethread.tsx + rethread-context.ts
+                           #   rethread.tsx + rethread-context.ts,
+                           #   TagInput (ô nhiều giá trị, `draftRef` giữ phần đang gõ)
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
+                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án và bộ lọc gán mail, spec 2026-10-31), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
 src/**/*.test.ts(x)        # Vitest
 ```
 
@@ -40,7 +41,7 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 | Build (`dist/`, backend phục vụ ở `http://127.0.0.1:8000`)        | `npm run build` (gồm `tsc -b`)                                                           |
 | Test                                                              | `npm run test`                                                                           |
 | Lint + kiểm tra format / format                                   | `npm run lint` · `npm run format`                                                        |
-| Sinh client API từ OpenAPI của backend                            | `npm run gen:api` (cần `uv`; chạy `python -m app.openapi_dump` rồi `openapi-typescript`) |
+| Sinh client API từ OpenAPI của backend                            | `npm run gen:api` (cần `uv`; chạy `python -m app.openapi_dump` rồi `openapi-typescript`; trên Windows đặt `$env:PYTHONUTF8 = "1"` trước) |
 
 ## Quy tắc
 
@@ -57,6 +58,6 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 - Function component + hooks. Không gọi `setState` đồng bộ trong `useEffect` (rule `react-hooks/set-state-in-effect`): việc chờ worker gom lại chạy trong callback (`rethread.tsx`).
 - Giao diện tiếng Việt; nội dung mail hiển thị nguyên văn.
 - Bản nháp reply (giai đoạn 6) chỉ có nút copy, không có nút gửi.
-- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi Claude" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
+- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
 - Che thông tin không có nút tắt trên web (yêu cầu NDA).
 - Chạy thử giao diện chỉ với dữ liệu giả (profile tự sinh trên DB test), không mở web trên DB dev có mail thật khi Claude Code đọc màn hình.

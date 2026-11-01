@@ -78,7 +78,7 @@ describe("AiSettingsPage", () => {
     );
     expect(await screen.findByText(/Chưa cấu hình AI/)).toBeInTheDocument();
     expect(screen.getByText("Tên người")).toBeInTheDocument();
-    expect(await screen.findByText("Tháng này chưa gọi Claude lần nào.")).toBeInTheDocument();
+    expect(await screen.findByText("Tháng này chưa gọi AI lần nào.")).toBeInTheDocument();
     const save = screen.getByRole("button", { name: "Lưu" });
     expect(save).toBeDisabled();
     const user = userEvent.setup();

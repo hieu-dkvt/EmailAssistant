@@ -11,7 +11,7 @@ Tạo một profile Thunderbird có cấu trúc như thật để chạy thử c
 - Không đọc, không chép, không ẩn danh hóa mail thật. Mẫu lấy từ mail thật là việc của `samples/anonymized/` (`.claude/rules/test-data.md`).
 - Không giả lập đúng định dạng `.msf` (Mork): mỗi `.msf` chỉ có dòng đầu, đủ để collector nhận ra folder.
 - Không sinh mail cố ý hỏng (Date bất thường, header sai chuẩn, uuencode, charset lạ). Các trường hợp này nằm trong test của từng thành phần.
-- Không gán dự án, vì quy tắc gán chưa chốt.
+- Không gán dự án trong generator; gán theo bộ lọc người dùng khai báo nay do spec 25 (`2026-10-31-project-settings-design.md`).
 
 ## 3. Chạy
 
@@ -116,3 +116,4 @@ Test của collector tự bỏ qua (skip) khi không có `data/thunderbird-profi
 - 2026-10-17: sửa lỗi header ghi base64 trong khi body là byte thô (bỏ `Content-Transfer-Encoding` trước `set_payload`); sinh lại profile, Message-ID không đổi.
 - 2026-10-17 (tối): thêm phần bulk 1.000 mail, tham số `--threads`/`--total`, skill `/gen-sample-mail`.
 - 2026-10-18: viết spec này; sinh lại `data/thunderbird-profile`; test collector không còn viết cứng số mail.
+- 2026-10-31: thêm `data/generate_project_test_profile.py`, sinh profile riêng `data/project-test-profile/` (30 mail, Local Folders `Inbox`, `Sent`), `data/expected_projects.json` (Message-ID → dự án mong đợi) và `data/expected_documents.json` (mail có tài liệu đính kèm: dự án, tên file, phiên bản) để thử spec 25 và luồng lấy tài liệu về local về sau. Có 3 thread khách gửi tài liệu (xlsx, pdf giả; cùng tên file có bản 1 và bản cập nhật bản 2) và 1 mail có tài liệu nhưng không thuộc dự án nào. Ba dự án "Test 1", "Test 2", "Test 3" dùng domain `test1|2|3.example.jp`; có ca nhiều dự án, ca khớp địa chỉ nhưng sai Subject, ca chỉ có nhãn Subject mà không có địa chỉ khách. Bộ lọc cần nhập nằm ở docstring của script. Không đụng `data/thunderbird-profile` nên không ảnh hưởng số mail của các test khác.

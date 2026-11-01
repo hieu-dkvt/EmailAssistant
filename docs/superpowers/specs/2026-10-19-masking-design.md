@@ -1,10 +1,10 @@
-# Spec: Che thông tin nhạy cảm trước khi gửi Claude
+# Spec: Che thông tin nhạy cảm trước khi gửi AI
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/masking.py`, `backend/app/ai/names.py`, `backend/app/ai/people.py`, NER ở `ml-service/app/ner.py` · Trạng thái: xong (sửa sau review bảo mật: mục 9)
 
 ## 1. Mục đích
 
-Khách cho phép gửi nội dung mail qua Claude API **với điều kiện che thông tin nhạy cảm** (quyết định của người dùng 2026-10-19). Mọi text gửi Claude (câu hỏi của người dùng, subject, người gửi, đoạn mail) đi qua bước che: thông tin bị thay bằng nhãn giả, Claude chỉ thấy nhãn; câu trả lời của Claude được thay nhãn về giá trị thật **trên server** trước khi hiện cho người dùng.
+Khách cho phép gửi nội dung mail qua AI **với điều kiện che thông tin nhạy cảm** (quyết định của người dùng 2026-10-19). Mọi text gửi AI (câu hỏi của người dùng, subject, người gửi, đoạn mail) đi qua bước che: thông tin bị thay bằng nhãn giả, AI chỉ thấy nhãn; câu trả lời của AI được thay nhãn về giá trị thật **trên server** trước khi hiện cho người dùng.
 
 Bốn nhóm phải che (người dùng chọn cả bốn):
 
@@ -17,14 +17,14 @@ Bốn nhóm phải che (người dùng chọn cả bốn):
 
 ## 2. Không làm
 
-- Không che: ngày giờ, mã lỗi, tên màn hình/chức năng, mã dự án, số lượng không kèm đơn vị tiền. Claude cần các thông tin này để trả lời.
-- Không bảo đảm che 100%: nhận dạng tên dựa trên từ điển, mẫu và NER (mục 4), có thể sót. Người dùng xem được đúng nội dung đã gửi Claude (spec 21) để kiểm tra.
+- Không che: ngày giờ, mã lỗi, tên màn hình/chức năng, mã dự án, số lượng không kèm đơn vị tiền. AI cần các thông tin này để trả lời.
+- Không bảo đảm che 100%: nhận dạng tên dựa trên từ điển, mẫu và NER (mục 4), có thể sót. Người dùng xem được đúng nội dung đã gửi AI (spec 21) để kiểm tra.
 - Không lưu bảng nhãn ↔ giá trị: chỉ tồn tại trong bộ nhớ trong một lần hỏi.
 
 ## 3. Nguyên tắc
 
-- **Nhất quán trong một lần hỏi**: cùng một thực thể luôn mang cùng nhãn (câu hỏi và mọi đoạn mail dùng chung một bảng), để Claude hiểu "`[PERSON_1]` gửi … `[PERSON_1]` trả lời …".
-- **Lỗi thì không gửi** (fail closed): NER lỗi hay bất kỳ bước che nào lỗi → không gọi Claude, trả lỗi cho người dùng.
+- **Nhất quán trong một lần hỏi**: cùng một thực thể luôn mang cùng nhãn (câu hỏi và mọi đoạn mail dùng chung một bảng), để AI hiểu "`[PERSON_1]` gửi … `[PERSON_1]` trả lời …".
+- **Lỗi thì không gửi** (fail closed): NER lỗi hay bất kỳ bước che nào lỗi → không gọi AI, trả lỗi cho người dùng.
 - Giữ kính ngữ và ngữ cảnh: `田中様` → `[PERSON_1]様`, `anh Hiếu` → `anh [PERSON_2]`, `株式会社サンプルA` → `[ORG_1]`.
 - Text gốc đã có chuỗi giống nhãn (vd. mail chứa `[PERSON_1]`) được đổi `[` thành `［` trước khi che, để không bị thay nhầm khi trả về.
 
@@ -79,8 +79,8 @@ Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dà
 
 ## 5. Thay ngược (unmask)
 
-- Tìm `[(PERSON|ORG|EMAIL|PHONE|URL|ADDRESS|MONEY|CONTRACT)_n]` trong output của Claude và thay bằng giá trị gốc (dạng xuất hiện đầu tiên). Nhãn không có trong bảng giữ nguyên.
-- Giá trị Claude trả về để dùng tiếp cục bộ (bộ lọc người gửi, từ khóa tìm kiếm ở spec 21) cũng được thay ngược trước khi dùng.
+- Tìm `[(PERSON|ORG|EMAIL|PHONE|URL|ADDRESS|MONEY|CONTRACT)_n]` trong output của AI và thay bằng giá trị gốc (dạng xuất hiện đầu tiên). Nhãn không có trong bảng giữ nguyên.
+- Giá trị AI trả về để dùng tiếp cục bộ (bộ lọc người gửi, từ khóa tìm kiếm ở spec 21) cũng được thay ngược trước khi dùng.
 
 ## 6. Phân quyền và dữ liệu
 
@@ -99,7 +99,7 @@ Sau khi phát hiện ở mọi text, mọi chuỗi đã được gán nhãn (dà
 - NER lỗi → ném lỗi (không trả text chưa che).
 - Sau review: lời chào + danh xưng, `-sama`, `a/c` + tên; biến thể hoa/thường và full-width/half-width của tên trong từ điển; tên Latin dính chữ Nhật; điện thoại liền số / `03(1234)5678` / dấu `−`; email `＠` full-width, local có dấu; tiền `万`, sau từ chỉ giá, `nghìn`, `trăm triệu`, `15k USD`; số hợp đồng không có nhãn số; địa chỉ Việt Nam và Nhật không có tỉnh; tên miền kèm path; từ thường không bị che (`仕様書`, `同様`, `様式`, `1万件`, `PRJ-1234`); làm sạch kết quả NER (kính ngữ, chữ Hán + katakana, từ header).
 - Regex tuyến tính: 9 chuỗi cố tình dựng (10.000 chữ số, `A-A-…`, `a.a.…`, 20.000 `a`, `株式会社` lặp…) mỗi chuỗi che xong dưới 3 giây (đo: ≤ 0,2 giây; trước khi sửa 13 giây với 10.000 chữ số).
-- E2E (scratchpad, không commit): 1.050 mail giả + ml-service thật + Claude giả ghi lại request: quét request không còn tên, công ty, tên miền, điện thoại nào của dữ liệu giả.
+- E2E (scratchpad, không commit): 1.050 mail giả + ml-service thật + AI giả ghi lại request: quét request không còn tên, công ty, tên miền, điện thoại nào của dữ liệu giả.
 
 ## 8. Giới hạn đã biết
 

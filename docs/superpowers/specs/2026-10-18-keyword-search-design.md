@@ -8,7 +8,7 @@ PM tìm mail bằng từ khóa tiếng Nhật, Việt, Anh trên subject và n�
 
 ## 2. Không làm
 
-- **Lọc theo dự án**: chờ người dùng chốt danh sách dự án và quy tắc gán (mục 9 kế hoạch).
+- **Lọc theo dự án**: làm sau spec 25 (`2026-10-31-project-settings-design.md`).
 - Tìm kiếm ngữ nghĩa, hybrid với pgvector: giai đoạn 5.
 - Tìm không dấu tiếng Việt (`bao gia` → `báo giá`): normalizer hiện tại phân biệt dấu. Gõ đúng dấu như trong mail.
 - Tìm trong tên file đính kèm, địa chỉ người nhận.

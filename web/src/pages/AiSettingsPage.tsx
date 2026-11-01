@@ -63,7 +63,7 @@ function TierForm({ settings }: { settings: AiSettings }) {
                 id={`model-${task.task}`}
                 value={models[task.task]}
                 maxLength={200}
-                placeholder="vd. anthropic/claude-sonnet-5-5"
+                placeholder="tên model theo nhà cung cấp"
                 autoComplete="off"
                 onChange={(e) => setModels({ ...models, [task.task]: e.target.value })}
               />
@@ -194,7 +194,7 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
           onChange={(e) => setProtocol(e.target.value as "anthropic" | "openai")}
         >
           <option value="openai">Tương thích OpenAI (OpenRouter, 9router…)</option>
-          <option value="anthropic">Anthropic (Claude API hoặc gateway kiểu Anthropic)</option>
+          <option value="anthropic">Anthropic (Messages API)</option>
         </select>
       </div>
       <div className="grid gap-1">
@@ -234,8 +234,7 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
       {host && (
         <Alert>
           <AlertDescription>
-            Mail đã che thông tin sẽ đi qua <strong>{host}</strong>, không chỉ Claude API của
-            Anthropic. Bạn chịu trách nhiệm với NDA của khách.
+            Mail đã che thông tin sẽ đi qua <strong>{host}</strong>. Bạn chịu trách nhiệm với NDA của khách.
           </AlertDescription>
         </Alert>
       )}
@@ -299,7 +298,7 @@ function Usage() {
   }
   const u = usage.data;
   if (u.rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">Tháng này chưa gọi Claude lần nào.</p>;
+    return <p className="text-sm text-muted-foreground">Tháng này chưa gọi AI lần nào.</p>;
   }
   return (
     <div className="grid gap-2 text-sm">
@@ -329,7 +328,7 @@ function Usage() {
       </table>
       <p className="text-muted-foreground">
         Tổng {formatCount(u.total_calls)} lần gọi, khoảng {usd.format(u.total_estimated_usd)} từ{" "}
-        {formatDateTime(u.since)}. Ước tính theo bảng giá Claude cố định (model tự nhập không có
+        {formatDateTime(u.since)}. Ước tính theo bảng giá cố định theo cấp model mặc định (model tự nhập không có
         giá), số tiền thật xem trên hóa đơn của nhà cung cấp.
       </p>
     </div>
@@ -377,7 +376,7 @@ export function AiSettingsPage() {
           <CardTitle>Model theo tác vụ</CardTitle>
           <CardDescription>
             {s.custom_provider
-              ? "Nhập tên model theo cách gọi của nhà cung cấp (vd. anthropic/claude-sonnet-5-5) cho từng tác vụ."
+              ? "Nhập tên model theo cách gọi của nhà cung cấp cho từng tác vụ."
               : "Haiku nhanh và rẻ, Sonnet cân bằng, Opus trả lời tốt nhất với câu hỏi khó nhưng đắt nhất."}{" "}
             Cài đặt này chỉ áp dụng cho tài khoản của bạn.
           </CardDescription>

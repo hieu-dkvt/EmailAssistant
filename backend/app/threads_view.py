@@ -27,6 +27,7 @@ from app.web_schemas import (
     MessageRef,
     PartKind,
     ProcessingStatus,
+    ProjectRef,
     TextPart,
     ThreadDetail,
     ThreadMessage,
@@ -58,6 +59,28 @@ def decode_cursor(cursor: str) -> tuple[datetime | None, int]:
         return (datetime.fromisoformat(at) if at is not None else None), thread_id
     except (ValueError, TypeError, binascii.Error) as e:
         raise BadCursor from e
+
+
+PROJECTS_OF = text(
+    """
+    SELECT DISTINCT m.thread_id, p.id, p.name
+    FROM messages m
+    JOIN message_projects mp ON mp.message_id = m.id AND mp.user_id = m.user_id
+    JOIN projects p ON p.id = mp.project_id AND p.user_id = mp.user_id
+    WHERE m.thread_id = ANY(CAST(:ids AS bigint[])) AND m.user_id = app_user_id()
+    ORDER BY m.thread_id, p.name, p.id
+    """
+)
+
+
+async def projects_of(session: AsyncSession, thread_ids: list[int]) -> dict[int, list[ProjectRef]]:
+    """Dự án của từng thread (qua mọi mail), sắp theo tên. Thread không có dự án: không có key."""
+    out: dict[int, list[ProjectRef]] = {}
+    if not thread_ids:
+        return out
+    for r in await session.execute(PROJECTS_OF, {"ids": thread_ids}):
+        out.setdefault(r.thread_id, []).append(ProjectRef(id=r.id, name=r.name))
+    return out
 
 
 async def list_threads(
@@ -111,6 +134,8 @@ async def list_threads(
             {**params, "limit": limit + 1},
         )
     ).all()
+    page_rows = rows[:limit]
+    projects = await projects_of(session, [r.id for r in page_rows])
     items = [
         ThreadSummary(
             id=r.id,
@@ -121,8 +146,9 @@ async def list_threads(
             last_from_name=r.from_name,
             last_from_addr=r.from_addr,
             has_attachments=r.has_attachments,
+            projects=projects.get(r.id, []),
         )
-        for r in rows[:limit]
+        for r in page_rows
     ]
     next_cursor = (
         encode_cursor(items[-1].last_message_at, items[-1].id) if len(rows) > limit else None

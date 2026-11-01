@@ -1,4 +1,4 @@
-"""Nhận dạng tên riêng (NER) cho bước che thông tin trước khi gửi Claude (spec 20 mục 4.4).
+"""Nhận dạng tên riêng (NER) cho bước che thông tin trước khi gửi AI (spec 20 mục 4.4).
 
 - Văn bản có chữ Nhật (kana/kanji): GiNZA (ja_ginza, spaCy + SudachiPy).
 - Văn bản không có chữ Nhật và không phải tiếng Việt: spaCy en_core_web_sm.
@@ -16,7 +16,7 @@ from typing import Protocol
 
 # Nhãn ENE của GiNZA (ja_ginza 5.3, đã kiểm danh sách nhãn của pipe "ner") → nhãn của dự án.
 # Nhãn khác (ngày, số lượng, mã số, tỉnh/thành phố…) không che: không nhận dạng một người hay một
-# khách hàng, và Claude cần chúng để trả lời (vd. ID_Number hay gặp ở mã lỗi E1024).
+# khách hàng, và AI cần chúng để trả lời (vd. ID_Number hay gặp ở mã lỗi E1024).
 JA_LABELS = {
     "Person": "PERSON",
     "Company": "ORG",

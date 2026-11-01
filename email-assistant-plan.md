@@ -78,7 +78,7 @@
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
 | Embedding | `bge-m3` self-host (phương án chính) / Voyage AI (dự phòng) | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Claude Haiku 5.5 (phân loại, phân tích câu hỏi), Sonnet 5.5 (tóm tắt, trả lời, soạn reply); người dùng đổi được sang Opus 5.5 theo từng tác vụ | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che |
+| LLM | Nhà cung cấp và model bất kỳ do người dùng nhập ở Cài đặt AI, theo từng tác vụ (mặc định gợi ý: cấp nhỏ cho phân loại và phân tích câu hỏi, cấp vừa cho tóm tắt, trả lời, soạn reply) | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che; 2026-10-31: dùng OpenRouter để thử, khi vận hành người dùng chuyển sang model nội bộ qua gateway, vẫn che |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |
@@ -108,6 +108,9 @@ thread_overrides     (thread_id, message_id, action[merge|split], by_user, at)
 
 projects             (id, code, name, client_domains[], keywords[])
 project_members      (project_id, user_id, role)
+                      -- đã đổi khi làm (spec 25): projects theo từng người dùng, có bộ lọc
+                      --   filter_from/to/cc/subject thay client_domains, keywords; chưa có code;
+                      --   chưa có project_members
 
 message_ai           (message_id, category, priority, sentiment, action_items jsonb, model, processed_at)
 message_embeddings   (message_id, chunk_no, embedding halfvec(1024))
@@ -205,7 +208,7 @@ audit_log            (user_id, action, target, at)
 - [ ] **Lớp 3:** chuẩn hóa subject (bỏ `Re:`, `RE[2]:`, `Fw:`, `返信:`, `転送:`, `【至急】`, khoảng trắng full-width) kết hợp cùng nhóm người tham gia và khoảng thời gian gần nhau.
 - [ ] **Lớp 4 (làm sau, ở giai đoạn 5):** dùng embedding và AI để gợi ý gộp các thread rời. Người dùng xác nhận.
 - [ ] Hỗ trợ sửa tay (gộp/tách thread), lưu vào `thread_overrides`.
-- [ ] Gán dự án tự động theo domain khách và mã dự án trong subject (quy tắc cấu hình trong `projects`).
+- [ ] Gán dự án tự động theo bộ lọc From, To, CC, Subject do người dùng khai báo cho từng dự án (spec 25, quyết định 2026-10-31).
 
 **Tiêu chí hoàn thành:** kiểm tra ngẫu nhiên 100 thread, tỷ lệ gom đúng ≥ 95%.
 
@@ -247,6 +250,7 @@ audit_log            (user_id, action, target, at)
 ### Giai đoạn 6: Phân loại và theo dõi đối ứng (3 tuần)
 
 **Công việc**
+- [ ] *(Yêu cầu thêm 2026-10-31, làm trước các mục khác)* Tự động dịch mail khách trong Inbox sang tiếng Việt, glossary chung và theo dự án, chuyển mail sang folder dự án trên web (spec 26). Dịch tài liệu, Backlog làm sau bằng spec riêng. Move thật qua IMAP là chức năng riêng, cần đổi nguyên tắc "không ghi lên mail server".
 - [ ] Phân loại mail (Claude Haiku, structured output): loại (QA, bug, thay đổi spec, lịch, báo cáo, hợp đồng, chỉ thông báo), mức ưu tiên, sắc thái của khách.
 - [ ] Trích xuất action item và deadline (ví dụ "来週水曜日までに" chuyển thành ngày cụ thể).
 - [ ] Xác định **ball-in-court** của thread: chờ mình / chờ khách / xử lý nội bộ / đã đóng.
@@ -277,6 +281,7 @@ audit_log            (user_id, action, target, at)
 ### Giai đoạn 8 (mở rộng sau)
 - Đồng bộ QA表 (Excel / Google Sheet).
 - Liên kết thread với Backlog, Redmine hoặc Jira.
+- **Đợi, chưa đối ứng** (quyết định của người dùng 2026-10-31): xử lý mail Backlog → Redmine và xử lý mail GitHub review. Chưa làm, chưa viết tài liệu; người dùng sẽ quyết định khi nào thực hiện.
 - Báo cáo tuần (週報) tự động.
 - Kết hợp dữ liệu task, bug, commit để hỏi đáp về toàn bộ dự án.
 
@@ -318,6 +323,6 @@ audit_log            (user_id, action, target, at)
 
 - [ ] Nơi đặt server: máy cá nhân (giai đoạn đầu) → server nội bộ hay cloud riêng?
 - [ ] Có lưu bản gốc mail (không gồm file đính kèm) lên server để người khác xem được bản đầy đủ không, hay chỉ lưu bản đã làm sạch?
-- [ ] Phạm vi xử lý AI lần đầu: toàn bộ lịch sử hay chỉ N năm gần nhất?
-- [ ] Danh sách dự án và quy tắc gán (domain khách, mã dự án).
+- [x] Phạm vi xử lý AI khi tự động xử lý mail: chỉ mail từ mốc, là ngày bật lùi 14 ngày, cố định (quyết định 2026-10-31). Mốc theo người dùng hay theo dự án chốt khi làm phân loại AI.
+- [x] Danh sách dự án và quy tắc gán: người dùng tự khai báo trên màn hình dự án, bộ lọc From, To, CC, Subject (quyết định 2026-10-31, spec 25).
 - [ ] Hệ thống SSO của công ty.

@@ -93,13 +93,15 @@ def add_mail(
     to: tuple[str, ...] = (PM,),
     day: float | None = 0,
     body: str = "Nội dung.",
+    cc: tuple[str, ...] = (),
 ) -> int:
     """Mail có header nối thread, địa chỉ và ngày (cho test làm sạch / gom thread)."""
     return conn.scalar(
         text(
             "insert into messages (user_id, message_id_hash, message_id, in_reply_to, "
-            "references_ids, subject, from_addr, to_addrs, sent_at, body_text, parser_version) "
-            "values (:u, :h, :mid, :irt, :refs, :subject, :frm, :to, :at, :body, 'test') "
+            "references_ids, subject, from_addr, to_addrs, cc_addrs, sent_at, body_text, "
+            "parser_version) "
+            "values (:u, :h, :mid, :irt, :refs, :subject, :frm, :to, :cc, :at, :body, 'test') "
             "returning id"
         ),
         {
@@ -111,9 +113,19 @@ def add_mail(
             "subject": subject,
             "frm": frm,
             "to": Jsonb([{"name": None, "addr": a} for a in to]),
+            "cc": Jsonb([{"name": None, "addr": a} for a in cc]),
             "at": None if day is None else T0 + timedelta(days=day),
             "body": body,
         },
+    )
+
+
+def add_project(conn: Connection, user_id: int, name: str, **cols: Any) -> int:
+    values = {"user_id": user_id, "name": name, **cols}
+    names = ", ".join(values)
+    params = ", ".join(f":{k}" for k in values)
+    return conn.scalar(
+        text(f"insert into projects ({names}) values ({params}) returning id"), values
     )
 
 

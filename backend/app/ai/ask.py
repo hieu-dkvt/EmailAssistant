@@ -1,7 +1,7 @@
 """Hỏi đáp trên mail (RAG): che → phân tích câu hỏi → tìm cục bộ → che nguồn → trả lời → thay ngược.
 
 Spec 2026-10-19-ai-ask-design.md. Tìm kiếm chạy trong user_session (RLS) trước khi có gì được gửi
-đi; chỉ text đã che (Masker, spec 20) tới Claude. Không giữ transaction DB trong lúc chờ Claude.
+đi; chỉ text đã che (Masker, spec 20) tới AI. Không giữ transaction DB trong lúc chờ AI.
 Không lưu, không log câu hỏi hay câu trả lời.
 """
 
@@ -218,7 +218,7 @@ SOURCE_FIELDS = ("From", "To", "Cc", "Subject")
 def _source_fields(r: Any) -> list[str]:
     """Giá trị cần che của một nguồn: người gửi, người nhận, cc, subject, đoạn mail. Che riêng
     từng giá trị (tên trường "From:", "Subject:" không đi qua NER: GiNZA hay nhận nhầm là tổ
-    chức). Mọi phần có giới hạn độ dài: dưới giới hạn của /ner, chi phí gọi Claude có trần."""
+    chức). Mọi phần có giới hạn độ dài: dưới giới hạn của /ner, chi phí gọi AI có trần."""
     return [
         _person(r.from_name, r.from_addr),
         _addresses(r.to_addrs),
@@ -366,7 +366,7 @@ async def ask(
     if not rows:
         return result(NO_SOURCES_ANSWER, True, [])
 
-    # 3. Che nguồn (cùng bảng nhãn), che lại câu hỏi với từ điển đã mở rộng, rồi hỏi Claude.
+    # 3. Che nguồn (cùng bảng nhãn), che lại câu hỏi với từ điển đã mở rộng, rồi hỏi AI.
     masker.add_entities(people_mod.entities_of(_participants(rows)))
     # Tên công ty trong toàn văn (kể cả chữ ký đã cắt khỏi đoạn gửi đi), chỉ để học tên cần che.
     masker.add_entities(companies_in(r.full_text for r in rows if r.full_text))

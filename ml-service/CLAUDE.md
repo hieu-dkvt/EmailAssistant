@@ -1,6 +1,6 @@
 # ML service (Python)
 
-Service nội bộ chạy model trên máy mình, phục vụ backend (api và worker): embedding (`bge-m3`) cho tìm kiếm ngữ nghĩa và nhận dạng tên riêng (NER) cho bước che thông tin trước khi gửi Claude. Không lưu dữ liệu, không gửi dữ liệu ra ngoài. Spec: `docs/superpowers/specs/2026-10-19-ml-service-design.md` (spec 17).
+Service nội bộ chạy model trên máy mình, phục vụ backend (api và worker): embedding (`bge-m3`) cho tìm kiếm ngữ nghĩa và nhận dạng tên riêng (NER) cho bước che thông tin trước khi gửi cho AI. Không lưu dữ liệu, không gửi dữ liệu ra ngoài. Spec: `docs/superpowers/specs/2026-10-19-ml-service-design.md` (spec 17).
 
 ## Công nghệ
 

@@ -1,5 +1,6 @@
 // Truy vấn API bằng TanStack Query. Cache chỉ nằm trong bộ nhớ (không persist): nội dung mail
 // không được ghi xuống storage của trình duyệt.
+import { useEffect, useRef } from "react";
 import {
   keepPreviousData,
   useInfiniteQuery,
@@ -19,6 +20,9 @@ import {
   type LoginBody,
   type Me,
   type OverrideBody,
+  type Project,
+  type ProjectBody,
+  type ProjectList,
 } from "./client";
 
 export const keys = {
@@ -34,6 +38,7 @@ export const keys = {
   aiSettings: ["aiSettings"] as const,
   aiUsage: ["aiUsage"] as const,
   aiProvider: ["aiProvider"] as const,
+  projects: ["projects"] as const,
 };
 
 export interface SearchParams extends ApiFilters {
@@ -251,5 +256,68 @@ export function useTestAiProvider() {
   return useMutation({
     mutationFn: () => unwrap(api.POST("/api/v1/ai/provider/test")),
     onSettled: () => qc.invalidateQueries({ queryKey: keys.aiUsage }),
+  });
+}
+
+/** Dự án và bộ lọc gán mail (spec 2026-10-31). Hỏi mỗi 2 giây khi worker đang gán lại mail. */
+export function useProjects() {
+  const qc = useQueryClient();
+  const query = useQuery({
+    queryKey: keys.projects,
+    queryFn: () => unwrap(api.GET("/api/v1/projects")),
+    refetchInterval: (query) => (query.state.data?.assigning ? 2000 : false),
+  });
+  // Worker gán xong (assigning true -> false): nhãn dự án trên danh sách thread đã cũ, tải lại.
+  const assigning = query.data?.assigning;
+  const wasAssigning = useRef(false);
+  useEffect(() => {
+    if (wasAssigning.current && assigning === false) {
+      void qc.invalidateQueries({ queryKey: ["threads"] });
+    }
+    if (assigning !== undefined) wasAssigning.current = assigning;
+  }, [assigning, qc]);
+  return query;
+}
+
+/** Sau khi lưu: cập nhật danh sách ngay, đánh dấu danh sách thread (nhãn dự án) là cũ. */
+function useProjectChanged() {
+  const qc = useQueryClient();
+  return async (change: (list: ProjectList) => ProjectList) => {
+    qc.setQueryData<ProjectList>(keys.projects, (old) => (old ? change(old) : old));
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: keys.projects }),
+      qc.invalidateQueries({ queryKey: ["threads"] }),
+    ]);
+  };
+}
+
+const byName = (a: Project, b: Project) => a.name.localeCompare(b.name);
+
+export function useCreateProject() {
+  const changed = useProjectChanged();
+  return useMutation({
+    mutationFn: (body: ProjectBody) => unwrap(api.POST("/api/v1/projects", { body })),
+    onSuccess: (p) => changed((l) => ({ ...l, items: [...l.items, p].sort(byName) })),
+  });
+}
+
+export function useUpdateProject() {
+  const changed = useProjectChanged();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: number; body: ProjectBody }) =>
+      unwrap(
+        api.PUT("/api/v1/projects/{project_id}", { params: { path: { project_id: id } }, body }),
+      ),
+    onSuccess: (p) =>
+      changed((l) => ({ ...l, items: l.items.map((x) => (x.id === p.id ? p : x)).sort(byName) })),
+  });
+}
+
+export function useDeleteProject() {
+  const changed = useProjectChanged();
+  return useMutation({
+    mutationFn: (id: number) =>
+      unwrap(api.DELETE("/api/v1/projects/{project_id}", { params: { path: { project_id: id } } })),
+    onSuccess: (_data, id) => changed((l) => ({ ...l, items: l.items.filter((x) => x.id !== id) })),
   });
 }

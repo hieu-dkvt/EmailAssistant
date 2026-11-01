@@ -1,6 +1,6 @@
-"""Hỏi đáp AI (spec 21) và cài đặt model (spec 22) với Claude giả và ml-service giả.
+"""Hỏi đáp AI (spec 21) và cài đặt model (spec 22) với AI giả và ml-service giả.
 
-Kiểm tra quan trọng nhất (NDA): request gửi Claude không chứa giá trị gốc nào đã phải che, và
+Kiểm tra quan trọng nhất (NDA): request gửi AI không chứa giá trị gốc nào đã phải che, và
 không chứa mail của người khác.
 """
 
@@ -165,7 +165,7 @@ async def test_ask_masks_everything_sent_and_unmasks_answer(
     assert "サンプルA" in data["answer"] and "03-0000-0001" in data["answer"]
     assert [s["message_id"] for s in data["sources"] if s["cited"]] == [world.est]
     assert world.b_est not in [s["message_id"] for s in data["sources"]]
-    # "Nội dung đã gửi Claude" đúng là text trong request.
+    # "Nội dung đã gửi AI" đúng là text trong request.
     assert [s["content"] for s in data["sent"]] == [req["user"] for req in llm.requests]
     assert data["mask_counts"]["PERSON"] >= 2 and data["mask_counts"]["MONEY"] == 1
     assert [c["task"] for c in data["calls"]] == ["question_analysis", "answer"]
@@ -323,7 +323,7 @@ async def test_refusal_and_api_errors(
     ]
     r = await ask(client)
     assert (r.status_code, r.json()["code"]) == (502, "ai_refused")
-    llm.responses = [LlmError("ai_unavailable", 503, "Không kết nối được Claude")]
+    llm.responses = [LlmError("ai_unavailable", 503, "Không kết nối được AI")]
     r = await ask(client)
     assert (r.status_code, r.json()["code"]) == (503, "ai_unavailable")
     llm.responses = [

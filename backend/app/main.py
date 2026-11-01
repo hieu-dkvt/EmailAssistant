@@ -17,7 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.ai.ask import AskGuard
 from app.ai.client import LlmClient, default_llm
 from app.ai.provider import LlmResolver
-from app.api import ai_routes, routes, session_routes, web_routes
+from app.api import ai_routes, project_routes, routes, session_routes, web_routes
 from app.api.errors import (
     ApiError,
     api_error_handler,
@@ -58,7 +58,7 @@ def create_app(
 ) -> FastAPI:
     """web_dist: thư mục build của web; "auto" = PMM_WEB_DIST hoặc web/dist nếu đã build.
 
-    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: client Claude (mặc định
+    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: client AI (mặc định
     AnthropicLlm nếu đã cấu hình khóa API, không thì None → hỏi đáp trả 503 ai_not_configured).
     """
     owns_engine = engine is None
@@ -109,6 +109,7 @@ def create_app(
     app.include_router(session_routes.router)
     app.include_router(web_routes.router)
     app.include_router(ai_routes.router)
+    app.include_router(project_routes.router)
     dist = web_dist_dir() if web_dist == "auto" else web_dist
     if dist is not None:
         # Mount sau cùng: chỉ nhận đường dẫn không khớp route API nào.

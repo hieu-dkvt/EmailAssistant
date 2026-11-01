@@ -16,14 +16,14 @@ app/config.py            # URL DB theo role (owner/api/worker), biến DATABASE_
 app/db/models.py         # model SQLAlchemy: users, api_tokens, user_passwords, web_sessions, mail_sources,
                          #   messages (gồm index PGroonga ix_messages_search), message_ownership, threads,
                          #   thread_overrides, user_thread_state, message_chunks (halfvec + HNSW),
-                         #   user_ai_settings, ai_calls
+                         #   user_ai_settings, ai_calls, projects, message_projects, user_project_state (spec 25)
 app/db/session.py        # create_api_engine (hide_parameters), user_session(engine, user_id): transaction + app.user_id (RLS)
 app/main.py              # create_app (FastAPI, giới hạn body, tắt /docs /redoc, header bảo mật, mount web/dist)
 app/run.py               # chạy uvicorn 127.0.0.1 (SelectorEventLoop trên Windows); access log bỏ query string
 app/auth.py              # token collector pmm_..., băm SHA-256
 app/web_auth.py          # mật khẩu web (scrypt), token phiên pmw_..., LoginThrottle (5 lần sai / 15 phút)
 app/cli.py               # create-user / create-token / revoke-token / set-password (role owner);
-                         #   process-mail, mail-stats (role worker), review-threads (role api + RLS)
+                         #   process-mail, assign-projects, mail-stats (role worker), review-threads (role api + RLS)
 app/api/deps.py          # xác thực Bearer token qua auth_token_user, đọc body có giới hạn + gunzip an toàn
 app/api/web_deps.py      # phiên cookie qua web_session_user, header X-PMM-Request (CSRF), json_body() cho OpenAPI
 app/api/routes.py        # API collector (chỉ token): /api/v1/me, /ingest, /sources, /sources/delete-mail
@@ -67,7 +67,8 @@ app/mail/threading.py    # gom thread JWZ + Thread-Index + subject + override, a
 app/processing.py        # chạy làm sạch/gom trong DB theo từng người dùng (role worker), pending_users,
                          #   pending_override_users, ghi applied_overrides_version sau khi gom
 app/tasks/__init__.py    # App Procrastinate: process_user_mail, sweep mỗi phút, apply_overrides mỗi 5 giây,
-                         #   embed_sweep mỗi phút, embed_user (job ≤ 10 giây, tự đẩy tiếp)
+                         #   embed_sweep mỗi phút, embed_user (job ≤ 10 giây, tự đẩy tiếp),
+                         #   project_rules_sweep mỗi 5 giây, assign_user_projects (spec 25)
 app/worker.py            # python -m app.worker (additional_context: engine, ml)
 app/review.py            # mail-stats (chỉ số liệu tổng hợp, có embedding), HTML review-threads
 app/safe_errors.py       # describe()/sanitized(): mô tả lỗi không có thông điệp gốc (cho log worker, CLI)
@@ -77,17 +78,16 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
                          #   0010_web_sessions, 0011_thread_override_writes, 0012_messages_search_index (CONCURRENTLY),
                          #   0013_secdef_search_path (pg_temp cuối search_path, PUBLIC không có TEMP),
                          #   0014_threads_list_index (CONCURRENTLY, thứ tự danh sách thread),
-                         #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls)
+                         #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls),
+                         #   0017_projects (projects, message_projects, user_project_state, spec 25)
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
                          #   tests/mlfake.py: FakeMl (vector theo "khái niệm", NER giả), FakeLlm
+app/projects.py          # bộ lọc From, To, CC, Subject: match_projects (hàm thuần), assign_messages, assign_user (job `assign_user_projects` ở tasks bọc hàm này, spec 25)
+app/api/project_routes.py  # CRUD dự án (chỉ phiên web)
+app/db/locks.py          # khóa advisory theo người dùng dùng chung cho gom thread và gán dự án
 ```
 
-Dự kiến thêm:
-
-```
-app/projects.py  # gán dự án (chờ người dùng chốt danh sách dự án và quy tắc)
-```
 
 ## DB
 
@@ -127,6 +127,7 @@ Chạy từ thư mục gốc `Email Assistant` (hoặc bỏ `--directory backend
 | Chạy worker (làm sạch + gom thread tự động) | `uv run --directory backend python -m app.worker` (không dùng CLI `procrastinate`: trên Windows cần SelectorEventLoop) |
 | Làm sạch + gom ngay, không cần worker | `... python -m app.cli process-mail --email <e> [--rethread]` |
 | Embed ngay, không cần worker (cần ml-service chạy) | `... python -m app.cli embed-mail --email <e> [--limit N]` |
+| Gán lại mail vào dự án ngay, không cần worker (in số mail đã xét và số mail có dự án) | `... python -m app.cli assign-projects --email <e>` |
 | Số liệu tổng hợp (chạy được trên dữ liệu thật) | `... python -m app.cli mail-stats [--email <e>]` |
 | Đánh giá tìm kiếm trên profile giả (DB test, cần ml-service; không chạy cùng pytest) | `uv run --directory backend python ../eval/retrieval_eval.py [--skip-load] [--out FILE]` |
 | Người dùng tự kiểm tra thread (file có nội dung mail, Claude Code không đọc) | `... python -m app.cli review-threads --email <e> [--sample 100]` |
@@ -158,7 +159,12 @@ Spec: `docs/superpowers/specs/2026-10-17-threading-design.md`.
 - `thread_overrides` (split/merge, tham chiếu mail) luôn được áp dụng lại, thuật toán không ghi bảng này. Web ghi qua `app/overrides.py` (spec 15), kèm tăng `user_thread_state.overrides_version`; `rethread_user` đọc version **trước** khi đọc override rồi ghi `applied_overrides_version` (sửa tay commit giữa lúc gom không bị mất).
 - Không bao giờ gom mail của hai người dùng với nhau; code chạy bằng role worker phải lọc `user_id` ở mọi truy vấn.
 
-Gán dự án tự động theo domain khách và mã dự án trong subject: chưa làm, chờ người dùng chốt danh sách dự án và quy tắc.
+Gán dự án theo bộ lọc From, To, CC, Subject do người dùng khai báo (spec 25, `app/projects.py`). Bẫy:
+
+- `assign_messages` chạy bên trong transaction của `rethread_user` (giữ `USER_MAIL_LOCK`), nên mail mới và dự án cùng commit. Ghi mỗi lô trong SAVEPOINT, thử lại tối đa 3 lần với sqlstate 23503 (mail/dự án bị xóa giữa chừng) và 40P01.
+- Đọc `rules_version` **trước** khi đọc `projects` (sửa bộ lọc commit giữa chừng thì lần sau quét lại, không bị mất).
+- Không dùng mốc `messages.id` để tìm mail mới; không log giá trị bộ lọc hay tên dự án.
+- Quét lại: `project_rules_sweep` (5 giây) đẩy `assign_user_projects`; chạy tay `python -m app.cli assign-projects --email <e>`.
 
 ## Embedding và tìm kiếm ngữ nghĩa
 
@@ -170,17 +176,17 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 - **Truy vấn vector không JOIN trong cùng câu `ORDER BY embedding <=> … LIMIT`**: planner bỏ index HNSW và sắp toàn bộ. Dùng `vector_chunks` (bước 1 chỉ `message_chunks`, bước 2 lọc bằng `messages`, tăng k khi thiếu). Luôn `SET LOCAL hnsw.iterative_scan = relaxed_order` (RLS và bộ lọc loại bớt dòng).
 - Vector truyền vào SQL bằng tham số bind dạng chuỗi `'[…]'` + `CAST(… AS halfvec(1024))` (`vector_literal`); đọc ra là chuỗi (không đăng ký adapter pgvector).
 
-## Claude API
+## Gọi AI (nhà cung cấp và model bất kỳ)
 
 Spec 20, 21, 22, 24.
 
-- Trước khi viết code gọi Claude, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
+- Trước khi viết code gọi SDK `anthropic`, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
 - Khóa mặc định: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Người dùng có thể lưu nhà cung cấp riêng (bảng `user_ai_provider`, key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24): `LlmResolver.for_user` chọn client theo người dùng, `call_task(custom_model=…)` dùng tên model tự nhập. URL qua `validate_base_url` (https công cộng, http chỉ loopback, chặn IP riêng); không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `anthropic_base_url()` (chỉ `*.anthropic.com`) chỉ áp dụng cho client môi trường. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
 - Model theo cấp và tác vụ (`app/ai/models.py`): mặc định phân tích câu hỏi = `claude-haiku-5-5`, trả lời = `claude-sonnet-5-5`; người dùng đổi trên trang "Cài đặt AI" (bảng `user_ai_settings`). `PMM_MODEL_HAIKU/SONNET/OPUS` đổi model của cấp. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS`, gọi qua `call_task`.
-- **Mọi text gửi Claude phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị Claude trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
+- **Mọi text gửi AI phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị AI trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
 - Che từng giá trị riêng (người gửi, người nhận, subject, đoạn mail) rồi mới ghép tên trường (`From:`…): GiNZA nhận nhầm tên trường là tổ chức. Giới hạn độ dài mọi phần (subject 300, To/Cc 10 người).
 - Regex trong `masking.py`/`names.py` chạy trên bản NFKC (`nfkc_map`, đổi vị trí về text gốc); mọi lượng từ phải có giới hạn (`{0,30}`…, không `*`/`+` không giới hạn, không lồng nhau): test `test_patterns_linear_on_crafted_text`. Ranh giới từ cho tên Latin dùng lớp chữ Latin, không dùng `\w` (gồm cả chữ Nhật).
-- Thêm mẫu che mới thì thêm cả test "không che từ thường" (vd. `仕様書`, `1万件`, `PRJ-1234`): che thừa làm Claude mất ngữ cảnh.
+- Thêm mẫu che mới thì thêm cả test "không che từ thường" (vd. `仕様書`, `1万件`, `PRJ-1234`): che thừa làm AI mất ngữ cảnh.
 - Client SDK luôn `base_url=https://api.anthropic.com` (`anthropic_base_url`; `PMM_ANTHROPIC_BASE_URL` chỉ nhận `https://*.anthropic.com`), `open_telemetry=False`. Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).
 - `ML_SERVICE_URL` chỉ nhận `http://` loopback hoặc `https://` (ml-service nhận text chưa che).
 - Output có cấu trúc: `output_config.format` với schema từ Pydantic (`anthropic.transform_schema`), rồi tự `model_validate_json`. Không dùng `messages.parse`: nó ném lỗi khi model từ chối hay hết token, mất `stop_reason` và `usage`.
@@ -190,7 +196,7 @@ Spec 20, 21, 22, 24.
 - Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) qua Message Batches API. System prompt dài cố định thì đặt `cache_control`.
 - Không dùng LangChain / LlamaIndex. Search kiểu agent dùng tool runner của SDK `anthropic`.
 - Câu trả lời luôn kèm link tới mail/thread gốc.
-- Test không gọi Anthropic thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
+- Test không gọi AI thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
 
 ## Quy ước
 

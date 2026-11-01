@@ -47,12 +47,16 @@ def test_rls_enabled_flags(owner_engine: Engine, migrated: None) -> None:
         # Không chứa mail; app_api không có quyền gì (chỉ qua hàm SECURITY DEFINER, 0010).
         "user_passwords": False,
         "web_sessions": False,
-        # Giai đoạn 5 (0015): vector dẫn xuất từ mail, cài đặt AI và nhật ký gọi Claude.
+        # Giai đoạn 5 (0015): vector dẫn xuất từ mail, cài đặt AI và nhật ký gọi AI.
         "message_chunks": True,
         "user_ai_settings": True,
         # 0016: bí mật (API key mã hóa) của provider AI tùy chỉnh.
         "user_ai_provider": True,
         "ai_calls": True,
+        # 0017: dự án và liên kết mail-dự án (spec 25).
+        "projects": True,
+        "message_projects": True,
+        "user_project_state": True,
     }
 
 
@@ -197,6 +201,16 @@ def test_api_column_privileges(owner_engine: Engine, migrated: None) -> None:
         ("message_ownership", "message_id", "UPDATE"),
         ("message_ownership", "source_id", "UPDATE"),
         ("message_ownership", "user_id", "UPDATE"),
+        ("projects", "id", "INSERT"),
+        ("projects", "id", "UPDATE"),
+        ("projects", "user_id", "UPDATE"),
+        ("user_project_state", "user_id", "UPDATE"),
+        ("user_project_state", "applied_rules_version", "INSERT"),
+        ("user_project_state", "applied_rules_version", "UPDATE"),
+        ("user_project_state", "scan_version", "INSERT"),
+        ("user_project_state", "scan_version", "UPDATE"),
+        ("user_project_state", "scan_after_id", "INSERT"),
+        ("user_project_state", "scan_after_id", "UPDATE"),
     ]
     with owner_engine.connect() as conn:
         granted = [

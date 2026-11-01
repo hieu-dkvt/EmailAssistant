@@ -44,6 +44,21 @@ export function ThreadListPage() {
                 {senderLabel(t.last_from_name, t.last_from_addr)}
               </span>
               <span className="min-w-0 flex-1 truncate">{t.subject || "(không có tiêu đề)"}</span>
+              {t.projects.length > 0 && (
+                <span
+                  className="flex shrink-0 items-center gap-1"
+                  title={t.projects.map((p) => p.name).join(", ")}
+                >
+                  {t.projects.slice(0, 2).map((p) => (
+                    <Badge key={p.id} variant="outline" className="max-w-32 truncate">
+                      {p.name}
+                    </Badge>
+                  ))}
+                  {t.projects.length > 2 && (
+                    <span className="text-xs text-muted-foreground">+{t.projects.length - 2}</span>
+                  )}
+                </span>
+              )}
               {t.message_count > 1 && <Badge variant="secondary">{t.message_count}</Badge>}
               {t.has_attachments && (
                 <Paperclip className="size-4 text-muted-foreground" aria-label="Có file đính kèm" />

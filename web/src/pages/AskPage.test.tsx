@@ -124,7 +124,7 @@ describe("AskPage", () => {
       "fetch",
       vi.fn(async (request: Request) =>
         request.method === "POST"
-          ? json(503, { detail: "Chưa cấu hình Claude", code: "ai_not_configured" })
+          ? json(503, { detail: "Chưa cấu hình AI", code: "ai_not_configured" })
           : json(200, []),
       ),
     );
@@ -132,6 +132,6 @@ describe("AskPage", () => {
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Câu hỏi"), "x");
     await user.click(screen.getByRole("button", { name: "Hỏi" }));
-    expect(await screen.findByText("Chưa cấu hình Claude")).toBeInTheDocument();
+    expect(await screen.findByText("Chưa cấu hình AI")).toBeInTheDocument();
   });
 });

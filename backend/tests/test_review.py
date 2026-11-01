@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app import cli, processing, review
 from app.processing import process_user
 from app.review import review_html, stats_report
-from tests.dbutil import add_mail, add_user, as_user, url_for_test_db
+from tests.dbutil import add_mail, add_project, add_user, as_user, url_for_test_db
 
 SECRET_SUBJECT = "SECRET-SUBJECT <script>alert('x')</script>"
 SECRET_FROM = "secret.sender@private.example.jp"
@@ -193,3 +193,35 @@ def test_cli_error_is_sanitized(
     assert "constraint=ck_messages_thread_method" in captured.err
     assert "sqlstate=23514" in captured.err
     assert "SECRET" not in captured.err + captured.out
+
+
+async def test_stats_report_counts_project_mail_without_names(
+    worker: AsyncEngine, worker_engine: Engine, owner_engine: Engine, secrets: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        add_project(conn, secrets.a, "TÊN-DỰ-ÁN-BÍ-MẬT", filter_from=["private.example.jp"])
+        add_project(conn, secrets.a, "Dự án thứ hai", filter_from=["private.example.jp"])
+    await process_user(worker, secrets.a)
+    with worker_engine.connect() as conn:
+        report = stats_report(conn, [secrets.a])
+    assert "Dự án: 2 dự án · 1 mail đã gán dự án" in report  # một mail khớp hai dự án: đếm một lần
+    assert "TÊN-DỰ-ÁN" not in report and "thứ hai" not in report
+
+
+def test_cli_assign_projects(
+    secrets: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    owner_engine: Engine,
+) -> None:
+    use_test_db(monkeypatch)
+    assert cli.main(["assign-projects", "--email", "a@example.com"]) == 0
+    assert f"Người dùng id={secrets.a}: chưa có dự án." in capsys.readouterr().out
+    with owner_engine.begin() as conn:
+        add_project(conn, secrets.a, "P", filter_from=["private.example.jp"])
+        conn.execute(
+            text("insert into user_project_state (user_id, rules_version) values (:u, 1)"),
+            {"u": secrets.a},
+        )
+    assert cli.main(["assign-projects", "--email", "a@example.com"]) == 0
+    assert f"Người dùng id={secrets.a}: đã xét 2 mail, 1 mail có dự án." in capsys.readouterr().out
