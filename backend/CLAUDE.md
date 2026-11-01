@@ -197,10 +197,12 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 
 Spec 20, 21, 22, 24.
 
+**Đổi hướng 2026-11-01 (quyết định của người dùng, spec 28):** AI chỉ chạy trên model nội bộ qua gateway kiểu 9router, không dùng API ngoài, không cần che thông tin. Người dùng nhập URL, API key, model ở Cài đặt AI, ô URL nhận mọi địa chỉ. Các mục dưới đây mô tả code hiện tại; `Masker`, `ANTHROPIC_API_KEY`, ba cấp Haiku/Sonnet/Opus bỏ ở spec 28. Code mới không thêm đường gọi AI ngoài cấu hình của người dùng. Bỏ `Masker` và khóa mặc định trong cùng một đợt.
+
 - Trước khi viết code gọi SDK `anthropic`, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
 - Khóa mặc định: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Người dùng có thể lưu nhà cung cấp riêng (bảng `user_ai_provider`, key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24): `LlmResolver.for_user` chọn client theo người dùng, `call_task(custom_model=…)` dùng tên model tự nhập. URL qua `validate_base_url` (https công cộng, http chỉ loopback, chặn IP riêng); không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `anthropic_base_url()` (chỉ `*.anthropic.com`) chỉ áp dụng cho client môi trường. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
 - Model theo cấp và tác vụ (`app/ai/models.py`): mặc định phân tích câu hỏi = `claude-haiku-5-5`, trả lời = `claude-sonnet-5-5`; người dùng đổi trên trang "Cài đặt AI" (bảng `user_ai_settings`). `PMM_MODEL_HAIKU/SONNET/OPUS` đổi model của cấp. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS`, gọi qua `call_task`.
-- **Mọi text gửi AI phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị AI trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
+- **Cho tới khi làm xong spec 28, mọi text gửi AI phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị AI trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
 - Che từng giá trị riêng (người gửi, người nhận, subject, đoạn mail) rồi mới ghép tên trường (`From:`…): GiNZA nhận nhầm tên trường là tổ chức. Giới hạn độ dài mọi phần (subject 300, To/Cc 10 người).
 - Regex trong `masking.py`/`names.py` chạy trên bản NFKC (`nfkc_map`, đổi vị trí về text gốc); mọi lượng từ phải có giới hạn (`{0,30}`…, không `*`/`+` không giới hạn, không lồng nhau): test `test_patterns_linear_on_crafted_text`. Ranh giới từ cho tên Latin dùng lớp chữ Latin, không dùng `\w` (gồm cả chữ Nhật).
 - Ranh giới từ của mẫu dùng `WORD_CHARS`, `NOT_AFTER_WORD`, `NOT_BEFORE_WORD` (`names.py`): chỉ chữ Latin, số, `_`, không dùng `\w` (gồm cả chữ Nhật nên địa chỉ, số điện thoại liền sau chữ Nhật lọt). Cái giá: che thừa cạnh chữ Nhật (`user.idが`, `0123456789件`).
@@ -213,8 +215,8 @@ Spec 20, 21, 22, 24.
 - Sonnet, Opus: `client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01"], fallbacks="default")` (fallback khi bị từ chối); Haiku không có. Tắt bằng `PMM_AI_FALLBACKS=0`.
 - Mỗi lần gọi ghi một dòng `ai_calls` (tác vụ, model thực sự trả lời, status, token, thời gian), kể cả khi lỗi. Cột dự án thêm khi có gán dự án.
 - Lỗi SDK → `LlmError(code, http_status)`; log chỉ tên lớp lỗi và `request_id`, không log thông điệp.
-- Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) qua Message Batches API. System prompt dài cố định thì đặt `cache_control`.
-- Không dùng LangChain / LlamaIndex. Search kiểu agent dùng tool runner của SDK `anthropic`.
+- Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) chạy bằng worker qua gateway nội bộ, giới hạn đồng thời theo khả năng của model. Không dùng Message Batches API (API ngoài).
+- Không dùng LangChain / LlamaIndex. Search kiểu agent (nếu làm) không dựa vào tool runner của SDK `anthropic`: model nội bộ đi qua giao thức `openai` và có thể không hỗ trợ tool.
 - Câu trả lời luôn kèm link tới mail/thread gốc.
 - Test không gọi AI thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
 

@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/masking.py`, `backend/app/ai/names.py`, `backend/app/ai/people.py`, NER ở `ml-service/app/ner.py` · Trạng thái: xong (sửa sau review bảo mật: mục 9; sửa 2026-11-01 khi làm spec 26: mục 10)
 
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: `Masker` vẫn chạy cho tới khi làm xong [spec 28](2026-11-01-internal-model-design.md). Yêu cầu bốn nhóm thông tin ở mục 1 không còn hiệu lực.
+
 ## 1. Mục đích
 
 Khách cho phép gửi nội dung mail qua AI **với điều kiện che thông tin nhạy cảm** (quyết định của người dùng 2026-10-19). Mọi text gửi AI (câu hỏi của người dùng, subject, người gửi, đoạn mail) đi qua bước che: thông tin bị thay bằng nhãn giả, AI chỉ thấy nhãn; câu trả lời của AI được thay nhãn về giá trị thật **trên server** trước khi hiện cho người dùng.

@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/ask.py`, `backend/app/ai/client.py`, `backend/app/ai/prompts.py`, `backend/app/api/ai_routes.py` (`POST /api/v1/ask`), migration 0015 (`ai_calls`), `web/src/pages/AskPage.tsx` · Trạng thái: xong, chưa gọi thử AI thật (sửa sau review bảo mật: mục 10; sửa 2026-11-01 khi làm spec 26: mục 11)
 
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: các bước che, thay ngược và mục 6 đổi ở [spec 28](2026-11-01-internal-model-design.md).
+
 ## 1. Mục đích
 
 PM hỏi bằng tiếng Việt (hoặc Nhật, Anh) về nội dung mail, vd. "Khách A đã đồng ý phương án sửa bug nhập kho chưa?". Hệ thống tìm các đoạn mail liên quan **trong phạm vi người hỏi được xem**, che thông tin nhạy cảm (spec 20), gửi cho AI, trả lời bằng tiếng Việt kèm link tới mail/thread gốc.

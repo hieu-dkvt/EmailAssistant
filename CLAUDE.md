@@ -16,8 +16,10 @@ Trợ lý email dùng AI cho PM dự án outsource Nhật: trích xuất mail t�
 | 6 (một phần) | Dịch mail tự động và dịch tay, glossary, chuyển mail sang folder dự án (chỉ trên web) | 26 |
 
 - Đã có (spec 25, 2026-10-31): màn hình cấu hình dự án và worker gán mail theo bộ lọc, nhãn dự án trên danh sách thread.
-- Đã có (spec 26, 2026-11-01): dịch mail khách trong Inbox (job nền trên queue `translate`, hoặc nút Dịch), glossary chung và theo dự án, chuyển mail đã dịch sang folder dự án **chỉ trên web** (Thunderbird vẫn thấy mail ở Inbox; move thật qua IMAP làm spec riêng). Chạy thử đầu cuối trên DB test với AI giả, chưa gọi thử gateway thật; job dịch tự dùng khóa môi trường mặc định khi người dùng xóa nhà cung cấp (chờ người dùng quyết định). Tiếp theo: phần còn lại của giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
-- Đang đợi, chưa đối ứng: xử lý Backlog → Redmine và GitHub review. Chưa làm: lọc theo dự án, mở mail gốc trong Thunderbird. Hỏi đáp AI chạy qua nhà cung cấp và model do người dùng nhập ở Cài đặt AI; chưa gọi thử với khóa môi trường `ANTHROPIC_API_KEY`. Embed trên CPU máy dev chậm (khoảng 0,3 đoạn/giây).
+- Đã có (spec 26, 2026-11-01): dịch mail khách trong Inbox (job nền trên queue `translate`, hoặc nút Dịch), glossary chung và theo dự án, chuyển mail đã dịch sang folder dự án **chỉ trên web** (Thunderbird vẫn thấy mail ở Inbox; move thật qua IMAP làm spec riêng). Chạy thử đầu cuối trên DB test với AI giả, chưa gọi thử gateway thật; job dịch tự dùng khóa môi trường mặc định khi người dùng xóa nhà cung cấp (chờ người dùng quyết định).
+- **Đổi hướng AI (2026-11-01):** chỉ dùng model nội bộ qua gateway kiểu 9router, không dùng API ngoài, không cần che thông tin. Code chưa đổi (spec 28).
+- Tiếp theo: spec 28 (chuyển sang model nội bộ, đã có spec, chưa có code), spec 27 (cải thiện truy xuất hỏi đáp, đã có spec và kế hoạch, chưa có code), rồi phần còn lại của giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
+- Đang đợi, chưa đối ứng: xử lý Backlog → Redmine và GitHub review. Chưa làm: lọc theo dự án, mở mail gốc trong Thunderbird. Hỏi đáp và dịch chạy qua nhà cung cấp và model nhập ở Cài đặt AI; chưa gọi thử gateway thật. Embed trên CPU máy dev chậm (khoảng 0,3 đoạn/giây).
 - Khi dựng khung một thành phần, cập nhật mục "Lệnh" trong CLAUDE.md của thành phần đó.
 
 ## Chạy thử toàn bộ
@@ -28,7 +30,7 @@ Dưới đây, `<api>` là `uv run --directory backend python -m app.cli`.
 2. `<api> create-user --email <e> --name "<tên>" --role pm` → lấy token; `<api> set-password --email <e>`.
 3. Build web (lần đầu và sau mỗi lần sửa web): `npm --prefix web install`, `npm --prefix web run build`.
 4. Cửa sổ riêng: `uv run --directory ml-service python -m app.run` (`127.0.0.1:8001`). Lần đầu chạy `uv sync --directory ml-service` và tải model khoảng 2,3 GB. Cần cho search ngữ nghĩa, embed nền, hỏi đáp; thiếu thì chức năng khác vẫn chạy.
-5. `uv run --directory backend python -m app.run` (`http://127.0.0.1:8000`). Hỏi đáp AI cần nhập nhà cung cấp và model ở Cài đặt AI (lưu key cần `$env:PMM_SECRET_KEY`, sinh bằng `<api> gen-secret-key`); `$env:ANTHROPIC_API_KEY` chỉ là khóa mặc định tùy chọn.
+5. `uv run --directory backend python -m app.run` (`http://127.0.0.1:8000`). Hỏi đáp AI cần nhập nhà cung cấp và model ở Cài đặt AI (lưu key cần `$env:PMM_SECRET_KEY`, sinh bằng `<api> gen-secret-key`). Không dùng `$env:ANTHROPIC_API_KEY` hay API ngoài với mail thật (quyết định 2026-11-01).
 6. Cửa sổ riêng: `uv run --directory backend python -m app.worker`. Dịch tự động cần `$env:PMM_SECRET_KEY` (cùng khóa với API, để đọc key nhà cung cấp đã lưu) và ml-service đang chạy; thiếu thì job dịch dừng và thử lại phút sau, các việc khác vẫn chạy. Mail chỉ được dịch tự động khi dự án có domain khách (mốc 14 ngày); chọn folder đích ở cấu hình dự án (folder phải đã đồng bộ).
 7. `collector\collector.exe settings` → chọn profile và folder, Lưu → nhập URL server và token, Lưu kết nối → Đồng bộ.
 8. Mở `http://127.0.0.1:8000`. Số liệu: `<api> mail-stats`. Người dùng tự xem thread: `<api> review-threads --email <e>` (file có nội dung mail, Claude Code không đọc).
@@ -61,12 +63,13 @@ Collector (Go, máy người dùng) ──HTTPS──▶ api (FastAPI) ◀──
 
 ## Nguyên tắc bắt buộc
 
-### Dữ liệu và bảo mật (NDA)
+### Dữ liệu và bảo mật
 - **Chỉ đọc** mbox và profile Thunderbird: không khóa, không ghi, không đổi tên. Không ghi gì lên mail server.
 - **Không bao giờ tự gửi mail.** Tool chỉ tạo bản nháp, người dùng tự copy sang Thunderbird.
 - **Claude Code không đọc mail thật**, vì mọi thứ nó đọc đều gửi tới Anthropic. Không đọc profile Thunderbird hay `samples/raw/`. Lệnh trên dữ liệu thật chỉ in số liệu tổng hợp. Không gọi API đọc mail hay chụp web trên DB dev `mailassist`.
 - **Không commit mail thật**, test chỉ dùng mail đã ẩn danh. **Không ghi nội dung mail vào log**: log chỉ có ID, số lượng, thời gian, lỗi.
-- Nội dung mail chỉ ra ngoài qua nhà cung cấp AI do người dùng nhập ở Cài đặt AI (model bất kỳ), hoặc khóa môi trường mặc định (cho phép gateway công cộng 2026-10-25, người dùng chịu trách nhiệm với khách; 2026-10-31: OpenRouter để thử, khi vận hành người dùng chuyển sang model nội bộ qua gateway), sau khi đã lọc quyền và **che thông tin** (bắt buộc theo NDA 2026-10-19: email, điện thoại, URL, địa chỉ, tên người, tên công ty/tổ chức, số tiền, số hợp đồng/đơn hàng; spec 20). Câu hỏi của người dùng cũng được che. Che lỗi thì không gửi. Embedding, NER, rerank luôn self-host (`ml-service`). **Che trước, cắt sau**: mọi giới hạn độ dài áp trên text đã che (cắt trước làm địa chỉ, số điện thoại cụt lọt ra ngoài); `/ask` che đoạn mail trong cửa sổ rộng hơn đoạn (spec 20, 21).
+- **AI chỉ chạy trên model nội bộ**, gọi qua gateway kiểu 9router (quyết định của người dùng 2026-11-01, thay cho các quyết định 2026-10-19, 2026-10-25, 2026-10-31 về API ngoài và che thông tin). **Không gửi nội dung mail tới API ngoài** (Anthropic, OpenRouter…): đây là quy ước do người cấu hình đảm bảo, ô URL ở Cài đặt AI nhận mọi địa chỉ và code không chặn (quyết định 2026-11-01). Vì mail không ra ngoài nên **không cần che thông tin**, các ràng buộc NDA về gửi AI ra ngoài không còn cần thiết. Vẫn lọc quyền trước khi đưa dữ liệu cho AI. Embedding, rerank luôn self-host (`ml-service`).
+- **Code chưa theo kịp quyết định trên (spec 28):** mọi text gửi AI vẫn qua `Masker` (spec 20), còn khóa mặc định `ANTHROPIC_API_KEY`, `validate_base_url` còn từ chối gateway trong LAN. **Bỏ `Masker` và khóa mặc định trong cùng một đợt**: nếu không, người chưa nhập gateway sẽ gửi mail chưa che tới Anthropic.
 - Không lưu nội dung file đính kèm, chỉ lưu metadata.
 
 ### Phân quyền
@@ -91,13 +94,14 @@ Collector (Go, máy người dùng) ──HTTPS──▶ api (FastAPI) ◀──
 | `.claude/rules/database.md`, `test-data.md` | RLS, migration, search; dữ liệu test, ẩn danh. Tự nạp theo thư mục đang làm |
 | `.claude/rules/documentation.md` | Quy tắc cập nhật tài liệu, mẫu spec. Luôn nạp |
 | `.claude/hooks/doc_reminder.py` | Lượt có sửa code mà không sửa `.md` thì nhắc một lần. Chỉ đọc đường dẫn file |
-| `.claude/agents/security-reviewer.md` | Rà soát NDA và phân quyền trước khi commit thay đổi về mail, DB, log, dịch vụ ngoài |
+| `.claude/agents/security-reviewer.md` | Rà soát bảo vệ dữ liệu và phân quyền trước khi commit thay đổi về mail, DB, log, dịch vụ ngoài |
 | `.claude/skills/` | `/survey-profile`: khảo sát profile, chỉ thu số liệu tổng hợp · `/gen-sample-mail`: sinh lại profile giả (spec 12) |
 
 ## Quy ước chung
 
 - Tên biến, hàm, bảng, cột bằng tiếng Anh. Giao diện, câu trả lời, bản tóm tắt cho người dùng bằng tiếng Việt.
 - Thêm hoặc sửa chức năng thì cập nhật tài liệu trong cùng lượt, trước khi báo xong (`.claude/rules/documentation.md`).
+- Làm và commit trực tiếp trên `master`, không tạo nhánh riêng (người dùng chọn 2026-11-01).
 
 ## Quyết định chưa chốt
 

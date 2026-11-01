@@ -66,5 +66,5 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 - Bản nháp reply (giai đoạn 6) chỉ có nút copy, không có nút gửi.
 - Bản dịch hiển thị dạng text thuần (không render HTML), lấy từ `GET /threads/{id}/translations` (một request cho cả thread, `MessageCard` nhận `translation` theo `message_id`). `MovePicker` hiện cho mọi mail `done` chưa có folder đích khi `move_projects` không rỗng, kể cả sau "Chuyển lại Inbox". Chuyển folder chỉ trên web: Thunderbird vẫn thấy mail ở Inbox.
 - Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
-- Che thông tin không có nút tắt trên web (yêu cầu NDA).
+- Che thông tin không có nút tắt trên web. Từ 2026-11-01 không còn là yêu cầu (dùng model nội bộ), phần hiển thị liên quan bỏ cùng `Masker` ở spec 28.
 - Chạy thử giao diện chỉ với dữ liệu giả (profile tự sinh trên DB test), không mở web trên DB dev có mail thật khi Claude Code đọc màn hình.

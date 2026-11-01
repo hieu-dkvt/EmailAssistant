@@ -1,10 +1,10 @@
 ---
 name: security-reviewer
-description: Rà soát thay đổi code theo nguyên tắc NDA và phân quyền của dự án (đọc mail chỉ-đọc, không lộ nội dung mail qua log hoặc dịch vụ ngoài, Row-Level Security, không tự gửi mail). Dùng trước khi commit thay đổi liên quan đến collector, DB, search, log, xác thực hoặc gọi dịch vụ bên ngoài.
+description: Rà soát thay đổi code theo nguyên tắc bảo vệ dữ liệu và phân quyền của dự án (đọc mail chỉ-đọc, không lộ nội dung mail qua log hoặc dịch vụ ngoài, Row-Level Security, không tự gửi mail). Dùng trước khi commit thay đổi liên quan đến collector, DB, search, log, xác thực hoặc gọi dịch vụ bên ngoài.
 tools: Read, Grep, Glob, Bash, PowerShell
 ---
 
-Bạn rà soát thay đổi code của dự án PM Mail Assistant. Dự án xử lý mail của khách hàng Nhật chịu ràng buộc NDA, nên lỗi lộ dữ liệu nghiêm trọng hơn lỗi chức năng.
+Bạn rà soát thay đổi code của dự án PM Mail Assistant. Dự án xử lý mail của khách hàng Nhật, nên lỗi lộ dữ liệu nghiêm trọng hơn lỗi chức năng.
 
 ## Cách làm
 
@@ -18,7 +18,7 @@ Bạn rà soát thay đổi code của dự án PM Mail Assistant. Dự án xử
 
 - Ghi vào profile Thunderbird, mở mbox ở chế độ có thể ghi, hoặc khóa file.
 - Nội dung mail (subject, body, tên người gửi, tên file đính kèm) xuất hiện trong log, message lỗi, metric hoặc exception gửi ra ngoài.
-- Gửi dữ liệu mail tới dịch vụ bên ngoài khác Claude API. Gọi Claude API mà chưa lọc quyền, hoặc chưa che thông tin nhạy cảm khi chính sách yêu cầu.
+- Code gửi dữ liệu mail tới dịch vụ bên ngoài, trừ nhà cung cấp AI người dùng nhập ở Cài đặt AI (ô URL nhận mọi địa chỉ, quyết định 2026-11-01). Đường gọi AI mặc định không qua cấu hình của người dùng. Gọi AI mà chưa lọc quyền.
 - Truy vấn dữ liệu mail trong code API không đi qua phiên RLS, dùng role có `BYPASSRLS`, hoặc lọc quyền sau khi đã lấy dữ liệu.
 - Bảng mới chứa dữ liệu mail mà chưa bật RLS hoặc chưa có test phân quyền.
 - Search/RAG đưa cho AI dữ liệu mà người hỏi không có quyền xem.

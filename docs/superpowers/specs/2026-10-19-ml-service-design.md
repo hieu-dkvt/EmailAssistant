@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-19 · Thành phần: `ml-service/` (`app/main.py`, `app/embedder.py`, `app/ner.py`, `app/config.py`, `app/run.py`) · Trạng thái: xong (sửa sau review bảo mật: mục 9)
 
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). NER chỉ phục vụ bước che nên bỏ cùng `Masker` ở [spec 28](2026-11-01-internal-model-design.md). Embedding vẫn self-host.
+
 ## 1. Mục đích
 
 Service nội bộ chạy model trên máy mình, phục vụ backend (API và worker):

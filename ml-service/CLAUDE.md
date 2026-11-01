@@ -2,6 +2,8 @@
 
 Service nội bộ chạy model trên máy mình, phục vụ backend (api và worker): embedding (`bge-m3`) cho tìm kiếm ngữ nghĩa và nhận dạng tên riêng (NER) cho bước che thông tin trước khi gửi cho AI. Không lưu dữ liệu, không gửi dữ liệu ra ngoài. Spec: `docs/superpowers/specs/2026-10-19-ml-service-design.md` (spec 17).
 
+NER chỉ phục vụ bước che. Từ 2026-11-01 không cần che thông tin (AI chạy trên model nội bộ, quyết định của người dùng), nên NER bỏ cùng `Masker` ở spec 28.
+
 ## Công nghệ
 
 Python 3.12 (GiNZA/spaCy chưa chắc có wheel 3.13), uv, FastAPI, PyTorch 2.14 (bản CPU của PyPI trên Windows), sentence-transformers 6.1, spaCy 3.8 + GiNZA 5.3 (`ja_ginza`, SudachiPy), `en_core_web_sm` 3.8.0 (cài từ GitHub release của spaCy, khai báo trong `[tool.uv.sources]`).

@@ -2,6 +2,33 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-01: chuyển sang model nội bộ, không còn yêu cầu che thông tin (mới đổi tài liệu, code chưa đổi)
+
+### Quyết định của người dùng
+- **Không dùng API ngoài, AI chạy trên model local nội bộ**, gọi qua gateway hoạt động như 9router. Thay cho: được gửi qua Claude API (2026-10-19), gateway công cộng (2026-10-25), OpenRouter để thử (2026-10-31).
+- **Không cần che thông tin, các ràng buộc NDA về gửi AI ra ngoài không còn cần thiết**, vì mail không ra ngoài. Thay cho quyết định bắt buộc che (2026-10-19) và "Che thông tin giữ nguyên dù model là nội bộ" (2026-10-31).
+- **Giữ màn hình Cài đặt AI**: người dùng nhập URL gateway, API key, model.
+- **Làm trực tiếp trên `master`**, không tạo nhánh riêng. Spec 25, 26 đã merge qua PR #1, #2.
+- **Ô URL nhận mọi địa chỉ** (chọn sau khi được nêu rủi ro nhập nhầm URL công cộng): code không chặn API ngoài, "không gửi mail ra API ngoài" là quy ước do người cấu hình đảm bảo.
+
+### Đã làm
+- Rà soát toàn bộ tài liệu theo hai quyết định trên: `CLAUDE.md` gốc, `backend/CLAUDE.md`, `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`, `.claude/` (security-reviewer, mẫu spec, skill survey-profile), danh mục spec, spec 12, 17, 20, 21, 22, 24, 26, 27 và kế hoạch 27, `backend/Mail automation spec.md`.
+- Viết spec 28 (`2026-11-01-internal-model-design.md`), đã duyệt thiết kế, chưa có code. Spec 27 làm sau spec 28, migration đổi thành 0020.
+- Không sửa code: `Masker` vẫn chạy, `ANTHROPIC_API_KEY` vẫn dùng được, gateway trong LAN vẫn bị từ chối.
+
+### Quyết định của người viết (người dùng có thể đổi)
+- Spec đã xong giữ nguyên nội dung vì mô tả code hiện tại, chỉ thêm dòng cập nhật ở đầu. Lịch sử CHANGELOG, kế hoạch đã chạy xong, `docs/progress-2026-10-18.md` không sửa.
+- Giữ các nguyên tắc không phụ thuộc việc che: chỉ đọc mbox, không tự gửi mail, không commit mail thật, không ghi nội dung mail vào log, không lưu nội dung file đính kèm, RLS. Giữ "Claude Code không đọc mail thật" vì Claude Code gửi mọi thứ nó đọc tới Anthropic, tức là một API ngoài.
+- **Bỏ `Masker` và khóa mặc định `ANTHROPIC_API_KEY` trong cùng một đợt**: nếu không, người chưa nhập gateway sẽ gửi mail chưa che tới Anthropic.
+- Bỏ khỏi kế hoạch: Voyage AI dự phòng, Message Batches API, tool runner của SDK `anthropic` (đều cần API ngoài hoặc SDK ngoài).
+- Giữ "mỗi bản mail chỉ gọi AI một lần": người dùng chưa quyết định đổi.
+- Spec 28: giữ chặn địa chỉ link-local (metadata cloud), cảnh báo trên màn hình khi host là địa chỉ công cộng, xóa cột `user_ai_settings.tier`, bỏ giá ước tính.
+
+### Còn để sau
+- Làm spec 28: nhận gateway trong LAN, bỏ khóa mặc định, bỏ `Masker`, NER, phần giao diện liên quan, đổi ba cấp Haiku/Sonnet/Opus thành tên model. Sau đó mới làm spec 27.
+- **Chờ người dùng:** có nới "mỗi bản mail chỉ gọi AI một lần" không.
+- Câu hỏi "job dịch rơi về khóa môi trường mặc định khi xóa nhà cung cấp" (spec 26) sẽ hết khi bỏ khóa môi trường.
+
 ## 2026-11-01: dịch mail tự động, glossary, chuyển mail sang folder dự án (spec 26, xong)
 
 Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên dưới. Mục này ghi phần đã làm và đã sửa.

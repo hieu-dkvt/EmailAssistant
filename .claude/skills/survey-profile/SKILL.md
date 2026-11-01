@@ -24,4 +24,4 @@ Mục tiêu: lấy số liệu cho báo cáo khảo sát giai đoạn 0 (mục 6
 4. Tổng hợp: số folder, tổng dung lượng, tổng số mail, 10 folder lớn nhất, tách riêng `Local Folders` và `ImapMail`.
 5. Ghi báo cáo vào `docs/survey/<tên máy>-<YYYY-MM-DD>.md`: bảng folder và phần tổng hợp. Nhắc người dùng đối chiếu số mail với số Thunderbird hiển thị.
 
-Tỷ lệ dung lượng đính kèm và việc lấy mẫu mail đại diện cần đọc nội dung mail nên không làm trong skill này. Các việc đó làm bằng script chạy cục bộ, hoặc sau khi chính sách NDA cho phép.
+Tỷ lệ dung lượng đính kèm và việc lấy mẫu mail đại diện cần đọc nội dung mail nên không làm trong skill này. Các việc đó làm bằng script chạy cục bộ.

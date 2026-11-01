@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/models.py`, `backend/app/ai/settings.py`, `backend/app/api/ai_routes.py` (`/api/v1/ai/settings`, `/api/v1/ai/usage`), migration 0015 (`user_ai_settings`), `web/src/pages/AiSettingsPage.tsx` · Trạng thái: xong
 
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: ba cấp Haiku/Sonnet/Opus và ghi chú "không tắt được" bỏ ở [spec 28](2026-11-01-internal-model-design.md).
+
 ## 1. Mục đích
 
 Yêu cầu của người dùng (2026-10-19): có màn hình cài đặt model AI với 3 cấp **Haiku / Sonnet / Opus**, chọn cấp cho từng tác vụ. Cấp thấp rẻ và nhanh, cấp cao trả lời tốt hơn với câu hỏi khó.

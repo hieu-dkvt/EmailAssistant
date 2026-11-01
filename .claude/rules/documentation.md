@@ -29,7 +29,7 @@ Ngày: YYYY-MM-DD · Thành phần: `<đường dẫn file/thư mục>`, migrati
 ## 1. Mục đích
 ## 2. Không làm
 ## 3. … Thiết kế và quy tắc xử lý (đủ để viết lại code mà không cần đọc code)
-## n. Phân quyền và dữ liệu (NDA, RLS, log): bắt buộc nếu chức năng chạm vào mail
+## n. Phân quyền và dữ liệu (RLS, log, gửi AI): bắt buộc nếu chức năng chạm vào mail
 ## n. Kiểm thử
 ## n. Giới hạn đã biết
 ## n. Sửa sau review (YYYY-MM-DD)

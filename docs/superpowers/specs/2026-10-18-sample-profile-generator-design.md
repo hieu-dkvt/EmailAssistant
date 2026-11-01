@@ -4,7 +4,7 @@ Ngày: 2026-10-18 (viết bù: script có từ 2026-10-16, thêm phần bulk 202
 
 ## 1. Mục đích
 
-Tạo một profile Thunderbird có cấu trúc như thật để chạy thử collector, backend, worker và làm golden test mà không phải dùng mail thật (theo NDA, Claude Code không đọc mail thật). Kèm theo là đáp án gom thread để đo thuật toán gom (spec 10).
+Tạo một profile Thunderbird có cấu trúc như thật để chạy thử collector, backend, worker và làm golden test mà không phải dùng mail thật (Claude Code không đọc mail thật). Kèm theo là đáp án gom thread để đo thuật toán gom (spec 10).
 
 ## 2. Không làm
 

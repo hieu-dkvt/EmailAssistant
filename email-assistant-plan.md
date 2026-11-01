@@ -16,7 +16,7 @@
 | File đính kèm | **Không cần search nội dung.** Chỉ lưu metadata (tên, kích thước, loại) |
 | Người dùng | Ban đầu 1 PM, **mở rộng ra nhiều người** (PM, BrSE, leader) |
 | Ngôn ngữ mail | Chủ yếu tiếng Nhật, có tiếng Việt và tiếng Anh |
-| Bảo mật | Dữ liệu khách Nhật chịu ràng buộc NDA. Hạn chế đưa dữ liệu ra ngoài |
+| Bảo mật | Dữ liệu khách Nhật. AI chạy trên model nội bộ, không đưa mail ra API ngoài (đổi ngày 2026-11-01) |
 
 ### Mục tiêu chức năng
 1. Trích xuất toàn bộ mail (local và server) và cập nhật tăng dần.
@@ -50,7 +50,7 @@
 │            ▼                 │  (text gọn,    │   ├─ Dedupe + Threading                     │
 │ Collector Agent              │   nén)         │   ├─ Full-text index                        │
 │   ├─ Quét tăng dần           │ ─────────────▶ │   ├─ Embedding (model local, vd bge-m3)     │
-│   ├─ Parse MIME, giải mã JP  │                │   └─ AI: phân loại / tóm tắt (Claude API)   │
+│   ├─ Parse MIME, giải mã JP  │                │   └─ AI: phân loại / tóm tắt (model nội bộ) │
 │   ├─ Làm sạch quote/chữ ký   │                │                   │                         │
 │   └─ State cục bộ (SQLite)   │                │                   ▼                         │
 └──────────────────────────────┘                │  PostgreSQL + PGroonga + pgvector           │
@@ -77,8 +77,8 @@
 | Full-text tiếng Nhật | **PGroonga** | Tìm tốt cả Nhật, Việt và Anh |
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
-| Embedding | `bge-m3` self-host (phương án chính) / Voyage AI (dự phòng) | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Nhà cung cấp và model bất kỳ do người dùng nhập ở Cài đặt AI, theo từng tác vụ (mặc định gợi ý: cấp nhỏ cho phân loại và phân tích câu hỏi, cấp vừa cho tóm tắt, trả lời, soạn reply) | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che; 2026-10-31: dùng OpenRouter để thử, khi vận hành người dùng chuyển sang model nội bộ qua gateway, vẫn che |
+| Embedding | `bge-m3` self-host | Self-host để không đưa dữ liệu ra ngoài |
+| LLM | Model nội bộ của công ty qua gateway kiểu 9router, nhập ở Cài đặt AI, theo từng tác vụ (mặc định gợi ý: cấp nhỏ cho phân loại và phân tích câu hỏi, cấp vừa cho tóm tắt, trả lời, soạn reply) | Quyết định của người dùng 2026-11-01: không dùng API ngoài, không cần che thông tin. Code chưa đổi, xem spec 28 |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |
@@ -151,7 +151,7 @@ audit_log            (user_id, action, target, at)
 - [ ] Liệt kê cấu trúc profile Thunderbird: danh sách folder, kích thước từng file mbox, folder con (`*.sbd`).
 - [ ] Lấy mẫu khoảng 50 mail đại diện: ISO-2022-JP, Shift_JIS, UTF-8, HTML-only, mail từ Outlook, mail forward, mail có quote dài.
 - [ ] Đếm tổng số mail và tỷ lệ dung lượng của file đính kèm để ước lượng dung lượng DB.
-- [x] **Xác nhận chính sách bảo mật:** khách có cho phép gửi nội dung mail qua AI cloud (Claude API) không? Có cần che thông tin nhạy cảm không? *(Kết quả 2026-10-19: được gửi qua Claude API, **bắt buộc che** email/điện thoại/URL/địa chỉ, tên người, tên công ty/tổ chức, số tiền/số hợp đồng.)*
+- [x] **Xác nhận chính sách bảo mật:** khách có cho phép gửi nội dung mail qua AI cloud (Claude API) không? Có cần che thông tin nhạy cảm không? *(Kết quả 2026-10-19: được gửi qua Claude API, **bắt buộc che** email/điện thoại/URL/địa chỉ, tên người, tên công ty/tổ chức, số tiền/số hợp đồng. Đổi ngày 2026-11-01: không dùng API ngoài, dùng model nội bộ, không cần che.)*
 - [ ] Chốt nơi đặt server (máy cá nhân, server nội bộ hay cloud riêng).
 
 **Đầu ra:** báo cáo khảo sát, bộ mail mẫu dùng làm test, quyết định về bảo mật.
@@ -236,12 +236,12 @@ audit_log            (user_id, action, target, at)
 - [ ] Chạy embedding cho dữ liệu cũ dần trong nền, **ưu tiên mail mới và dự án đang chạy trước**.
 - [ ] **Hybrid search:** kết hợp kết quả PGroonga và pgvector bằng Reciprocal Rank Fusion.
 - [ ] **Hỏi đáp bằng ngôn ngữ tự nhiên (RAG):**
-  1. Claude Haiku phân tích câu hỏi thành bộ lọc (dự án, ngày, người gửi) và từ khóa, đồng thời tự dịch Việt sang Nhật.
+  1. Model cấp nhỏ phân tích câu hỏi thành bộ lọc (dự án, ngày, người gửi) và từ khóa, đồng thời tự dịch Việt sang Nhật.
   2. Hybrid search, **lọc theo quyền của người hỏi**, lấy khoảng 20 đoạn liên quan nhất.
-  3. Claude Sonnet trả lời bằng tiếng Việt, **kèm link tới mail/thread gốc**.
-- [ ] Che thông tin nhạy cảm trước khi gửi cho Claude (chính sách ở giai đoạn 0 yêu cầu: 4 nhóm thông tin, xem trên).
+  3. Model cấp vừa trả lời bằng tiếng Việt, **kèm link tới mail/thread gốc**.
+- [ ] Che thông tin nhạy cảm trước khi gửi AI *(đã làm ở spec 20; từ 2026-11-01 không còn là yêu cầu vì dùng model nội bộ, code bỏ ở spec 28)*.
 - [ ] Lớp 4 của gom thread: gợi ý gộp thread bằng embedding.
-- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ (phân tích câu hỏi, trả lời; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token và chi phí ước tính.
+- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ (phân tích câu hỏi, trả lời; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token và chi phí ước tính. *(Từ 2026-11-01 model nội bộ chọn bằng tên model do người dùng nhập.)*
 
 **Tiêu chí hoàn thành:** bộ 30 câu hỏi mẫu do PM soạn, ≥ 80% câu trả lời đúng và có trích dẫn nguồn.
 
@@ -251,7 +251,7 @@ audit_log            (user_id, action, target, at)
 
 **Công việc**
 - [ ] *(Yêu cầu thêm 2026-10-31, làm trước các mục khác)* Tự động dịch mail khách trong Inbox sang tiếng Việt, glossary chung và theo dự án, chuyển mail sang folder dự án trên web (spec 26). Dịch tài liệu, Backlog làm sau bằng spec riêng. Move thật qua IMAP là chức năng riêng, cần đổi nguyên tắc "không ghi lên mail server".
-- [ ] Phân loại mail (Claude Haiku, structured output): loại (QA, bug, thay đổi spec, lịch, báo cáo, hợp đồng, chỉ thông báo), mức ưu tiên, sắc thái của khách.
+- [ ] Phân loại mail (model cấp nhỏ, structured output): loại (QA, bug, thay đổi spec, lịch, báo cáo, hợp đồng, chỉ thông báo), mức ưu tiên, sắc thái của khách.
 - [ ] Trích xuất action item và deadline (ví dụ "来週水曜日までに" chuyển thành ngày cụ thể).
 - [ ] Xác định **ball-in-court** của thread: chờ mình / chờ khách / xử lý nội bộ / đã đóng.
 - [ ] Tóm tắt thread bằng tiếng Việt, cập nhật khi có mail mới.
@@ -312,9 +312,10 @@ audit_log            (user_id, action, target, at)
 | Thunderbird compact làm thay đổi offset trong mbox | Link "xem bản gốc" sai | Phát hiện file nhỏ đi để quét lại. Khóa chính là Message-ID, không phải offset |
 | Lỗi encoding tiếng Nhật | Search sai, AI hiểu sai | Bộ mail mẫu đa encoding. Map sang CP932 |
 | Cắt quote/chữ ký sai, làm mất nội dung | Thiếu thông tin | Lưu vị trí cắt, có thể xem bản đầy đủ. Kiểm thử trên mail thật |
-| NDA không cho phép dùng AI cloud | Không dùng được Claude | Embedding self-host. Che thông tin nhạy cảm. Xin phép khách. Phương án cuối: LLM self-host cho dự án nhạy cảm |
+| Model nội bộ yếu hơn hoặc thiếu GPU | Chậm, tiếng Nhật và keigo kém, output có cấu trúc không ổn định | Đo bằng bộ 30 câu hỏi mẫu trước khi chuyển. Đường lùi `json_object` (spec 24). Chọn model riêng cho từng tác vụ |
+| Nhập nhầm URL công cộng ở Cài đặt AI | Mail không che ra ngoài | Ô URL nhận mọi địa chỉ (quyết định 2026-11-01), code không chặn. Màn hình cảnh báo khi host là địa chỉ công cộng. Chỉ nhập gateway nội bộ |
 | Lộ mail giữa các dự án hoặc người dùng | Nghiêm trọng | Row-Level Security, lọc quyền trước khi đưa cho AI, audit log, kiểm thử phân quyền |
-| Chi phí AI khi xử lý dữ liệu cũ | Tốn kém | Mỗi bản mail xử lý 1 lần (mail gửi cho nhiều người được xử lý ở bản của từng người). Ưu tiên dữ liệu mới. Lần đầu chỉ xử lý 1–2 năm gần nhất. Dùng Haiku cho tác vụ hàng loạt |
+| Tải model nội bộ khi xử lý dữ liệu cũ | Nghẽn gateway, chậm việc của người dùng | Mỗi bản mail xử lý 1 lần (mail gửi cho nhiều người được xử lý ở bản của từng người). Ưu tiên dữ liệu mới. Chạy nền ngoài giờ. Dùng model nhỏ cho tác vụ hàng loạt |
 | Import lần đầu vài chục GB mất nhiều thời gian | Chậm triển khai | Chạy nền, tiếp tục được khi bị ngắt, chạy ngoài giờ làm |
 
 ---
@@ -326,3 +327,5 @@ audit_log            (user_id, action, target, at)
 - [x] Phạm vi xử lý AI khi tự động xử lý mail: chỉ mail từ mốc, là ngày bật lùi 14 ngày, cố định (quyết định 2026-10-31). Mốc theo người dùng hay theo dự án chốt khi làm phân loại AI.
 - [x] Danh sách dự án và quy tắc gán: người dùng tự khai báo trên màn hình dự án, bộ lọc From, To, CC, Subject (quyết định 2026-10-31, spec 25).
 - [ ] Hệ thống SSO của công ty.
+- [x] Nơi chạy AI: model nội bộ qua gateway kiểu 9router, không dùng API ngoài, không cần che thông tin (quyết định 2026-11-01).
+- [x] Cấu hình gateway: giữ màn hình Cài đặt AI, người dùng nhập URL, API key, model; ô URL nhận mọi địa chỉ (quyết định 2026-11-01, spec 28).
