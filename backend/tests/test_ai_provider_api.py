@@ -102,6 +102,7 @@ async def test_key_is_encrypted_and_never_returned(
         "base_url": "https://openrouter.ai/api/v1",
         "api_key_set": True,
         "api_key_hint": KEY[-4:],
+        "public_host": True,
     }
     get = await client.get("/api/v1/ai/provider")
     assert get.json()["custom"] == r.json()["custom"] and get.json()["secret_key_ready"] is True
@@ -131,7 +132,7 @@ async def test_blank_key_keeps_existing_and_requires_one_first(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("base_url", "http://openrouter.ai/v1"),
+        ("base_url", "ftp://openrouter.ai/v1"),
         ("base_url", "https://169.254.169.254/v1"),
         ("base_url", "https://u:p@openrouter.ai/v1"),
         ("api_key", "has space"),
@@ -282,18 +283,58 @@ async def test_clear_model_with_blank(client: AsyncClient, secret_key: str) -> N
     }
 
 
-async def test_host_resolving_to_private_address_is_422(
+async def test_lan_gateway_is_accepted_and_not_public(
     client: AsyncClient, secret_key: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def private(host: str, port: int) -> list[str]:
+    async def lan(host: str, port: int) -> list[str]:
         return ["10.0.0.7"]
 
-    monkeypatch.setattr(provider, "resolve_ips", private)
+    monkeypatch.setattr(provider, "resolve_ips", lan)
+    for url in ("http://10.0.0.5:20128/v1", "http://gateway:8080/v1"):
+        r = await put_provider(client, base_url=url)
+        assert r.status_code == 200
+        assert r.json()["custom"]["base_url"] == url and r.json()["custom"]["public_host"] is False
+        got = await client.get("/api/v1/ai/provider")
+        assert got.json()["custom"]["public_host"] is False
+
+
+async def test_public_host_follows_dns(
+    client: AsyncClient, secret_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await put_provider(client, base_url="https://gateway.example/v1")
+    for ips, expected in ((["93.184.216.34"], True), (["10.0.0.7"], False), ([], False)):
+
+        async def fake(host: str, port: int, ips: list[str] = ips) -> list[str]:
+            return ips
+
+        monkeypatch.setattr(provider, "resolve_ips", fake)
+        custom = (await client.get("/api/v1/ai/provider")).json()["custom"]
+        assert custom["public_host"] is expected
+
+    async def unresolved(host: str, port: int) -> list[str]:
+        raise OSError("dns")
+
+    monkeypatch.setattr(provider, "resolve_ips", unresolved)
+    assert (await client.get("/api/v1/ai/provider")).json()["custom"]["public_host"] is False
+
+
+async def test_literal_public_ip_is_public_host(client: AsyncClient, secret_key: str) -> None:
+    r = await put_provider(client, base_url="http://93.184.216.34:8080/v1")
+    assert r.status_code == 200 and r.json()["custom"]["public_host"] is True
+
+
+async def test_host_resolving_to_link_local_is_422(
+    client: AsyncClient, secret_key: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def metadata(host: str, port: int) -> list[str]:
+        return ["169.254.169.254"]
+
+    monkeypatch.setattr(provider, "resolve_ips", metadata)
     r = await put_provider(client)
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "base_url"]
 
 
-async def test_ask_refuses_when_stored_host_turns_private(
+async def test_ask_refuses_when_stored_host_turns_link_local(
     client: AsyncClient,
     secret_key: str,
     gateway: FakeLlm,
@@ -303,10 +344,10 @@ async def test_ask_refuses_when_stored_host_turns_private(
     await put_provider(client)
     await set_models(client)
 
-    async def private(host: str, port: int) -> list[str]:
-        return ["127.0.0.1"]
+    async def metadata(host: str, port: int) -> list[str]:
+        return ["169.254.169.254"]
 
-    monkeypatch.setattr(provider, "resolve_ips", private)
+    monkeypatch.setattr(provider, "resolve_ips", metadata)
     r = await ask(client)
     assert r.status_code == 502 and r.json()["code"] == "ai_bad_request"
     assert gateway.requests == []

@@ -13,7 +13,7 @@ from cryptography.fernet import Fernet
 from app.ai import provider
 from app.ai import secrets as ai_secrets
 from app.ai.client import LlmError
-from app.ai.provider import OpenAiLlm, ensure_public_host, validate_base_url
+from app.ai.provider import OpenAiLlm, is_public_host, reject_link_local, validate_base_url
 
 SCHEMA: dict[str, object] = {
     "type": "object",
@@ -70,6 +70,12 @@ def test_missing_or_bad_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
         ("http://127.0.0.1:20128/v1", "http://127.0.0.1:20128/v1"),
         ("http://localhost:20128/v1", "http://localhost:20128/v1"),
         ("http://[::1]:8080/v1", "http://[::1]:8080/v1"),
+        ("http://10.0.0.5:20128/v1", "http://10.0.0.5:20128/v1"),
+        ("http://192.168.1.2", "http://192.168.1.2"),
+        ("http://gateway:8080", "http://gateway:8080"),
+        ("https://gateway.internal/v1", "https://gateway.internal/v1"),
+        ("https://localhost", "https://localhost"),
+        ("http://printer.local/v1", "http://printer.local/v1"),
     ],
 )
 def test_url_accepted(raw: str, expected: str) -> None:
@@ -80,32 +86,27 @@ def test_url_accepted(raw: str, expected: str) -> None:
     "raw",
     [
         "",
-        "ftp://openrouter.ai/v1",
-        "http://openrouter.ai/v1",  # http chỉ cho loopback
+        "ftp://x.example.com",
+        "http://u:p@host",
         "https://user:pw@openrouter.ai/v1",
         "https://user@openrouter.ai/v1",
+        "http://host?x=1",
         "https://openrouter.ai/v1?token=abc",
+        "http://host#a",
         "https://openrouter.ai/v1#frag",
-        "https://127.0.0.1/v1",  # loopback chỉ hợp lệ với http
-        "https://localhost/v1",
-        "https://10.0.0.5/v1",
-        "https://192.168.1.10/v1",
-        "https://172.16.0.1/v1",
-        "https://169.254.169.254/latest/meta-data",
-        "https://[fe80::1]/v1",
-        "https://[fc00::1]/v1",
-        "http://10.0.0.5/v1",
         "https://openrouter.ai:0/v1",
         "https://openrouter.ai:70000/v1",
         "https:///v1",
         "not a url",
-        "https://foo.localhost/v1",
-        "http://foo.localhost/v1",
-        "https://2130706433/v1",  # 127.0.0.1 viết dạng số nguyên
+        "http://2130706433",  # 127.0.0.1 viết dạng số nguyên
+        "https://2130706433/v1",
+        "http://0x7f.1",
         "https://0x7f.1/v1",
-        "https://intranet/v1",  # tên một nhãn, không phải tên miền công cộng
-        "https://svc.internal/v1",
-        "https://printer.local/v1",
+        "http://169.254.169.254",
+        "https://169.254.169.254/latest/meta-data",
+        "http://[fe80::1]",
+        "https://[fe80::1]/v1",
+        "http://[::ffff:169.254.169.254]",
     ],
 )
 def test_url_rejected(raw: str) -> None:
@@ -291,39 +292,92 @@ async def test_oversized_response_is_rejected() -> None:
     assert e.value.code == "ai_bad_output"
 
 
+def fake_resolve(monkeypatch: pytest.MonkeyPatch, ips: list[str] | type[OSError]) -> None:
+    async def fake(host: str, port: int) -> list[str]:
+        if isinstance(ips, list):
+            return ips
+        raise ips("dns")
+
+    monkeypatch.setattr(provider, "resolve_ips", fake)
+
+
 @pytest.mark.parametrize(
-    ("ips", "ok"),
+    "ips",
+    [["10.0.0.1", "169.254.169.254"], ["fe80::1%eth0"], ["::ffff:169.254.169.254"]],
+)
+async def test_reject_link_local_when_host_resolves_there(
+    monkeypatch: pytest.MonkeyPatch, ips: list[str]
+) -> None:
+    fake_resolve(monkeypatch, ips)
+    with pytest.raises(ValueError):
+        await reject_link_local("https://gateway.example/v1")
+
+
+@pytest.mark.parametrize("ips", [["10.0.0.1"], ["127.0.0.1"], ["93.184.216.34"], []])
+async def test_reject_link_local_allows_private_and_public(
+    monkeypatch: pytest.MonkeyPatch, ips: list[str]
+) -> None:
+    fake_resolve(monkeypatch, ips)
+    await reject_link_local("http://gateway:8080/v1")
+
+
+async def test_reject_link_local_ignores_dns_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_resolve(monkeypatch, OSError)
+    await reject_link_local("https://gateway.example/v1")
+
+
+@pytest.mark.parametrize(
+    ("ips", "expected"),
     [
         (["93.184.216.34"], True),
         (["93.184.216.34", "2606:2800:220:1:248:1893:25c8:1946"], True),
+        (["10.0.0.5", "93.184.216.34"], True),
+        (["10.0.0.5"], False),
         (["127.0.0.1"], False),
-        (["10.1.2.3"], False),
-        (["93.184.216.34", "192.168.0.9"], False),  # một địa chỉ riêng là đủ để từ chối
-        (["169.254.169.254"], False),
         (["fe80::1%eth0"], False),
         ([], False),
     ],
 )
-async def test_ensure_public_host(
-    monkeypatch: pytest.MonkeyPatch, ips: list[str], ok: bool
+async def test_is_public_host(
+    monkeypatch: pytest.MonkeyPatch, ips: list[str], expected: bool
 ) -> None:
-    async def fake(host: str, port: int) -> list[str]:
-        return ips
-
-    monkeypatch.setattr(provider, "resolve_ips", fake)
-    if ok:
-        await ensure_public_host("https://gateway.example/v1")
-    else:
-        with pytest.raises(ValueError):
-            await ensure_public_host("https://gateway.example/v1")
+    fake_resolve(monkeypatch, ips)
+    assert await is_public_host("https://gateway.example/v1") is expected
 
 
-async def test_loopback_http_skips_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_is_public_host_false_when_unresolved(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_resolve(monkeypatch, OSError)
+    assert await is_public_host("https://gateway.example/v1") is False
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [("http://93.184.216.34:8080/v1", True), ("http://10.0.0.5:20128/v1", False)],
+)
+async def test_is_public_host_literal_ip_skips_dns(
+    monkeypatch: pytest.MonkeyPatch, url: str, expected: bool
+) -> None:
     async def boom(host: str, port: int) -> list[str]:
-        raise AssertionError("không được phân giải DNS")
+        raise AssertionError("IP thật không cần phân giải DNS")
 
     monkeypatch.setattr(provider, "resolve_ips", boom)
-    await ensure_public_host("http://127.0.0.1:20128/v1")
+    assert await is_public_host(url) is expected
+
+
+async def test_openai_llm_posts_to_lan_url() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return completion()
+
+    llm = OpenAiLlm(
+        base_url=validate_base_url("http://10.0.0.5:20128/v1"),
+        api_key=KEY,
+        transport=httpx.MockTransport(handler),
+    )
+    await create(llm)
+    assert seen == ["http://10.0.0.5:20128/v1/chat/completions"]
 
 
 async def test_anthropic_protocol_does_not_follow_redirects() -> None:

@@ -2,11 +2,12 @@
 
 Spec 2026-10-25-ai-provider-design.
 
-- validate_base_url: https công cộng, http chỉ loopback, chặn IP riêng/metadata (mục 6).
+- validate_base_url: http/https tới mọi địa chỉ, chỉ chặn URL sai dạng và link-local
+  (spec 28 mục 3). is_public_host báo địa chỉ công cộng để web cảnh báo.
 - OpenAiLlm: client chat/completions tương thích OpenAI (mục 3).
 - load/save/delete_provider và LlmResolver: cấu hình lưu DB (RLS), key mã hóa (mục 4, 5).
-- Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20). Log chỉ có host/giao thức, không có key, URL
-  đầy đủ hay body phản hồi.
+- Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20; bỏ ở spec 28 task 3-4). Log chỉ có
+  host/giao thức, không có key, URL đầy đủ hay body phản hồi.
 """
 
 import asyncio
@@ -17,7 +18,7 @@ import logging
 import socket
 from dataclasses import dataclass
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import httpx
 from sqlalchemy import text
@@ -40,14 +41,28 @@ log = logging.getLogger("app.ai")
 type Protocol = Literal["anthropic", "openai"]
 PROTOCOLS: tuple[Protocol, ...] = ("anthropic", "openai")
 MAX_RETRIES = 2
-LOOPBACK_NAMES = {"localhost"}
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
-# Tên miền nội bộ / dạng viết tắt của IP (2130706433, 0x7f.1…) không nhận.
-INTERNAL_SUFFIXES = (".localhost", ".local", ".internal", ".localdomain", ".home.arpa")
+
+
+def _parse_ip(raw: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """IP từ chuỗi (bỏ zone id "%eth0"); None nếu không phải IP."""
+    try:
+        return ipaddress.ip_address(raw.split("%")[0])
+    except ValueError:
+        return None
+
+
+def _is_link_local(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped  # ::ffff:169.254.169.254
+    return ip.is_link_local
 
 
 def validate_base_url(raw: str) -> str:
-    """URL gốc hợp lệ (đã chuẩn hóa, không có "/" cuối) hoặc ValueError."""
+    """URL gốc hợp lệ (đã chuẩn hóa, không có "/" cuối) hoặc ValueError.
+
+    Nhận mọi địa chỉ (LAN, localhost, công cộng); chỉ từ chối URL sai dạng và link-local.
+    """
     raw = raw.strip()
     try:
         url = urlsplit(raw)
@@ -57,33 +72,22 @@ def validate_base_url(raw: str) -> str:
     scheme = url.scheme.lower()
     host = (url.hostname or "").lower()
     if scheme not in ("http", "https") or not host:
-        raise ValueError("URL phải bắt đầu bằng https:// (hoặc http:// cho localhost)")
+        raise ValueError("URL phải bắt đầu bằng http:// hoặc https://")
     if url.username is not None or url.password is not None or "@" in url.netloc:
         raise ValueError("URL không được chứa tài khoản")
     if url.query or url.fragment:
         raise ValueError("URL không được chứa query hoặc #")
     if port is not None and port < 1:
         raise ValueError("Cổng không hợp lệ")
-    try:
-        ip = ipaddress.ip_address(host)
-    except ValueError:
-        ip = None
-    loopback = host in LOOPBACK_NAMES or (ip is not None and ip.is_loopback)
-    if scheme == "http" and not loopback:
-        raise ValueError("http:// chỉ dùng cho localhost, máy khác phải https://")
-    if scheme == "https" and loopback:
-        raise ValueError("localhost chỉ dùng http://")
-    if ip is not None and not loopback and not ip.is_global:
-        raise ValueError("Không nhận địa chỉ mạng nội bộ")
-    if ip is None and not loopback:
+    ip = _parse_ip(host)
+    if ip is not None:
+        if _is_link_local(ip):
+            raise ValueError("Không nhận địa chỉ link-local")
+    else:
+        # Dạng viết tắt của IP (2130706433, 0x7f.1…) không nhận.
         last = host.rsplit(".", 1)[-1]
-        if (
-            "." not in host
-            or host.endswith(INTERNAL_SUFFIXES)
-            or last.isdigit()
-            or last.startswith("0x")
-        ):
-            raise ValueError("Tên máy chủ không hợp lệ hoặc thuộc mạng nội bộ")
+        if last.isdigit() or last.startswith("0x"):
+            raise ValueError("Tên máy chủ không hợp lệ")
     netloc = f"[{host}]" if ip is not None and ip.version == 6 else host
     if port is not None:
         netloc = f"{netloc}:{port}"
@@ -96,21 +100,39 @@ async def resolve_ips(host: str, port: int) -> list[str]:
     return [str(i[4][0]) for i in infos]
 
 
-async def ensure_public_host(base_url: str) -> None:
-    """Từ chối host phân giải về địa chỉ không công cộng (SSRF qua DNS). Loopback http được miễn.
+def _default_port(url: SplitResult) -> int:
+    return url.port or (443 if url.scheme == "https" else 80)
 
-    Giới hạn: DNS có thể đổi giữa lúc kiểm tra và lúc kết nối (rebinding).
+
+async def reject_link_local(base_url: str) -> None:
+    """ValueError nếu host phân giải về địa chỉ link-local (gồm metadata của cloud).
+
+    Không phân giải được thì bỏ qua: lỗi mạng sẽ báo ở lần gọi. Giới hạn: DNS có thể đổi giữa
+    lúc kiểm tra và lúc kết nối (rebinding).
     """
     url = urlsplit(base_url)
-    host = url.hostname or ""
-    if url.scheme == "http":  # validate_base_url chỉ cho loopback
-        return
     try:
-        ips = await resolve_ips(host, url.port or 443)
+        ips = await resolve_ips(url.hostname or "", _default_port(url))
     except OSError:
-        raise ValueError("Không phân giải được tên máy chủ") from None
-    if not ips or any(not ipaddress.ip_address(ip.split("%")[0]).is_global for ip in ips):
-        raise ValueError("Tên máy chủ phân giải về địa chỉ mạng nội bộ")
+        return
+    for raw in ips:
+        ip = _parse_ip(raw)
+        if ip is not None and _is_link_local(ip):
+            raise ValueError("Tên máy chủ phân giải về địa chỉ link-local")
+
+
+async def is_public_host(base_url: str) -> bool:
+    """Host là IP công cộng hoặc phân giải ra ít nhất một IP công cộng (không được: False)."""
+    url = urlsplit(base_url)
+    host = url.hostname or ""
+    literal = _parse_ip(host)
+    if literal is not None:
+        return literal.is_global
+    try:
+        ips = await resolve_ips(host, _default_port(url))
+    except OSError:
+        return False
+    return any((ip := _parse_ip(raw)) is not None and ip.is_global for raw in ips)
 
 
 @dataclass(frozen=True)
@@ -386,10 +408,10 @@ class LlmResolver:
         cached = self._cache.get(user_id)
         if cached is None or cached[0] != config.fingerprint():
             try:
-                await ensure_public_host(config.base_url)
+                await reject_link_local(config.base_url)
             except ValueError:
                 raise LlmError(
-                    "ai_bad_request", 502, "Địa chỉ nhà cung cấp AI phân giải về mạng nội bộ"
+                    "ai_bad_request", 502, "Địa chỉ nhà cung cấp AI không hợp lệ"
                 ) from None
             self.forget(user_id)
             cached = (config.fingerprint(), build_llm(config))

@@ -23,9 +23,10 @@ from app.ai.provider import (
     PROTOCOLS,
     LlmResolver,
     delete_provider,
-    ensure_public_host,
+    is_public_host,
     key_hint,
     load_provider,
+    reject_link_local,
     save_provider,
     validate_base_url,
 )
@@ -478,6 +479,7 @@ async def _provider_info(engine: AsyncEngine, user_id: int) -> AiProvider:
             base_url=stored.base_url,
             api_key_set=key is not None,
             api_key_hint=key_hint(key),
+            public_host=await is_public_host(stored.base_url),
         )
     return AiProvider(
         configured_env=configured(), secret_key_ready=secrets.secret_key_ready(), custom=custom
@@ -521,7 +523,7 @@ async def put_provider(
     except ValueError as e:
         raise _field_error("base_url", str(e), "base_url") from None
     try:
-        await ensure_public_host(base_url)
+        await reject_link_local(base_url)
     except ValueError as e:
         raise _field_error("base_url", str(e), "base_url") from None
     key = (req.api_key or "").strip()

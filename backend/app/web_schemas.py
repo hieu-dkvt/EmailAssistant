@@ -318,6 +318,7 @@ class AiProviderCustom(BaseModel):
     base_url: str
     api_key_set: bool  # false khi key không giải mã được (đổi PMM_SECRET_KEY)
     api_key_hint: str | None  # 4 ký tự cuối, không bao giờ trả key đầy đủ
+    public_host: bool  # host là IP công cộng (hoặc phân giải ra); web cảnh báo (spec 28)
 
 
 class AiProvider(BaseModel):
