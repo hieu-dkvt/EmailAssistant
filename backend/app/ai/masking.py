@@ -16,12 +16,25 @@ from collections import Counter
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 
-from app.ai.names import Entity, company_core, find_companies, fold_latin
+from app.ai.names import (
+    LATIN_WORD,
+    NOT_AFTER_WORD,
+    NOT_BEFORE_WORD,
+    WORD_CHARS,
+    Entity,
+    company_core,
+    find_companies,
+    fold_latin,
+)
 from app.ml_client import NerEntity
 
 KINDS = ("EMAIL", "URL", "PHONE", "CONTRACT", "MONEY", "ADDRESS", "ORG", "PERSON")
 _PRIORITY = {k: i for i, k in enumerate(KINDS)}
 LABEL_RE = re.compile(r"\[(" + "|".join(KINDS) + r")_(\d+)\]")
+MAX_SURFACE_CHARS = 500  # chuỗi dài nhất đưa vào từ điển
+MAX_MASK_INPUT_CHARS = 40_000  # phần đưa đi che, dưới giới hạn 50.000 của /ner ở ml-service
+CAPPED_TAIL_CHARS = 512  # đuôi của text bị giới hạn trên: có thể chứa địa chỉ cắt dở
+MAX_LABEL_CHARS = 32
 
 type NerFn = Callable[[list[str]], Awaitable[list[list[NerEntity]]]]
 
@@ -29,18 +42,21 @@ type NerFn = Callable[[list[str]], Awaitable[list[list[NerEntity]]]]
 
 _CJK = "㐀-䶿一-鿿"
 EMAIL = re.compile(
-    r"(?<![\w.%+\-])[A-Za-z0-9À-ỹ._%+\-]{1,64}@[A-Za-z0-9\-]{1,63}(?:\.[A-Za-z0-9\-]{1,63}){0,8}"
-    r"\.[A-Za-z]{2,24}"
+    rf"(?<![{WORD_CHARS}.%+\-])[A-Za-z0-9À-ỹ._%+\-]{{1,64}}@[A-Za-z0-9\-]{{1,63}}"
+    r"(?:\.[A-Za-z0-9\-]{1,63}){0,8}\.[A-Za-z]{2,24}"
 )
-_URL_TAIL = r"[^\s<>\"'）)】」、。]"
-URL = re.compile(rf"(?:https?://|www\.){_URL_TAIL}{{1,2000}}", re.I)
+# Ký tự kết thúc một cụm URL (ngoài khoảng trắng); ask._chunk_range dùng cùng tập này.
+URL_BREAK_CHARS = "<>\"'）)】」、。"
+_URL_TAIL = rf"[^\s{URL_BREAK_CHARS}]"
+# Đuôi URL giới hạn bằng cỡ text đưa đi che: giới hạn nhỏ hơn để lọt phần còn lại của URL dài.
+URL = re.compile(rf"(?:https?://|www\.){_URL_TAIL}{{1,{MAX_MASK_INPUT_CHARS}}}", re.I)
 _TLDS = (
     "com|net|org|edu|gov|jp|vn|io|co|info|biz|dev|app|cloud|ai|me|asia|tech|de|uk|fr|kr|cn|sg|"
     "th|id|au|ca|us|in|tw|hk|eu|xyz|online|site|ph|my|nz|ch|nl|it|es|se|ru|br|mx|la|kh|mm"
 )
 DOMAIN = re.compile(
-    r"(?<![@\w.\-])(?:[a-z0-9](?:[a-z0-9\-]{0,61}[a-z0-9])?\.){1,10}"
-    rf"(?:{_TLDS})(?![\w\-])(?:/{_URL_TAIL}{{0,500}})?",
+    rf"(?<![@{WORD_CHARS}.\-])(?:[a-z0-9](?:[a-z0-9\-]{{0,61}}[a-z0-9])?\.){{1,10}}"
+    rf"(?:{_TLDS})(?![{WORD_CHARS}\-])(?:/{_URL_TAIL}{{0,{MAX_MASK_INPUT_CHARS}}})?",
     re.I,
 )
 # Tên công nghệ có dạng tên miền: không che.
@@ -48,8 +64,8 @@ _NOT_DOMAINS = {"asp.net", "vb.net", "ado.net"}
 _SEP = r"[ \t\-‐ー.−–—]"
 # Ranh giới của số điện thoại: không dính chữ/số khác; dấu chấm chỉ chặn khi nối với chữ số
 # (số ở cuối câu "…0912345678." và sau "Tel." vẫn khớp; "1.2.3" thì không).
-_PHONE_START = r"(?<![\w+])(?<!\d\.)"
-_PHONE_END = r"(?!\w)(?!\.\d)"
+_PHONE_START = rf"(?<![{WORD_CHARS}+])(?<!\d\.)"
+_PHONE_END = rf"{NOT_BEFORE_WORD}(?!\.\d)"
 PHONE = re.compile(
     rf"{_PHONE_START}(?:\(?\+\d{{1,3}}\)?{_SEP}?)?(?:\(\d{{1,4}}\){_SEP}?)?"
     rf"\d{{1,5}}(?:{_SEP}\d{{1,5}}){{1,4}}{_PHONE_END}"
@@ -62,10 +78,11 @@ _DATE_INSIDE = re.compile(r"\d{4}[\-/.]\d{1,2}[\-/.]\d{1,2}")
 _NUM = r"[0-9][0-9,.]{0,24}"
 _COUNTERS = r"件|人|個|回|時間|行|社|名|台|枚|本|部|通|日|年|ヶ月|か月|ページ|km|m"
 MONEY = re.compile(
-    rf"(?:[¥$€£]|US\$|USD|JPY|VND|EUR)\s?{_NUM}(?:\s?(?:万|億|千|triệu|tỷ|nghìn|[kKmM]\b))?"
+    rf"(?:[¥$€£]|US\$|USD|JPY|VND|EUR)\s?{_NUM}"
+    rf"(?:\s?(?:万|億|千|triệu|tỷ|nghìn|[kKmM]{NOT_BEFORE_WORD}))?"
     rf"|{_NUM}\s?(?:万|億|千)?\s?(?:円|ドル|ユーロ|USD|JPY|VND|VNĐ|vnđ|EUR|yen"
     r"|triệu đồng|tỷ đồng|trăm triệu|trăm nghìn|triệu|tỷ|tỉ|nghìn đồng|ngàn đồng|nghìn|ngàn|đồng"
-    r"|đ(?![\wÀ-ỹ]))"
+    rf"|đ{NOT_BEFORE_WORD})"
     rf"|[0-9一二三四五六七八九十百千万億兆,.]{{1,24}}円"
     rf"|{_NUM}\s?(?:万|億)(?!\s?(?:{_COUNTERS}))"
     rf"|{_NUM}\s?[kKmM]\s?(?:USD|JPY|VND|EUR|yen|円|\$|đ)"
@@ -132,7 +149,10 @@ _NOT_NAME_ALONE_BEFORE_SAMA = set("一多有神王左如")
 _NOT_HONORIFIC_AFTER_SAMA = set("式子相々態")
 _HONORIFIC_TAIL = re.compile(rf"\s?(?:{_HONORIFICS_JA})$")
 LATIN_JA_HONORIFIC = re.compile(r"([A-ZÀ-ỸĐ][A-Za-zÀ-ỹđĐ]{1,15})\s?(?=さん|様|さま|殿|先生)")
-ROMAJI_SUFFIX = re.compile(r"\b([A-Z][A-Za-z]{1,15})[- ](?i:san|sama|sensei|kun|chan|shi|dono)\b")
+ROMAJI_SUFFIX = re.compile(
+    rf"{NOT_AFTER_WORD}([A-Z][A-Za-z]{{1,15}})[- ](?i:san|sama|sensei|kun|chan|shi|dono)"
+    rf"{NOT_BEFORE_WORD}"
+)
 _NAME = r"[A-ZÀ-ỸĐ][A-Za-zÀ-ỹĐđ]{0,20}(?:[ \t]{1,3}[A-ZÀ-ỸĐ][A-Za-zÀ-ỹĐđ]{0,20}){0,3}"
 _TITLES = (
     r"(?:[Aa]nh|[Cc]hị|[Ee]m|[Ôô]ng|[Bb]à|[Cc]ô|[Cc]hú|[Bb]ác|[Bb]ạn|Mr\.?|Ms\.?|Mrs\.?|Miss"
@@ -144,12 +164,12 @@ _GREETINGS = (
 )
 # Lời chào, có thể kèm danh xưng: "Chào Anh Tuấn", "Dear Mr. Tanaka", "Hi Hieu".
 GREETING_NAME = re.compile(
-    rf"(?<![\wÀ-ỹ]){_GREETINGS}[ \t]{{0,3}},?[ \t]{{1,3}}(?:{_TITLES}[ \t]{{1,3}})?({_NAME})"
+    rf"{NOT_AFTER_WORD}{_GREETINGS}[ \t]{{0,3}},?[ \t]{{1,3}}(?:{_TITLES}[ \t]{{1,3}})?({_NAME})"
 )
-TITLE_NAME = re.compile(rf"(?<![\wÀ-ỹ]){_TITLES}[ \t]{{1,3}}({_NAME})")
+TITLE_NAME = re.compile(rf"{NOT_AFTER_WORD}{_TITLES}[ \t]{{1,3}}({_NAME})")
 # Viết tắt a/c/e + tên, chỉ khi ngay sau là dấu câu, "ơi" hay hết dòng ("a Tuấn,", "c Lan ơi").
 SHORT_TITLE_NAME = re.compile(
-    rf"(?<![\wÀ-ỹ])[ace][ \t]{{1,3}}({_NAME})(?=[ \t]{{0,3}}(?:[,:!?]|ơi|$))", re.M
+    rf"{NOT_AFTER_WORD}[ace][ \t]{{1,3}}({_NAME})(?=[ \t]{{0,3}}(?:[,:!?]|ơi|$))", re.M
 )
 _NOT_NAMES_JA = {
     "皆", "各位", "客", "お客", "担当", "担当者", "関係者", "営業", "開発", "技術", "総務", "経理",
@@ -168,6 +188,33 @@ class Span:
     start: int
     end: int
     kind: str
+
+
+def _end_outside_label(text: str, end: int) -> int:
+    start = text.rfind("[", max(end - MAX_LABEL_CHARS, 0), end)
+    if start != -1:
+        label = LABEL_RE.match(text, start)
+        if label is not None and label.end() > end:
+            return start
+    return end
+
+
+def cut_masked(text: str, limit: int, *, capped: bool) -> tuple[str, bool]:
+    """(phần gửi đi, có bị cắt) của text ĐÃ CHE.
+
+    Phải cắt sau khi che: địa chỉ, số điện thoại bị cắt đôi không còn khớp mẫu che, phần đầu sẽ
+    lọt ra ngoài. Cắt ở ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn (ranh giới quá sớm
+    bỏ mất phần lớn mail); không có thì cắt tại giới hạn, không cắt trong nhãn. capped: text gốc
+    đã bị MAX_MASK_INPUT_CHARS cắt, bỏ đuôi vì đoạn đó có thể là mảnh chưa che được.
+    """
+    end = min(limit, max(len(text) - CAPPED_TAIL_CHARS, 0) if capped else len(text))
+    if end == len(text):
+        return text, False
+    for separator in ("\n\n", "\n"):
+        at = text.rfind(separator, end // 2, end + 1)
+        if at != -1:
+            return text[:at].rstrip(), True
+    return text[: _end_outside_label(text, end)].rstrip(), True
 
 
 def escape_labels(text: str) -> str:
@@ -266,7 +313,6 @@ def pattern_spans(text: str) -> list[Span]:
     return spans
 
 
-_LATIN_WORD = "A-Za-z0-9À-ỹĐđ"
 # Từ của header / tiền tố subject mà NER (GiNZA) hay nhận nhầm là tổ chức.
 _NOT_ENTITIES = {"from", "to", "cc", "bcc", "subject", "date", "re", "fw", "fwd", "sent"}
 # Từ katakana của tên hệ thống/sản phẩm: "tên người" có chữ Hán + một trong các từ này là nhầm
@@ -326,6 +372,16 @@ def resolve(spans: Iterable[Span]) -> list[Span]:
         if all(s.end <= c.start or s.start >= c.end for c in chosen):
             chosen.append(s)
     return sorted(chosen, key=lambda x: x.start)
+
+
+def _widen(spans: Iterable[Span], start: int, end: int) -> tuple[int, int]:
+    """Mở rộng [start, end) để không khoảng nào bị cắt đôi. spans không chồng nhau (resolve)."""
+    for s in spans:
+        if s.start < start < s.end:
+            start = s.start
+        if s.start < end < s.end:
+            end = s.end
+    return start, end
 
 
 _SHORT_NUMBER = re.compile(r"[\d,.\s\-/]+")
@@ -401,12 +457,15 @@ class Masker:
         # Số ngắn (vd. "2026" bắt nhầm là tiền, "12" sau "Order No.") chỉ che tại chỗ, không lan:
         # nếu lan, mọi năm/ngày trong các nguồn khác bị che theo.
         short_number = _SHORT_NUMBER.fullmatch(form) and sum(c.isdigit() for c in form) < 6
-        if len(form) >= 2 and form not in self._surfaces and not short_number:
+        # Chuỗi rất dài (URL) không vào từ điển: cây tiền tố sâu bằng độ dài chuỗi, _trie_pattern
+        # đệ quy theo độ sâu đó. Nơi khác vẫn được che vì mẫu nhận ra nó ở từng text.
+        if 2 <= len(form) <= MAX_SURFACE_CHARS and form not in self._surfaces and not short_number:
             self._surfaces[form] = key
             self._matchers = None
             if _is_latin(form):
                 for v in _case_variants(form)[1:]:
-                    self._surfaces.setdefault(v, key)
+                    if len(v) <= MAX_SURFACE_CHARS:  # upper() có thể làm dài gấp ba ("ΐ")
+                        self._surfaces.setdefault(v, key)
             if known[0] == "ORG":
                 core = company_core(form)
                 if core:
@@ -440,6 +499,11 @@ class Masker:
     def counts(self) -> dict[str, int]:
         return {k: self._counter[k] for k in KINDS if self._counter[k]}
 
+    @property
+    def known_surfaces(self) -> int:
+        """Số chuỗi trong từ điển. Tăng mà counts không đổi: cách viết mới của thực thể đã có."""
+        return len(self._surfaces)
+
     # --- so khớp từ điển (trên text đã NFKC) ---
 
     def _dictionary_spans(self, norm: str) -> list[Span]:
@@ -450,9 +514,7 @@ class Masker:
             # Latin ("Bình" ≠ "bình thường"). Ranh giới chỉ xét chữ Latin/số: \w gồm cả chữ Nhật,
             # nên "Trầnです" sẽ không khớp nếu dùng \w.
             latin_re = (
-                re.compile(
-                    rf"(?<![{_LATIN_WORD}])" + _trie_pattern(latin) + rf"(?![{_LATIN_WORD}])"
-                )
+                re.compile(rf"(?<![{LATIN_WORD}])" + _trie_pattern(latin) + rf"(?![{LATIN_WORD}])")
                 if latin
                 else None
             )
@@ -482,12 +544,20 @@ class Masker:
 
     # --- che, thay ngược ---
 
-    async def mask(self, texts: Sequence[str]) -> list[str]:
+    async def mask(
+        self, texts: Sequence[str], keep: Sequence[tuple[int, int] | None] | None = None
+    ) -> list[str]:
         """Che danh sách text (cùng bảng nhãn). NER lỗi → ném lỗi, không trả text chưa che.
+
+        keep (song song với texts): chỉ trả phần [đầu, cuối) của text đó; None là cả text. Cả text
+        vẫn đi qua mẫu và NER nên giá trị có nhãn nằm ngoài phần giữ vẫn được nhận ra; khoảng vắt
+        qua biên thì biên mở rộng theo khoảng, không còn mảnh chưa che. Chuỗi phát hiện ngoài phần
+        giữ vào từ điển nhưng không có nhãn: bảng nhãn chỉ có thứ đã gửi đi.
 
         Phần regex và dựng từ điển (có thể vài nghìn tên) chạy ở thread riêng: không chặn event
         loop của API. Một Masker chỉ dùng trong một request, lần lượt: không cần khóa.
         """
+        ranges = [None] * len(texts) if keep is None else list(keep)
         texts = [escape_labels(t) for t in texts]
         detected = await asyncio.to_thread(lambda: [self._patterns(t) for t in texts])
         if self._ner is not None and any(texts):
@@ -499,7 +569,7 @@ class Masker:
                     cleaned = clean_ner_span(text, Span(e.start, e.end, e.label))
                     if cleaned is not None:
                         spans.append(cleaned)
-        return await asyncio.to_thread(self._apply, texts, detected)
+        return await asyncio.to_thread(self._apply, texts, detected, ranges)
 
     @staticmethod
     def _to_original(spans: Iterable[Span], starts: list[int], ends: list[int]) -> list[Span]:
@@ -509,7 +579,12 @@ class Masker:
         norm, starts, ends = nfkc_map(text)
         return self._to_original(pattern_spans(norm), starts, ends)
 
-    def _apply(self, texts: list[str], detected: list[list[Span]]) -> list[str]:
+    def _apply(
+        self,
+        texts: list[str],
+        detected: list[list[Span]],
+        ranges: Sequence[tuple[int, int] | None],
+    ) -> list[str]:
         detected = [
             [self._trim_to_known(t, s) for s in spans]
             for t, spans in zip(texts, detected, strict=True)
@@ -520,15 +595,16 @@ class Masker:
                 self._register(text[s.start : s.end], s.kind)
         # Pha 2: che từng text bằng khoảng phát hiện + mọi chuỗi đã biết.
         out: list[str] = []
-        for text, spans in zip(texts, detected, strict=True):
+        for text, spans, kept in zip(texts, detected, ranges, strict=True):
             norm, starts, ends = nfkc_map(text)
             known = self._to_original(self._dictionary_spans(norm), starts, ends)
             chosen = resolve([*spans, *known])
+            first, last = _widen(chosen, *(kept or (0, len(text))))
             parts: list[str] = []
-            pos = 0
+            pos = first
             for s in chosen:
                 surface = text[s.start : s.end]
-                if not surface.strip():
+                if s.end <= first or s.start >= last or not surface.strip():
                     continue
                 # Giữ khoảng trắng đầu/cuối của khoảng bên ngoài nhãn.
                 lead = len(surface) - len(surface.lstrip())
@@ -536,7 +612,7 @@ class Masker:
                 parts.append(text[pos : s.start + lead])
                 parts.append(self._label(surface, s.kind))
                 pos = s.end - trail
-            parts.append(text[pos:])
+            parts.append(text[pos:last])
             out.append("".join(parts))
         return out
 

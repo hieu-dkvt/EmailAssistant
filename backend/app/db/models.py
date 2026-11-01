@@ -281,7 +281,16 @@ class Project(Base):
     """Cấu hình dự án của một người (spec 2026-10-31-project-settings-design mục 4)."""
 
     __tablename__ = "projects"
-    __table_args__ = (UniqueConstraint("user_id", "name"), UniqueConstraint("id", "user_id"))
+    __table_args__ = (
+        UniqueConstraint("user_id", "name"),
+        UniqueConstraint("id", "user_id"),
+        ForeignKeyConstraint(
+            ["processed_source_id", "user_id"],
+            ["mail_sources.id", "mail_sources.user_id"],
+            name="fk_projects_processed_source_mail_sources",
+            ondelete="SET NULL (processed_source_id)",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
@@ -300,6 +309,112 @@ class Project(Base):
     backlog_project_key: Mapped[str | None] = mapped_column(Text)
     redmine_url: Mapped[str | None] = mapped_column(Text)
     redmine_project: Mapped[str | None] = mapped_column(Text)
+    # Spec 26 mục 3 (migration 0018).
+    customer_domains: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
+    processed_source_id: Mapped[int | None] = mapped_column(BigInteger)
+    ai_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class GlossaryTerm(Base):
+    """Thuật ngữ dịch; project_id NULL là glossary chung (spec 26 mục 9)."""
+
+    __tablename__ = "glossary_terms"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["project_id", "user_id"],
+            ["projects.id", "projects.user_id"],
+            name="fk_glossary_terms_project_user",
+            ondelete="CASCADE",
+        ),
+        UniqueConstraint(
+            "user_id",
+            "project_id",
+            "term_norm",
+            name="uq_glossary_terms_scope",
+            postgresql_nulls_not_distinct=True,
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(always=True), primary_key=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    project_id: Mapped[int | None] = mapped_column(BigInteger)
+    term: Mapped[str] = mapped_column(Text)
+    term_norm: Mapped[str] = mapped_column(Text)
+    translation: Mapped[str] = mapped_column(Text)
+    note: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageTranslation(Base):
+    """Bản dịch đã lưu (spec 26 mục 10). Ngoại lệ có chủ đích: chứa chữ dịch của mail."""
+
+    __tablename__ = "message_translations"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "user_id"],
+            ["messages.id", "messages.user_id"],
+            name="fk_message_translations_message_user",
+            ondelete="CASCADE",
+        ),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    translated_subject: Mapped[str] = mapped_column(Text)
+    translated_body: Mapped[str] = mapped_column(Text)
+    notes: Mapped[Any] = mapped_column(JSONB, server_default=text("'[]'"))
+    warnings: Mapped[Any] = mapped_column(JSONB, server_default=text("'[]'"))
+    source_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    model: Mapped[str] = mapped_column(Text)
+    prompt_version: Mapped[int] = mapped_column(Integer)
+    glossary_used: Mapped[Any] = mapped_column(JSONB, server_default=text("'[]'"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class MessageAutoRun(Base):
+    """Trạng thái xử lý tự động của một mail và folder đã chuyển tới (spec 26 mục 8)."""
+
+    __tablename__ = "message_auto_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "user_id"],
+            ["messages.id", "messages.user_id"],
+            name="fk_message_auto_runs_message_user",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["from_source_id", "user_id"],
+            ["mail_sources.id", "mail_sources.user_id"],
+            name="fk_message_auto_runs_from_source_user",
+            ondelete="SET NULL (from_source_id)",
+        ),
+        ForeignKeyConstraint(
+            ["target_source_id", "user_id"],
+            ["mail_sources.id", "mail_sources.user_id"],
+            name="fk_message_auto_runs_target_source_user",
+            ondelete="SET NULL (target_source_id)",
+        ),
+        CheckConstraint("status IN ('retry', 'done', 'failed')", name="status"),
+        Index("ix_message_auto_runs_user_id_target_source_id", "user_id", "target_source_id"),
+    )
+
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    message_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    status: Mapped[str] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, server_default=text("0"))
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(Text)
+    from_source_id: Mapped[int | None] = mapped_column(BigInteger)
+    target_source_id: Mapped[int | None] = mapped_column(BigInteger)
+    move_note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

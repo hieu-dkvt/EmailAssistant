@@ -16,6 +16,10 @@ export function formatDateTime(iso: string | null | undefined): string {
   return iso ? dateTime.format(new Date(iso)) : "(không có ngày)";
 }
 
+export function formatDate(iso: string): string {
+  return dateOnly.format(new Date(iso));
+}
+
 /** Hôm nay → giờ:phút; ngày khác → ngày/tháng/năm. */
 export function formatShortDate(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) return "—";
@@ -41,4 +45,9 @@ export function senderLabel(name: string | null | undefined, addr: string | null
 
 export function formatCount(n: number): string {
   return n.toLocaleString("vi-VN");
+}
+
+/** Cùng quy tắc `is_inbox_path` của backend: đoạn cuối (tách theo `/`) là inbox, không phân biệt hoa thường. */
+export function isInboxPath(path: string): boolean {
+  return (path.split("/").pop() ?? "").toLowerCase() === "inbox";
 }

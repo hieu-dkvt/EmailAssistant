@@ -39,6 +39,15 @@ export type ProjectRef = Schemas["ProjectRef"];
 export type ProjectBody = NonNullable<
   paths["/api/v1/projects"]["post"]["requestBody"]
 >["content"]["application/json"];
+export type ThreadTranslationItem = Schemas["ThreadTranslationItem"];
+export type MessageTranslation = Schemas["MessageTranslationOut"];
+export type GlossaryItem = Schemas["GlossaryItem"];
+export type GlossaryBody = NonNullable<
+  paths["/api/v1/glossary"]["post"]["requestBody"]
+>["content"]["application/json"];
+export type GlossaryImportBody = NonNullable<
+  paths["/api/v1/glossary/import"]["post"]["requestBody"]
+>["content"]["application/json"];
 export type Tier = Schemas["AiTierInfo"]["tier"];
 export type AskBody = NonNullable<
   paths["/api/v1/ask"]["post"]["requestBody"]

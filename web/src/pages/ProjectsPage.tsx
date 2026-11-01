@@ -2,8 +2,21 @@ import { Loader2, Plus } from "lucide-react";
 import { type FormEvent, type Ref, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useSearchParams } from "react-router";
 
-import { ApiError, errorMessage, type Project, type ProjectBody } from "@/api/client";
-import { useCreateProject, useDeleteProject, useProjects, useUpdateProject } from "@/api/hooks";
+import {
+  ApiError,
+  errorMessage,
+  type FolderInfo,
+  type Project,
+  type ProjectBody,
+} from "@/api/client";
+import {
+  useCreateProject,
+  useDeleteProject,
+  useFolders,
+  useProjects,
+  useUpdateProject,
+} from "@/api/hooks";
+import { GlossaryTable } from "@/components/GlossaryTable";
 import { TagInput } from "@/components/TagInput";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +31,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { folderName, formatDate, isInboxPath } from "@/lib/format";
 import { mergeTags } from "@/lib/tags";
 import { cn } from "cn";
 
@@ -28,6 +42,7 @@ const TAG_KEYS = [
   "filter_subject",
   "github_mail",
   "backlog_mail",
+  "customer_domains",
 ] as const;
 const TEXT_KEYS = [
   "docs_repo_url",
@@ -45,6 +60,7 @@ type TextKey = (typeof TEXT_KEYS)[number];
 interface FormState {
   name: string;
   tags: Record<TagKey, string[]>;
+  processedSourceId: number | null;
   texts: Record<TextKey, string>;
 }
 
@@ -59,6 +75,7 @@ function fromProject(p: Project | null): FormState {
   return {
     name: p?.name ?? "",
     tags: Object.fromEntries(TAG_KEYS.map((k) => [k, p?.[k] ?? []])) as FormState["tags"],
+    processedSourceId: p?.processed_source_id ?? null,
     texts: Object.fromEntries(TEXT_KEYS.map((k) => [k, p?.[k] ?? ""])) as FormState["texts"],
   };
 }
@@ -71,7 +88,12 @@ function toBody(state: FormState, drafts: Partial<Record<TagKey, string>>): Proj
   const texts = Object.fromEntries(
     TEXT_KEYS.map((k) => [k, state.texts[k].trim() || null]),
   ) as Record<TextKey, string | null>;
-  return { name: state.name.trim(), ...tags, ...texts };
+  return {
+    name: state.name.trim(),
+    ...tags,
+    ...texts,
+    processed_source_id: state.processedSourceId,
+  };
 }
 
 function filterCount(
@@ -143,6 +165,70 @@ function Section({
   );
 }
 
+function TranslateSection({
+  project,
+  folderId,
+  onFolder,
+  domains,
+  error,
+}: {
+  project: Project | null;
+  folderId: number | null;
+  onFolder: (id: number | null) => void;
+  domains: React.ReactNode;
+  error?: string;
+}) {
+  const folders = useFolders();
+  // Không cho chọn Inbox (backend cũng chặn); nhóm theo tài khoản, giữ thứ tự API trả về.
+  const groups = new Map<string, FolderInfo[]>();
+  for (const f of folders.data ?? []) {
+    if (isInboxPath(f.folder_path)) continue;
+    groups.set(f.account, [...(groups.get(f.account) ?? []), f]);
+  }
+  const known = [...groups.values()].some((list) => list.some((f) => f.id === folderId));
+  return (
+    <Section
+      title="Dịch tự động"
+      hint="Mail khách gửi (theo domain) được dịch sang tiếng Việt. Folder để trống thì mail vẫn được dịch nhưng không chuyển."
+    >
+      {domains}
+      <div className="grid min-w-0 gap-1.5">
+        <Label htmlFor="project-processed-source">Folder mail dự án</Label>
+        <select
+          id="project-processed-source"
+          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+          value={folderId === null ? "" : String(folderId)}
+          aria-invalid={error ? true : undefined}
+          onChange={(e) => onFolder(e.target.value ? Number(e.target.value) : null)}
+        >
+          <option value="">Không chuyển folder</option>
+          {folderId !== null && !known && folders.data && (
+            <option value={String(folderId)}>Folder đã chọn (không có trong danh sách)</option>
+          )}
+          {[...groups].map(([account, list]) => (
+            <optgroup key={account} label={account}>
+              {list.map((f) => (
+                <option key={f.id} value={String(f.id)}>
+                  {folderName(f.folder_path)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          Chỉ chọn được folder đã đồng bộ (tick ở collector rồi đồng bộ). Không chọn Inbox.
+        </p>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </div>
+      <p className="text-sm text-muted-foreground">
+        {project?.ai_since
+          ? `Dịch mail từ ngày ${formatDate(project.ai_since)}`
+          : "Mốc sẽ được đặt khi lưu domain đầu tiên (14 ngày trước)"}
+      </p>
+    </Section>
+  );
+}
+
 const GRID = "grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4";
 
 interface FormProps {
@@ -168,6 +254,7 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
     filter_subject: useRef(""),
     github_mail: useRef(""),
     backlog_mail: useRef(""),
+    customer_domains: useRef(""),
   };
 
   const dirty =
@@ -178,6 +265,7 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
   const apiError = error instanceof ApiError ? error : null;
   const errors: Record<string, string> = { ...apiError?.fields };
   if (apiError?.code === "project_name_taken") errors.name = apiError.message;
+  if (apiError?.code === "project_folder_invalid") errors.processed_source_id = apiError.message;
   const showAlert = error !== null && Object.keys(errors).length === 0;
 
   const shownFilters = TAG_KEYS.slice(0, 4).reduce(
@@ -287,6 +375,19 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
           </div>
         </Section>
 
+        <TranslateSection
+          project={project}
+          folderId={state.processedSourceId}
+          onFolder={(id) => setState((s) => ({ ...s, processedSourceId: id }))}
+          domains={tag(
+            "customer_domains",
+            "Domain mail khách",
+            "Thêm domain",
+            "Mail từ domain này (và domain con) được dịch tự động. Để trống thì dự án không dịch tự động.",
+          )}
+          error={errors.processed_source_id}
+        />
+
         <Section title="Tài liệu khách hàng" note={NOT_USED}>
           <div className={GRID}>
             {text("docs_repo_url", "Repo URL lưu tài liệu", URL_MAX)}
@@ -339,7 +440,7 @@ function ProjectForm({ project, handle, onSaved, onDeleted }: FormProps) {
           <DialogHeader>
             <DialogTitle>Xóa dự án</DialogTitle>
             <DialogDescription>
-              {`Xóa dự án ${project?.name ?? ""}? Mail không bị xóa, chỉ bỏ liên kết với dự án.`}
+              {`Xóa dự án ${project?.name ?? ""}? Mail không bị xóa, chỉ bỏ liên kết với dự án. Glossary của dự án cũng bị xóa theo.`}
             </DialogDescription>
           </DialogHeader>
           {remove.error && (
@@ -388,6 +489,7 @@ export function ProjectsPage() {
   const formHandle = useRef<FormHandle>(null);
   const [formVersion, setFormVersion] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [tab, setTab] = useState<"config" | "glossary">("config");
   const [leaveTo, setLeaveTo] = useState<{ target: string | null } | null>(null);
 
   const raw = params.get("project");
@@ -401,6 +503,7 @@ export function ProjectsPage() {
     if (target) next.set("project", target);
     else next.delete("project");
     setSaved(false);
+    setTab("config");
     setParams(next, { replace });
   }
 
@@ -425,13 +528,45 @@ export function ProjectsPage() {
       right = (
         <>
           <h2 className="sr-only">{selected ? selected.name : "Dự án mới"}</h2>
-          <ProjectForm
-            key={`${isNew ? "new" : selected?.id}:${formVersion}`}
-            project={isNew ? null : (selected ?? null)}
-            handle={formHandle}
-            onSaved={onSaved}
-            onDeleted={() => go(null, true)}
-          />
+          {selected && (
+            <div role="tablist" aria-label="Mục của dự án" className="mb-4 flex gap-1 border-b">
+              {(
+                [
+                  ["config", "Cấu hình"],
+                  ["glossary", "Glossary"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={tab === id}
+                  onClick={() => setTab(id)}
+                  className={cn(
+                    "-mb-px border-b-2 px-3 py-2 text-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none",
+                    tab === id
+                      ? "border-primary font-medium"
+                      : "border-transparent text-muted-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Form luôn được dựng (chỉ ẩn) để tab Glossary không làm mất phần đang sửa. */}
+          <div hidden={tab !== "config" || undefined}>
+            <ProjectForm
+              key={`${isNew ? "new" : selected?.id}:${formVersion}`}
+              project={isNew ? null : (selected ?? null)}
+              handle={formHandle}
+              onSaved={onSaved}
+              onDeleted={() => go(null, true)}
+            />
+          </div>
+          {selected && tab === "glossary" && (
+            <GlossaryTable key={selected.id} projectId={selected.id} />
+          )}
           {saved && (
             <p className="mt-3 text-sm text-muted-foreground" role="status">
               Đã lưu.

@@ -2,7 +2,44 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
-## 2026-10-31: thiết kế dịch mail tự động và folder dự án (spec 26, chưa có code)
+## 2026-11-01: dịch mail tự động, glossary, chuyển mail sang folder dự án (spec 26, xong)
+
+Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên dưới. Mục này ghi phần đã làm và đã sửa.
+
+### Đã làm
+- Migration 0018: cột `customer_domains`, `processed_source_id`, `ai_since` của `projects`; bảng `glossary_terms`, `message_translations`, `message_auto_runs`.
+- Dịch: `app/ai/translate.py` (che → glossary → `call_task("translate")` → kiểm tra → thay ngược), nút Dịch / Dịch lại trên web (`POST /messages/{id}/translate`), job nền `translate_sweep` (mỗi phút) và `translate_user` (queue `translate`, role `app_api` qua `user_session`), `app/worker.py` chạy hai vòng worker trong một process. Tiêu chí tự động: mail thuộc dự án, From thuộc domain khách, nằm trong Inbox, từ mốc 14 ngày của dự án.
+- Glossary chung và theo dự án (`/glossary`, nhập CSV hoặc dán nhiều dòng có xem trước, xuất CSV), trang `/settings/glossary`, tab Glossary trong cấu hình dự án, thêm từ đoạn bôi đen trong thẻ mail, file hạt giống `backend/seed/glossary-it-ja-vi.csv` (151 thuật ngữ công khai).
+- Chuyển mail đã dịch sang folder dự án **chỉ trên web** (`message_auto_runs.target_source_id`), `move`, `move-back`, `auto-retry`; folder hiệu lực áp cho bộ lọc folder, nhãn folder, `GET /folders`. Thunderbird vẫn thấy mail ở Inbox.
+- Web: hai cột bản gốc / bản dịch, cảnh báo kiểm tra sau dịch, `MovePicker`, khối "Dịch tự động" ở cấu hình dự án, `GlossaryPage`.
+- Kiểm tra cuối: pytest backend 1033 đạt (trước đợt này 712), Vitest 100 đạt (trước 48), ruff, pyright, ESLint, build web sạch. Chạy thử đầu cuối trên `mailassist_test` với AI giả (server tương thích OpenAI trên loopback), chưa gọi thử gateway thật.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Job dịch chạy bằng role `app_api` qua `user_session`, không dùng `engine` worker (BYPASSRLS): các hàm dùng chung dựa vào RLS.
+- `ai_bad_request` ghi `retry` chờ tối đa 60 phút và không bao giờ thành `failed`, vì lỗi này có thể do sai tên model chứ không do mail.
+- Worker hai vòng, vòng nào kết thúc thì dừng vòng kia (treo khi tắt trên Linux nếu không).
+- Thêm trường `projects` và `move_projects` vào `ThreadTranslationItem` để ô chọn dự án và phạm vi glossary chỉ hiện dự án của mail.
+- Sửa thẳng migration 0018 (bỏ `SELECT` thừa của `app_worker`) vì chưa phát hành; `mailassist` và `mailassist_proj` mới ở 0017.
+- Giữ phần bỏ đuôi chuỗi liền dài hơn phần đệm khỏi đoạn gửi của `/ask`: thà thiếu ngữ cảnh còn hơn lọt mảnh chưa che.
+- Che thừa cạnh chữ Nhật và từ thường (hệ quả của ranh giới từ chỉ xét chữ Latin) được chấp nhận.
+
+### Đã xử lý sau review (review toàn nhánh và security-reviewer, 2026-11-01)
+- **Che thông tin, cũng ảnh hưởng `/ask`:** (1) cắt sau khi che thay vì trước, che tối đa 40.000 ký tự rồi `cut_masked`; (2) ranh giới từ của EMAIL, URL, PHONE, MONEY và mẫu tên chỉ xét chữ Latin nên địa chỉ, số điện thoại liền sau chữ Nhật được che; (3) chuỗi trên 500 ký tự không vào từ điển, URL dài không còn làm `RecursionError`; (4) **`/ask` lọt giá trị nguyên vẹn do cắt đoạn trước khi che** (nghiêm trọng, có sẵn từ spec 21): nay che theo cửa sổ ±200 ký tự (`Masker.mask(keep=…)`, `_chunk_range`), kể cả URL dài chưa mã hóa có chữ Nhật (0 trên 975 điểm cắt lọt, trước đó 449); (5) `_person` và header `/ask` che tới trần ingest rồi mới cắt. Spec 20 mục 10, spec 21 mục 11. **Spec 27 phải giữ `keep` và `_chunk_range` khi đổi `SOURCES`.**
+- Bẫy `no_folder`: mail dịch trước khi chọn folder nay được xét lại khi lưu dự án; `MovePicker` hiện cho mọi mail `done` chưa có đích.
+- Mail ở hai Inbox: dùng "mọi Inbox" thay cho `from_source_id`; `GET /folders` không đếm đôi; viết lại `LIST_FOLDERS` bằng `LEFT JOIN … IS NULL` (60 ms thay vì 1.562 ms).
+- Glossary: khớp katakana nửa độ rộng và NFD; xuất chặn ký tự công thức full-width; nhập bỏ BOM.
+- `app_worker` bỏ quyền `SELECT` trên `glossary_terms`, `message_translations`.
+- Job: lỗi lạ thành `translate_failed` thay vì lỗi mãi ở mail cũ nhất, `mask_unstable` là lỗi theo mail, `httpx.HTTPError` không tính lượt thử; pytest có `faulthandler_timeout = 300` sau một lần treo 6 giờ không tái hiện được.
+- Giao diện: hiện mã lỗi cạnh "Đang chờ dịch lại tự động"; nút "Chuyển lại Inbox" kiểu viền.
+
+### Còn để sau
+- **Chờ người dùng quyết định:** khi người dùng xóa nhà cung cấp của mình, job dịch rơi về khóa môi trường mặc định và vẫn gọi AI; có nên chặn không.
+- Gọi thử gateway thật; move thật qua IMAP (đổi nguyên tắc "không ghi lên mail server"); cho phép gateway ở máy khác trong LAN.
+- Chưa đo lại `GET /folders` và lọc theo folder dưới phiên RLS sau thay đổi "mọi Inbox" (số đo mới bằng superuser).
+- Các điểm nhỏ ở spec 26 mục 15: chất lượng dịch giảm vì che thừa, thuật ngữ thêm từ đoạn bôi đen vẫn còn sau khi xóa mail, `ai_bad_request` thử lại mỗi giờ mãi, bộ đếm lượt thử dùng chung, xóa thuật ngữ không có xác nhận, dữ liệu mẫu `data/project-test-profile` có ngày 9 nên không qua mốc 14 ngày.
+- Môi trường: `npm run lint` bước prettier báo 13 file CRLF có từ trước; `npm run gen:api` cần `$env:PYTHONUTF8 = "1"` trên máy này.
+
+## 2026-10-31: thiết kế dịch mail tự động và folder dự án (spec 26; làm xong ngày 2026-11-01, xem mục trên)
 
 ### Quyết định của người dùng (2026-10-31)
 - **Model:** đang dùng OpenRouter để thử, khi vận hành người dùng tự chuyển sang model nội bộ qua gateway kiểu 9router ở máy khác trong mạng nội bộ. Việc chọn model không thuộc phạm vi thiết kế dịch.

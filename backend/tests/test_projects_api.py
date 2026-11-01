@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.db.session import create_api_engine, user_session
 from app.projects import create_project
 from app.web_schemas import ProjectInput
-from tests.dbutil import add_project, url_for_test_db
+from tests.dbutil import add_project, add_source, url_for_test_db
 from tests.webutil import CSRF, add_web_user, login, web_client
 
 FILTERS = {"filter_from": ["@sample-a.example.jp"], "filter_subject": ["【サンプルA】"]}
@@ -317,3 +317,70 @@ async def test_filter_save_does_not_wait_for_key_share(
         finally:
             holder.rollback()
     assert r.status_code == 200
+
+
+def ai_since(owner_engine: Engine, project_id: int) -> Any:
+    with owner_engine.connect() as conn:
+        return conn.scalar(text("select ai_since from projects where id = :i"), {"i": project_id})
+
+
+async def test_first_domain_sets_ai_since_once(ca: AsyncClient, owner_engine: Engine) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    pid = (await post(ca, {"name": "P", "customer_domains": ["Sample-A.example.jp"]})).json()["id"]
+    first = ai_since(owner_engine, pid)
+    assert abs(datetime.now(UTC) - timedelta(days=14) - first) < timedelta(minutes=5)
+    r = await ca.put(
+        f"{URL}/{pid}", json={"name": "P", "customer_domains": ["b.example.jp"]}, headers=CSRF
+    )
+    assert r.json()["customer_domains"] == ["b.example.jp"]
+    assert ai_since(owner_engine, pid) == first
+    await ca.put(f"{URL}/{pid}", json={"name": "P"}, headers=CSRF)
+    assert ai_since(owner_engine, pid) == first
+    r = await ca.put(
+        f"{URL}/{pid}", json={"name": "P", "customer_domains": ["c.example.jp"]}, headers=CSRF
+    )
+    assert ai_since(owner_engine, pid) == first
+    assert r.json()["ai_since"] is not None
+
+
+async def test_no_domain_leaves_ai_since_null(ca: AsyncClient, owner_engine: Engine) -> None:
+    pid = (await post(ca, {"name": "P"})).json()["id"]
+    assert ai_since(owner_engine, pid) is None
+    r = await ca.put(f"{URL}/{pid}", json={"name": "P2"}, headers=CSRF)
+    assert r.json()["ai_since"] is None
+
+
+async def test_domain_error_points_to_field(ca: AsyncClient) -> None:
+    r = await post(ca, {"name": "P", "customer_domains": ["nodot"]})
+    assert r.status_code == 422
+    assert "customer_domains" in str(r.json())
+    r = await post(ca, {"name": "P", "customer_domains": [f"d{i}.example.jp" for i in range(21)]})
+    assert r.status_code == 422
+    assert "customer_domains" in str(r.json())
+
+
+async def test_processed_folder_rejects_inbox(
+    ca: AsyncClient, owner_engine: Engine, users: tuple[int, int]
+) -> None:
+    with owner_engine.begin() as conn:
+        inbox = add_source(conn, users[0])
+        ok = add_source(conn, users[0], "ImapMail/imap.example.com/INBOX.sbd/Done")
+    r = await post(ca, {"name": "P", "processed_source_id": inbox})
+    assert r.status_code == 422 and r.json()["code"] == "project_folder_invalid"
+    r = await post(ca, {"name": "P", "processed_source_id": ok})
+    assert r.status_code == 201 and r.json()["processed_source_id"] == ok
+    pid = r.json()["id"]
+    r = await ca.put(f"{URL}/{pid}", json={"name": "P", "processed_source_id": inbox}, headers=CSRF)
+    assert r.status_code == 422 and r.json()["code"] == "project_folder_invalid"
+
+
+async def test_processed_folder_of_other_user_rejected(
+    ca: AsyncClient, owner_engine: Engine, users: tuple[int, int]
+) -> None:
+    with owner_engine.begin() as conn:
+        other = add_source(conn, users[1], "ImapMail/imap.example.com/INBOX.sbd/Done")
+    r = await post(ca, {"name": "P", "processed_source_id": other})
+    assert r.status_code == 422 and r.json()["code"] == "project_folder_invalid"
+    r = await post(ca, {"name": "P", "processed_source_id": 999999})
+    assert r.status_code == 422 and r.json()["code"] == "project_folder_invalid"

@@ -1534,6 +1534,449 @@
         }
       }
     },
+    "/api/v1/messages/{message_id}/translate": {
+      "post": {
+        "summary": "Post Translate",
+        "operationId": "post_translate_api_v1_messages__message_id__translate_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageTranslationOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "nothing_to_translate",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "message_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "mail_not_ready, translate_in_progress",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "ai_refused, ai_truncated, ai_bad_output…",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "ai_not_configured, ai_unavailable, ml_…",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "force": {
+                    "default": false,
+                    "title": "Force",
+                    "type": "boolean"
+                  }
+                },
+                "title": "TranslateInput",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/threads/{thread_id}/translations": {
+      "get": {
+        "summary": "Get Thread Translations",
+        "operationId": "get_thread_translations_api_v1_threads__thread_id__translations_get",
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadTranslations"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "thread_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/move-back": {
+      "post": {
+        "summary": "Post Move Back",
+        "description": "Đưa mail về chỗ cũ (Inbox). Dòng run vẫn `done`: không dịch hay chuyển lại.",
+        "operationId": "post_move_back_api_v1_messages__message_id__move_back_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailMoveOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "message_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/move": {
+      "post": {
+        "summary": "Post Move",
+        "description": "Chọn dự án cho mail (thường là `ambiguous`): dự án phải chứa mail và có folder.",
+        "operationId": "post_move_api_v1_messages__message_id__move_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MailMoveOut"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "message_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "move_not_ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "move_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "properties": {
+                  "project_id": {
+                    "exclusiveMinimum": 0,
+                    "maximum": 9223372036854775807,
+                    "title": "Project Id",
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "project_id"
+                ],
+                "title": "MoveInput",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{message_id}/auto-retry": {
+      "post": {
+        "summary": "Post Auto Retry",
+        "description": "Xóa dòng `failed` để lần quét sau thử lại.",
+        "operationId": "post_auto_retry_api_v1_messages__message_id__auto_retry_post",
+        "parameters": [
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Message Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "message_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "auto_retry_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/ai/provider": {
       "get": {
         "summary": "Get Provider",
@@ -1908,6 +2351,27 @@
                       }
                     ],
                     "title": "Redmine Project"
+                  },
+                  "customer_domains": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array",
+                    "title": "Customer Domains",
+                    "default": []
+                  },
+                  "processed_source_id": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "maximum": 9.223372036854776e+18,
+                        "exclusiveMinimum": 0.0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Processed Source Id"
                   }
                 },
                 "additionalProperties": false,
@@ -1965,6 +2429,16 @@
           },
           "409": {
             "description": "project_name_taken, project_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "project_folder_invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -2045,11 +2519,11 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "project_folder_invalid",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -2202,6 +2676,27 @@
                       }
                     ],
                     "title": "Redmine Project"
+                  },
+                  "customer_domains": {
+                    "default": [],
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Customer Domains",
+                    "type": "array"
+                  },
+                  "processed_source_id": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9223372036854775807,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Processed Source Id"
                   }
                 },
                 "required": [
@@ -2275,11 +2770,626 @@
             }
           },
           "422": {
+            "description": "project_folder_invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/glossary": {
+      "get": {
+        "summary": "Get Glossary",
+        "operationId": "get_glossary_api_v1_glossary_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 200,
+              "default": "",
+              "title": "Q"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000000,
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlossaryPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
             "description": "Validation Error",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Post Glossary",
+        "operationId": "post_glossary_api_v1_glossary_post",
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlossaryItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found, glossary_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "glossary_duplicate, glossary_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Body của POST/PATCH /glossary. PATCH không đổi phạm vi: bỏ qua project_id.",
+                "properties": {
+                  "project_id": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9223372036854775807,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Project Id"
+                  },
+                  "term": {
+                    "title": "Term",
+                    "type": "string"
+                  },
+                  "translation": {
+                    "title": "Translation",
+                    "type": "string"
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Note"
+                  }
+                },
+                "required": [
+                  "term",
+                  "translation"
+                ],
+                "title": "GlossaryInput",
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/glossary/export": {
+      "get": {
+        "summary": "Export Glossary",
+        "operationId": "export_glossary_api_v1_glossary_export_get",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "exclusiveMinimum": 0
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/glossary/{glossary_id}": {
+      "patch": {
+        "summary": "Patch Glossary",
+        "operationId": "patch_glossary_api_v1_glossary__glossary_id__patch",
+        "parameters": [
+          {
+            "name": "glossary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Glossary Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlossaryItem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found, glossary_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "glossary_duplicate, glossary_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "Body của POST/PATCH /glossary. PATCH không đổi phạm vi: bỏ qua project_id.",
+                "properties": {
+                  "project_id": {
+                    "anyOf": [
+                      {
+                        "exclusiveMinimum": 0,
+                        "maximum": 9223372036854775807,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Project Id"
+                  },
+                  "term": {
+                    "title": "Term",
+                    "type": "string"
+                  },
+                  "translation": {
+                    "title": "Translation",
+                    "type": "string"
+                  },
+                  "note": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Note"
+                  }
+                },
+                "required": [
+                  "term",
+                  "translation"
+                ],
+                "title": "GlossaryInput",
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete Glossary",
+        "operationId": "delete_glossary_api_v1_glossary__glossary_id__delete",
+        "parameters": [
+          {
+            "name": "glossary_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "maximum": 9223372036854775807,
+              "exclusiveMinimum": 0,
+              "title": "Glossary Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found, glossary_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "glossary_duplicate, glossary_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/glossary/import": {
+      "post": {
+        "summary": "Import Glossary",
+        "operationId": "import_glossary_api_v1_glossary_import_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "project_id": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "maximum": 9.223372036854776e+18,
+                        "exclusiveMinimum": 0.0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Project Id"
+                  },
+                  "text": {
+                    "type": "string",
+                    "title": "Text"
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "lines"
+                    ],
+                    "title": "Format"
+                  },
+                  "on_conflict": {
+                    "type": "string",
+                    "enum": [
+                      "skip",
+                      "overwrite"
+                    ],
+                    "title": "On Conflict",
+                    "default": "skip"
+                  },
+                  "apply": {
+                    "type": "boolean",
+                    "title": "Apply",
+                    "default": false
+                  }
+                },
+                "additionalProperties": false,
+                "type": "object",
+                "required": [
+                  "text",
+                  "format"
+                ],
+                "title": "GlossaryImportInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GlossaryImportResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Chưa đăng nhập",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found, glossary_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "glossary_duplicate, glossary_limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "glossary_import_too_large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "glossary_import_too_many_lines",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -2908,6 +4018,61 @@
         ],
         "title": "AttachmentOut"
       },
+      "AutoState": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "retry",
+              "done",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "move_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Move Note"
+          },
+          "target_folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Folder"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "error_code",
+          "move_note",
+          "target_folder"
+        ],
+        "title": "AutoState",
+        "description": "Trạng thái xử lý tự động của một mail (spec 26 mục 8)."
+      },
       "DeleteResult": {
         "properties": {
           "deleted_messages": {
@@ -3008,6 +4173,121 @@
         ],
         "title": "FolderRef"
       },
+      "GlossaryImportResult": {
+        "properties": {
+          "added": {
+            "type": "integer",
+            "title": "Added"
+          },
+          "duplicate": {
+            "type": "integer",
+            "title": "Duplicate"
+          },
+          "invalid": {
+            "type": "integer",
+            "title": "Invalid"
+          },
+          "first_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "added",
+          "duplicate",
+          "invalid",
+          "first_error"
+        ],
+        "title": "GlossaryImportResult"
+      },
+      "GlossaryItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "term": {
+            "type": "string",
+            "title": "Term"
+          },
+          "translation": {
+            "type": "string",
+            "title": "Translation"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "term",
+          "translation",
+          "note",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "GlossaryItem"
+      },
+      "GlossaryPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GlossaryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "GlossaryPage"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3053,6 +4333,44 @@
           "mismatched"
         ],
         "title": "IngestResult"
+      },
+      "MailMoveOut": {
+        "properties": {
+          "message_id": {
+            "type": "integer",
+            "title": "Message Id"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "move_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Move Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "folder_id",
+          "move_note"
+        ],
+        "title": "MailMoveOut",
+        "description": "Trạng thái chuyển folder của mail sau thao tác (spec 26 mục 8)."
       },
       "Me": {
         "properties": {
@@ -3204,6 +4522,67 @@
           "thread_id"
         ],
         "title": "MessageRef"
+      },
+      "MessageTranslationOut": {
+        "properties": {
+          "message_id": {
+            "type": "integer",
+            "title": "Message Id"
+          },
+          "translated_subject": {
+            "type": "string",
+            "title": "Translated Subject"
+          },
+          "translated_body": {
+            "type": "string",
+            "title": "Translated Body"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Notes"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "translated_subject",
+          "translated_body",
+          "notes",
+          "warnings",
+          "model",
+          "stale",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "MessageTranslationOut"
       },
       "OverrideInfo": {
         "properties": {
@@ -3414,6 +4793,36 @@
             ],
             "title": "Redmine Project"
           },
+          "customer_domains": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Customer Domains"
+          },
+          "processed_source_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Processed Source Id"
+          },
+          "ai_since": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Since"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3443,6 +4852,9 @@
           "backlog_project_key",
           "redmine_url",
           "redmine_project",
+          "customer_domains",
+          "processed_source_id",
+          "ai_since",
           "created_at",
           "updated_at"
         ],
@@ -4168,6 +5580,73 @@
           "projects"
         ],
         "title": "ThreadSummary"
+      },
+      "ThreadTranslationItem": {
+        "properties": {
+          "message_id": {
+            "type": "integer",
+            "title": "Message Id"
+          },
+          "translation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageTranslationOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "auto": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AutoState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "type": "array",
+            "title": "Projects"
+          },
+          "move_projects": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectRef"
+            },
+            "type": "array",
+            "title": "Move Projects"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message_id",
+          "translation",
+          "auto",
+          "projects",
+          "move_projects"
+        ],
+        "title": "ThreadTranslationItem"
+      },
+      "ThreadTranslations": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadTranslationItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "ThreadTranslations"
       },
       "TierName": {
         "type": "string",

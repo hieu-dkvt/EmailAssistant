@@ -35,6 +35,9 @@ MAIL_TABLES = (
     "projects",
     "message_projects",
     "user_project_state",
+    "glossary_terms",
+    "message_translations",
+    "message_auto_runs",
 )
 
 # psycopg async không chạy được trên ProactorEventLoop (mặc định của Windows).

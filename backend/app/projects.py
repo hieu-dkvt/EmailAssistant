@@ -15,7 +15,9 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
+from app.auto_translate import retarget_no_folder
 from app.db.locks import USER_MAIL_LOCK
+from app.mail.domains import is_inbox_path
 from app.web_schemas import Project, ProjectInput, ProjectList
 
 
@@ -102,7 +104,7 @@ class ProjectError(Exception):
 
 MAX_PROJECTS = 100
 FILTER_COLUMNS = ("filter_from", "filter_to", "filter_cc", "filter_subject")
-LIST_COLUMNS = (*FILTER_COLUMNS, "github_mail", "backlog_mail")
+LIST_COLUMNS = (*FILTER_COLUMNS, "github_mail", "backlog_mail", "customer_domains")
 DATA_COLUMNS = (
     "name",
     *FILTER_COLUMNS,
@@ -116,8 +118,15 @@ DATA_COLUMNS = (
     "backlog_project_key",
     "redmine_url",
     "redmine_project",
+    "customer_domains",
+    "processed_source_id",
 )
-ALL_COLUMNS = ("id", *DATA_COLUMNS, "created_at", "updated_at")
+ALL_COLUMNS = ("id", *DATA_COLUMNS, "ai_since", "created_at", "updated_at")
+AI_SINCE_DAYS = 14  # lần đầu có domain khách: chỉ dịch mail từ ngần này ngày trước
+_AI_SINCE_NEW = (
+    "CASE WHEN cardinality(CAST(:customer_domains AS text[])) > 0 "
+    "THEN now() - make_interval(days => :ai_since_days) END"
+)
 
 
 def _value(col: str) -> str:
@@ -132,17 +141,20 @@ ASSIGNING = text(
     "SELECT rules_version > applied_rules_version FROM user_project_state WHERE user_id = :u"
 )
 INSERT = text(
-    f"INSERT INTO projects (user_id, {', '.join(DATA_COLUMNS)}) "
-    f"VALUES (:u, {', '.join(_value(c) for c in DATA_COLUMNS)}) RETURNING {_SELECT}"
+    f"INSERT INTO projects (user_id, {', '.join(DATA_COLUMNS)}, ai_since) "
+    f"VALUES (:u, {', '.join(_value(c) for c in DATA_COLUMNS)}, {_AI_SINCE_NEW}) "
+    f"RETURNING {_SELECT}"
 )
+SOURCE_PATH = text("SELECT folder_path FROM mail_sources WHERE id = :s AND user_id = :u")
 # NO KEY UPDATE (không phải UPDATE): kiểm FK của worker giữ KEY SHARE trên dòng dự án đến khi
 # commit; FOR UPDATE xung đột với nó nên lưu bộ lọc phải chờ worker và có đường deadlock.
 OLD_FILTERS = text(
-    f"SELECT {', '.join(FILTER_COLUMNS)} FROM projects "
+    f"SELECT {', '.join(FILTER_COLUMNS)}, processed_source_id FROM projects "
     "WHERE id = :id AND user_id = :u FOR NO KEY UPDATE"
 )
 UPDATE = text(
-    f"UPDATE projects SET {_SET}, updated_at = now() "
+    f"UPDATE projects SET {_SET}, ai_since = COALESCE(ai_since, {_AI_SINCE_NEW}), "
+    "updated_at = now() "
     f"WHERE id = :id AND user_id = :u RETURNING {_SELECT}"
 )
 DELETE = text("DELETE FROM projects WHERE id = :id AND user_id = :u RETURNING id")
@@ -164,7 +176,16 @@ def _name_taken(e: IntegrityError) -> ProjectError | None:
 
 
 def _params(user_id: int, req: ProjectInput) -> dict[str, Any]:
-    return {"u": user_id, **req.model_dump()}
+    return {"u": user_id, "ai_since_days": AI_SINCE_DAYS, **req.model_dump()}
+
+
+async def _check_processed_folder(s: AsyncSession, user_id: int, req: ProjectInput) -> None:
+    """Folder xử lý phải của chính người dùng và không phải Inbox; lỗi không lộ lý do."""
+    if req.processed_source_id is None:
+        return
+    path = await s.scalar(SOURCE_PATH, {"s": req.processed_source_id, "u": user_id})
+    if path is None or is_inbox_path(path):
+        raise ProjectError(422, "project_folder_invalid", "Không dùng được folder này")
 
 
 async def list_projects(s: AsyncSession, user_id: int) -> ProjectList:
@@ -177,6 +198,7 @@ async def list_projects(s: AsyncSession, user_id: int) -> ProjectList:
 async def create_project(s: AsyncSession, user_id: int, req: ProjectInput) -> Project:
     if (await s.scalar(COUNT, {"u": user_id}) or 0) >= MAX_PROJECTS:
         raise ProjectError(409, "project_limit", f"Tối đa {MAX_PROJECTS} dự án")
+    await _check_processed_folder(s, user_id, req)
     try:
         row = (await s.execute(INSERT, _params(user_id, req))).one()
     except IntegrityError as e:
@@ -195,6 +217,7 @@ async def update_project(
     old = (await s.execute(OLD_FILTERS, {"id": project_id, "u": user_id})).first()
     if old is None:
         raise ProjectError(404, "project_not_found", "Không có dự án này")
+    await _check_processed_folder(s, user_id, req)
     try:
         row = (await s.execute(UPDATE, {**_params(user_id, req), "id": project_id})).one()
     except IntegrityError as e:
@@ -204,6 +227,8 @@ async def update_project(
         raise taken from None
     if any(list(old._mapping[c]) != getattr(req, c) for c in FILTER_COLUMNS):
         await s.execute(BUMP_RULES, {"u": user_id})
+    if req.processed_source_id not in (None, old.processed_source_id):
+        await retarget_no_folder(s, user_id, project_id)
     return Project(**row._mapping)
 
 

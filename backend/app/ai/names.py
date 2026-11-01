@@ -8,6 +8,13 @@ import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+# Ranh giới từ cho giá trị Latin: không dùng \w hay \b. \w gồm cả kana, kanji, mà tiếng Nhật viết
+# liền không có khoảng trắng: "連絡先はtanaka@…まで" sẽ không khớp mẫu và lọt ra ngoài chưa che.
+LATIN_WORD = "A-Za-z0-9À-ỹĐđ"
+WORD_CHARS = LATIN_WORD + "_"
+NOT_AFTER_WORD = rf"(?<![{WORD_CHARS}])"
+NOT_BEFORE_WORD = rf"(?![{WORD_CHARS}])"
+
 # Chữ dùng trong tên công ty Nhật: Hán, katakana, Latin, số (full/half width), vài ký hiệu.
 # Dừng ở hiragana (trợ từ の, は…), dấu câu, khoảng trắng.
 _JA_NAME_CHARS = r"[A-Za-z0-9Ａ-Ｚａ-ｚ０-９㐀-䶿一-鿿々ァ-ヶー・＆&.\-]"
@@ -31,10 +38,13 @@ COMPANY_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(rf"{_JA_NAME}{_JA_CORP_ABBR}"),
     # Tên viết hoa từng từ + hậu tố công ty tiếng Anh: "Vendor C Inc.", "ABC Co., Ltd."
     # Mọi lượng từ có giới hạn: chạy tuyến tính trên nội dung mail (vd. chuỗi "A-A-A-…" dài).
-    re.compile(rf"\b(?:[A-Z][\w&\-]{{0,30}}\.?[ \t]){{1,4}}{_EN_CORP_SUFFIX}(?![\w])"),
+    re.compile(
+        rf"{NOT_AFTER_WORD}(?:[A-Z][\w&\-]{{0,30}}\.?[ \t]){{1,4}}{_EN_CORP_SUFFIX}"
+        rf"{NOT_BEFORE_WORD}"
+    ),
     # Tiếng Việt: "Công ty TNHH ABC", "Cty CP Phần mềm XYZ" (các từ viết hoa sau đó).
     re.compile(
-        r"\b(?:Công ty|CÔNG TY|Công Ty|Cty|CTY)[ \t]{1,3}"
+        rf"{NOT_AFTER_WORD}(?:Công ty|CÔNG TY|Công Ty|Cty|CTY)[ \t]{{1,3}}"
         r"(?:(?:TNHH|CP|Cổ phần|cổ phần|CỔ PHẦN)[ \t]{1,3})?"
         r"[A-ZĐÀ-Ỹ0-9][A-Za-zÀ-ỹĐđ0-9&\-]{0,30}(?:[ \t][A-ZĐÀ-Ỹ0-9][A-Za-zÀ-ỹĐđ0-9&\-]{0,30}){0,5}"
     ),

@@ -1,6 +1,6 @@
 # Web (React + Vite + TypeScript)
 
-Giao diện cho PM, BrSE, leader: danh sách thread, xem thread dạng hội thoại, tìm kiếm có tô từ khóa, sửa thread gom sai (spec 16 `docs/superpowers/specs/2026-10-18-web-ui-design.md`); tìm kiếm ngữ nghĩa, gợi ý thread liên quan, hỏi đáp AI, cài đặt model AI (spec 19, 21, 22, 23). Sau này: dashboard theo dõi đối ứng.
+Giao diện cho PM, BrSE, leader: danh sách thread, xem thread dạng hội thoại, tìm kiếm có tô từ khóa, sửa thread gom sai (spec 16 `docs/superpowers/specs/2026-10-18-web-ui-design.md`); tìm kiếm ngữ nghĩa, gợi ý thread liên quan, hỏi đáp AI, cài đặt model AI (spec 19, 21, 22, 23); cấu hình dự án (spec 25); dịch mail, glossary, chuyển mail sang folder dự án (spec 26). Sau này: dashboard theo dõi đối ứng.
 
 ## Công nghệ
 
@@ -16,17 +16,23 @@ openapi.json               # SINH bởi npm run gen:api (OpenAPI của backend),
 src/api/schema.ts          # SINH từ openapi.json, không sửa tay
 src/api/client.ts          # openapi-fetch: header X-PMM-Request cho request ghi, 401 → handler, unwrap/ApiError
 src/api/hooks.ts           # TanStack Query: useMe, useThreads (cursor), useSearch (mode), useThread,
-                           #   useProjects/useCreateProject/useUpdateProject/useDeleteProject, useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
+                           #   useProjects/useCreateProject/useUpdateProject/useDeleteProject, useFolders,
+                           #   useGlossary/useSaveGlossaryTerm/useDeleteGlossaryTerm/useImportGlossary/useExportGlossary,
+                           #   useThreadTranslations/useTranslateMessage/useMoveBack/useMoveMessage/useAutoRetry (spec 26),
+                           #   useSimilarThreads, useMessageFull, useProcessing, useOverrides, useAsk,
                            #   useAiSettings/useSaveAiSettings, useAiUsage, mutation đăng nhập/đăng xuất/sửa tay
 src/lib/filters.ts         # bộ lọc trên URL ↔ tham số API (ngày theo giờ trình duyệt), safeNext
 src/lib/format.ts, links.ts, tags.ts (gộp giá trị cho TagInput)
 src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái xử lý), FilterBar, Highlighted,
-                           #   MessageCard (toàn văn, tách), MergeDialog, SimilarThreads (gợi ý gộp),
+                           #   MessageCard (toàn văn, tách, bôi đen để thêm glossary), MessageTranslation (hai cột bản gốc / bản dịch,
+                           #   cảnh báo, nút Dịch / Dịch lại, MovePicker chọn dự án, Chuyển lại Inbox, Thử lại),
+                           #   AddGlossaryDialog (thêm từ đoạn bôi đen), GlossaryTable (bảng dùng chung: tìm, phân trang,
+                           #   sửa trực tiếp, nhập có xem trước, dán nhiều dòng, xuất CSV), MergeDialog, SimilarThreads (gợi ý gộp),
                            #   rethread.tsx + rethread-context.ts,
                            #   TagInput (ô nhiều giá trị, `draftRef` giữ phần đang gõ)
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án và bộ lọc gán mail, spec 2026-10-31), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
+                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án, bộ lọc gán mail, khối "Dịch tự động" gồm domain khách và folder đích, tab Glossary của dự án), GlossaryPage (/settings/glossary: glossary chung hoặc `?project=id`), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
 src/**/*.test.ts(x)        # Vitest
 ```
 
@@ -58,6 +64,7 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 - Function component + hooks. Không gọi `setState` đồng bộ trong `useEffect` (rule `react-hooks/set-state-in-effect`): việc chờ worker gom lại chạy trong callback (`rethread.tsx`).
 - Giao diện tiếng Việt; nội dung mail hiển thị nguyên văn.
 - Bản nháp reply (giai đoạn 6) chỉ có nút copy, không có nút gửi.
+- Bản dịch hiển thị dạng text thuần (không render HTML), lấy từ `GET /threads/{id}/translations` (một request cho cả thread, `MessageCard` nhận `translation` theo `message_id`). `MovePicker` hiện cho mọi mail `done` chưa có folder đích khi `move_projects` không rỗng, kể cả sau "Chuyển lại Inbox". Chuyển folder chỉ trên web: Thunderbird vẫn thấy mail ở Inbox.
 - Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
 - Che thông tin không có nút tắt trên web (yêu cầu NDA).
 - Chạy thử giao diện chỉ với dữ liệu giả (profile tự sinh trên DB test), không mở web trên DB dev có mail thật khi Claude Code đọc màn hình.

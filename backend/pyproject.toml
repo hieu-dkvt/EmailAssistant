@@ -33,6 +33,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 pythonpath = ["."]
+faulthandler_timeout = 300
 
 [tool.ruff]
 target-version = "py312"

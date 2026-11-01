@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai import people as people_mod
 from app.ai.client import CallLog, LlmClient, call_task
-from app.ai.masking import Masker
+from app.ai.masking import URL_BREAK_CHARS, Masker, cut_masked
 from app.ai.names import companies_in
 from app.ai.prompts import (
     ANALYSIS_SYSTEM,
@@ -33,6 +33,7 @@ from app.ai.settings import user_models, user_tiers
 from app.db.session import user_session
 from app.embedding import CHUNK_CHARS, MAX_CHUNKS, MAX_SUBJECT_CHARS, split_chunks
 from app.ml_client import MlClient
+from app.schemas import MAX_INGEST_ADDRESS_CHARS, MAX_INGEST_SUBJECT_CHARS
 from app.search.highlight import find_spans
 from app.search.keyword import MessageFilters
 from app.search.query import QueryError, parse_query
@@ -173,11 +174,14 @@ async def _retrieve(
     return picked
 
 
+WINDOW_CHARS = 200  # đọc dư mỗi bên đoạn khi che: đoạn cắt không theo ranh giới giá trị
+
 SOURCES = text(
-    """
+    f"""
     SELECT p.ord, m.id, m.thread_id, m.subject, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs,
-           m.sent_at, m.sent_tz_offset_min,
-           substr(coalesce(m.body_clean, ''), p.s + 1, p.e - p.s) AS chunk,
+           m.sent_at, m.sent_tz_offset_min, p.s AS chunk_start, p.e AS chunk_end,
+           substr(coalesce(m.body_clean, ''), greatest(p.s - {WINDOW_CHARS}, 0) + 1,
+                  p.e + {WINDOW_CHARS} - greatest(p.s - {WINDOW_CHARS}, 0)) AS chunk_window,
            left(m.body_text, 20000) AS full_text
     FROM unnest(CAST(:ids AS bigint[]), CAST(:starts AS integer[]), CAST(:ends AS integer[]))
          WITH ORDINALITY AS p(id, s, e, ord)
@@ -196,11 +200,14 @@ def _local_time(sent_at: datetime | None, offset_min: int | None) -> str:
 
 MAX_ADDRESSES = 10  # To/Cc tối đa 1.000 địa chỉ: chỉ gửi 10 người đầu
 MAX_NAME_CHARS = 100
+MAX_PERSON_CHARS = 2 * MAX_NAME_CHARS + 3  # "tên <địa chỉ>"
+MAX_PEOPLE_CHARS = MAX_ADDRESSES * (MAX_PERSON_CHARS + 2) + 30  # thêm "(+N người khác)"
 
 
 def _person(name: Any, addr: Any) -> str:
-    name = str(name)[:MAX_NAME_CHARS] if name else ""
-    addr = str(addr or "")[:MAX_NAME_CHARS]
+    """Giá trị đưa đi che: trần bằng giới hạn của ingest, cắt sau khi che (_source_text)."""
+    name = str(name)[:MAX_INGEST_ADDRESS_CHARS] if name else ""
+    addr = str(addr or "")[:MAX_INGEST_ADDRESS_CHARS]
     return f"{name} <{addr}>" if name else addr
 
 
@@ -213,28 +220,62 @@ def _addresses(items: Any) -> str:
 
 
 SOURCE_FIELDS = ("From", "To", "Cc", "Subject")
+SOURCE_LIMITS = {
+    "From": MAX_PERSON_CHARS,
+    "To": MAX_PEOPLE_CHARS,
+    "Cc": MAX_PEOPLE_CHARS,
+    "Subject": MAX_SUBJECT_CHARS,
+}
 
 
 def _source_fields(r: Any) -> list[str]:
     """Giá trị cần che của một nguồn: người gửi, người nhận, cc, subject, đoạn mail. Che riêng
     từng giá trị (tên trường "From:", "Subject:" không đi qua NER: GiNZA hay nhận nhầm là tổ
-    chức). Mọi phần có giới hạn độ dài: dưới giới hạn của /ner, chi phí gọi AI có trần."""
+    chức). Mọi phần có giới hạn độ dài: dưới giới hạn của /ner, chi phí gọi AI có trần. Header
+    cắt sau khi che (_source_text): cắt trước thì mảnh địa chỉ, số điện thoại không khớp mẫu che.
+    Phần đưa đi che tối đa bằng giới hạn của ingest: một lần hỏi có tới CONTEXT_CHUNKS nguồn."""
     return [
         _person(r.from_name, r.from_addr),
         _addresses(r.to_addrs),
         _addresses(r.cc_addrs),
-        (r.subject or "")[:MAX_SUBJECT_CHARS],
-        (r.chunk or "").strip(),
+        (r.subject or "")[:MAX_INGEST_SUBJECT_CHARS],
+        r.chunk_window,
     ]
+
+
+def _chunk_range(r: Any) -> tuple[int, int]:
+    """Vị trí đoạn trong chunk_window, phần Masker xuất ra.
+
+    Che trên cả cửa sổ: đoạn bắt đầu ngay sau nhãn "契約番号 " hay cắt đôi địa chỉ thì riêng đoạn
+    không khớp mẫu nào. Chuỗi liền (không khoảng trắng, không dấu đóng hay 、。; kể cả ký tự
+    không ASCII của URL chưa mã hóa) dài hơn phần đệm, như URL dài, có đầu nằm ngoài cửa sổ nên
+    cửa sổ cũng không khớp: bỏ phần đuôi của nó khỏi đoạn, không gửi đi.
+    """
+    start = min(r.chunk_start, WINDOW_CHARS)
+    end = start + r.chunk_end - r.chunk_start
+    if r.chunk_start > WINDOW_CHARS:
+        window = r.chunk_window
+        run = next(
+            (i for i, c in enumerate(window) if c.isspace() or c in URL_BREAK_CHARS), len(window)
+        )
+        start = max(start, min(run, end))
+    return start, end
+
+
+def _mask_ranges(r: Any) -> list[tuple[int, int] | None]:
+    """Tham số keep của Masker.mask, song song với _source_fields."""
+    return [*([None] * len(SOURCE_FIELDS)), _chunk_range(r)]
 
 
 def _source_text(r: Any, masked: Sequence[str]) -> str:
     """Ghép một nguồn từ các giá trị đã che (theo thứ tự của _source_fields)."""
     lines = [f"Date: {_local_time(r.sent_at, r.sent_tz_offset_min)}"]
     for name, value in zip(SOURCE_FIELDS, masked, strict=False):
+        capped = name == "Subject" and len(r.subject or "") > MAX_INGEST_SUBJECT_CHARS
+        value, _ = cut_masked(value, SOURCE_LIMITS[name], capped=capped)
         if value or name != "Cc":
             lines.append(f"{name}: {value}")
-    lines += ["", masked[len(SOURCE_FIELDS)]]
+    lines += ["", masked[len(SOURCE_FIELDS)].strip()]
     return "\n".join(lines)
 
 
@@ -247,6 +288,28 @@ def _participants(rows: Sequence[Any]) -> list[tuple[str | None, str | None]]:
                 if isinstance(a, dict):
                     out.append((a.get("name"), a.get("addr")))
     return out
+
+
+def learn_rows(masker: Masker, rows: Sequence[Any]) -> None:
+    """Thêm vào từ điển che người gửi/nhận và tên công ty trong toàn văn (kể cả chữ ký đã cắt
+    khỏi phần gửi đi) của các mail. Hàng cần cột from_name, from_addr, to_addrs, cc_addrs,
+    full_text."""
+    masker.add_entities(people_mod.entities_of(_participants(rows)))
+    masker.add_entities(companies_in(r.full_text for r in rows if r.full_text))
+
+
+async def build_masker(
+    session: AsyncSession, ml: MlClient, user_id: int, rows: Sequence[Any]
+) -> Masker:
+    """Masker có từ điển dùng chung cho hỏi đáp và dịch mail.
+
+    session phải là user_session của engine role app_api: correspondents dựa vào RLS, không lọc
+    user_id trong câu truy vấn (role worker sẽ đọc lẫn người gửi/nhận của người khác).
+    """
+    masker = Masker(ml.ner)
+    masker.add_entities(await people_mod.correspondents(session, user_id))
+    learn_rows(masker, rows)
+    return masker
 
 
 _CITE = re.compile(r"\[(\d{1,3})\]")
@@ -272,9 +335,7 @@ async def ask(
     async with user_session(engine, user_id) as s:
         tiers = await user_tiers(s)
         models = await user_models(s) if custom_provider else {}
-        known = await people_mod.correspondents(s, user_id)
-    masker = Masker(ml.ner)
-    masker.add_entities(known)
+        masker = await build_masker(s, ml, user_id, [])
 
     # 1. Phân tích câu hỏi (câu hỏi đã che).
     (masked_q,) = await masker.mask([question])
@@ -367,11 +428,12 @@ async def ask(
         return result(NO_SOURCES_ANSWER, True, [])
 
     # 3. Che nguồn (cùng bảng nhãn), che lại câu hỏi với từ điển đã mở rộng, rồi hỏi AI.
-    masker.add_entities(people_mod.entities_of(_participants(rows)))
-    # Tên công ty trong toàn văn (kể cả chữ ký đã cắt khỏi đoạn gửi đi), chỉ để học tên cần che.
-    masker.add_entities(companies_in(r.full_text for r in rows if r.full_text))
+    learn_rows(masker, rows)
     fields = [_source_fields(r) for r in rows]
-    masked = await masker.mask([question, *(v for f in fields for v in f)])
+    masked = await masker.mask(
+        [question, *(v for f in fields for v in f)],
+        keep=[None, *(k for r in rows for k in _mask_ranges(r))],
+    )
     width = len(SOURCE_FIELDS) + 1
     sources_text = [
         _source_text(r, masked[1 + i * width : 1 + (i + 1) * width]) for i, r in enumerate(rows)

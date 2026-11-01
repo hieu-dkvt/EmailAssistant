@@ -8,6 +8,8 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_validat
 MAX_MESSAGES_PER_BATCH = 500
 MAX_BIGINT = 2**63 - 1
 MIN_YEAR, MAX_YEAR = 1970, 2100
+MAX_INGEST_SUBJECT_CHARS = 10_000
+MAX_INGEST_ADDRESS_CHARS = 1000
 
 
 def _plausible_time(value: datetime | None) -> datetime | None:
@@ -49,8 +51,8 @@ class StrictModel(BaseModel):
 
 
 class Address(StrictModel):
-    name: str | None = Field(default=None, max_length=1000)
-    addr: str = Field(max_length=1000)
+    name: str | None = Field(default=None, max_length=MAX_INGEST_ADDRESS_CHARS)
+    addr: str = Field(max_length=MAX_INGEST_ADDRESS_CHARS)
 
 
 class Attachment(StrictModel):
@@ -67,7 +69,7 @@ class Flags(StrictModel):
 
 class IngestMessage(StrictModel):
     message_id: str | None = Field(default=None, max_length=998)
-    subject: str | None = Field(default=None, max_length=10_000)
+    subject: str | None = Field(default=None, max_length=MAX_INGEST_SUBJECT_CHARS)
     from_: Address | None = Field(default=None, alias="from")
     to: list[Address] = Field(default_factory=list, max_length=1000)
     cc: list[Address] = Field(default_factory=list, max_length=1000)

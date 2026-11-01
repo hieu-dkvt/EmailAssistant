@@ -15,6 +15,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
+from app.mail.domains import inbox_path_sql
 from app.search.highlight import HIGHLIGHT_LIMIT, highlight, snippet
 from app.search.query import ParsedQuery
 from app.web_schemas import FolderRef, SearchHit, SearchResult
@@ -49,10 +50,21 @@ def filter_conditions(f: MessageFilters, alias: str = "m") -> tuple[list[str], d
     conds: list[str] = []
     params: dict[str, Any] = {}
     if f.folder_id is not None:
+        # Folder hiệu lực (spec 26 mục 8): ownership vật lý ở folder, trừ khi folder là Inbox và
+        # mail đã được chuyển (mail có thể ở nhiều Inbox, run chỉ ghi một from_source_id); hoặc đã
+        # được chuyển tới folder đó. Kiểm tra Inbox không phụ thuộc mail: chạy một lần (InitPlan).
         conds.append(
-            "EXISTS (SELECT 1 FROM message_ownership o WHERE o.message_id = "
+            "(EXISTS (SELECT 1 FROM message_ownership o WHERE o.message_id = "
             f"{alias}.id AND o.user_id = {alias}.user_id AND o.source_id = :folder_id "
-            "AND NOT o.is_deleted)"
+            "AND NOT o.is_deleted "
+            "AND NOT (EXISTS (SELECT 1 FROM mail_sources s WHERE s.id = :folder_id "
+            f"AND {inbox_path_sql('s.folder_path')}) "
+            "AND EXISTS (SELECT 1 FROM message_auto_runs r WHERE "
+            f"r.message_id = {alias}.id AND r.user_id = {alias}.user_id "
+            "AND r.target_source_id IS NOT NULL))) "
+            "OR EXISTS (SELECT 1 FROM message_auto_runs r WHERE "
+            f"r.message_id = {alias}.id AND r.user_id = {alias}.user_id "
+            "AND r.target_source_id = :folder_id))"
         )
         params["folder_id"] = f.folder_id
     if f.sender:
@@ -73,12 +85,26 @@ def filter_conditions(f: MessageFilters, alias: str = "m") -> tuple[list[str], d
     return conds, params
 
 
+# Folder hiệu lực: mail đã chuyển (target_source_id) hiện ở folder đích thay cho mọi Inbox;
+# ownership ở folder khác vẫn hiện ở folder đó. Cùng quy tắc với filter_conditions.
 FOLDERS_OF = text(
-    """
-    SELECT o.message_id, s.id, s.folder_path
-    FROM message_ownership o
-    JOIN mail_sources s ON s.id = o.source_id AND s.user_id = o.user_id
-    WHERE o.message_id = ANY(CAST(:ids AS bigint[])) AND NOT o.is_deleted
+    f"""
+    SELECT e.message_id, s.id, s.folder_path
+    FROM (
+        SELECT o.message_id, o.user_id, o.source_id
+        FROM message_ownership o
+        JOIN mail_sources i ON i.id = o.source_id AND i.user_id = o.user_id
+        WHERE o.message_id = ANY(CAST(:ids AS bigint[])) AND NOT o.is_deleted
+          AND NOT ({inbox_path_sql("i.folder_path")}
+                   AND EXISTS (SELECT 1 FROM message_auto_runs r
+                               WHERE r.message_id = o.message_id AND r.user_id = o.user_id
+                                 AND r.target_source_id IS NOT NULL))
+        UNION
+        SELECT r.message_id, r.user_id, r.target_source_id
+        FROM message_auto_runs r
+        WHERE r.message_id = ANY(CAST(:ids AS bigint[])) AND r.target_source_id IS NOT NULL
+    ) e
+    JOIN mail_sources s ON s.id = e.source_id AND s.user_id = e.user_id
     ORDER BY s.folder_path
     """
 )

@@ -10,7 +10,7 @@ from sqlalchemy import Engine, text
 from app.cli import create_user
 from app.db.session import create_api_engine
 from app.main import create_app
-from tests.dbutil import add_message, url_for_test_db
+from tests.dbutil import add_auto_run, add_message, url_for_test_db
 from tests.test_api_ingest import INBOX, PROJECT, batch, bearer, mail
 
 
@@ -114,3 +114,26 @@ async def test_sources_require_token(client: AsyncClient, data: SimpleNamespace)
         headers={"Content-Type": "application/json"},
     )
     assert r.status_code == 401
+
+
+async def test_sources_route_counts_physical_after_move(
+    client: AsyncClient, owner_engine: Engine, data: SimpleNamespace
+) -> None:
+    """Mail đã chuyển trên web (spec 26) vẫn tính ở folder vật lý trong /sources của collector."""
+    with owner_engine.begin() as conn:
+        inbox, project = (
+            conn.scalar(
+                text("select id from mail_sources where user_id = :u and folder_path = :p"),
+                {"u": data.a, "p": path},
+            )
+            for path in (INBOX, PROJECT)
+        )
+        m1 = conn.scalar(
+            text("select id from messages where user_id = :u and message_id like 'msg1@%'"),
+            {"u": data.a},
+        )
+        add_auto_run(conn, data.a, m1, "done", from_source_id=inbox, target_source_id=project)
+    r = await client.get("/api/v1/sources", headers=bearer(data.token_a))
+    assert r.status_code == 200
+    got = [(s["folder_path"], s["message_count"]) for s in r.json()]
+    assert got == [(INBOX, 2), (PROJECT, 2)]

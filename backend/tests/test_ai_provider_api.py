@@ -169,7 +169,7 @@ async def test_ask_uses_custom_provider_and_models(
     assert (await put_provider(client)).status_code == 200
     r = await set_models(client)
     assert r.status_code == 200 and r.json()["custom_provider"] is True
-    assert {t["task"]: t["model"] for t in r.json()["tasks"]} == MODELS
+    assert {t["task"]: t["model"] for t in r.json()["tasks"]} == {**MODELS, "translate": None}
     gateway.responses = [plan(), ANSWER]
     resp = await ask(client)
     assert resp.status_code == 200
@@ -259,7 +259,7 @@ async def test_other_user_cannot_see_provider(
         assert (await cb.get("/api/v1/ai/provider")).json()["custom"] is None
         settings = (await cb.get("/api/v1/ai/settings")).json()
         assert settings["custom_provider"] is False
-        assert [t["model"] for t in settings["tasks"]] == [None, None]
+        assert [t["model"] for t in settings["tasks"]] == [None, None, None]
 
 
 @pytest.mark.parametrize(
@@ -278,6 +278,7 @@ async def test_clear_model_with_blank(client: AsyncClient, secret_key: str) -> N
     assert {t["task"]: t["tier"] for t in r.json()["tasks"]} == {
         "question_analysis": "haiku",
         "answer": "sonnet",
+        "translate": "sonnet",
     }
 
 

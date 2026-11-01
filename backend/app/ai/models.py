@@ -58,6 +58,8 @@ class Task:
     max_tokens: int
 
 
+TASK_TRANSLATE = "translate"
+
 TASKS: dict[str, Task] = {
     t.task: t
     for t in (
@@ -77,6 +79,14 @@ TASKS: dict[str, Task] = {
             "sonnet",
             "medium",
             8_000,
+        ),
+        Task(
+            TASK_TRANSLATE,
+            "Dịch mail",
+            "Dịch mail của khách sang tiếng Việt, giữ thuật ngữ theo glossary.",
+            "sonnet",
+            "low",
+            16_000,
         ),
     )
 }
