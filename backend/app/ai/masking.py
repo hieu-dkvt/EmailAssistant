@@ -1,4 +1,4 @@
-"""Che thông tin nhạy cảm trước khi gửi Claude, thay ngược khi nhận về (spec 20).
+"""Che thông tin nhạy cảm trước khi gửi AI, thay ngược khi nhận về (spec 20).
 
 Một Masker cho một lần hỏi: mọi text (câu hỏi, đoạn mail, header) dùng chung một bảng nhãn nên
 cùng thực thể luôn cùng nhãn. Bảng nhãn chỉ nằm trong bộ nhớ. Lỗi ở bất kỳ bước nào (kể cả NER)

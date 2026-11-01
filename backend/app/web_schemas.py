@@ -248,7 +248,7 @@ class AskPlan(BaseModel):
 
 
 class AskSent(BaseModel):
-    """Đúng nội dung (đã che) gửi Claude trong một lần gọi."""
+    """Đúng nội dung (đã che) gửi AI trong một lần gọi."""
 
     task: str
     content: str

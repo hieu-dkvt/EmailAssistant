@@ -58,7 +58,7 @@ def create_app(
 ) -> FastAPI:
     """web_dist: thư mục build của web; "auto" = PMM_WEB_DIST hoặc web/dist nếu đã build.
 
-    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: client Claude (mặc định
+    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: client AI (mặc định
     AnthropicLlm nếu đã cấu hình khóa API, không thì None → hỏi đáp trả 503 ai_not_configured).
     """
     owns_engine = engine is None

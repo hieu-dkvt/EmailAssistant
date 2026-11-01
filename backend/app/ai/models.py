@@ -1,4 +1,4 @@
-"""Cấp model Claude, tác vụ và giá ước tính (spec 2026-10-19-ai-settings-design mục 3, 4)."""
+"""Cấp model AI, tác vụ và giá ước tính (spec 2026-10-19-ai-settings-design mục 3, 4)."""
 
 import os
 from dataclasses import dataclass

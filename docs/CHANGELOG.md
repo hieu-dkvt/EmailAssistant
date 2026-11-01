@@ -2,6 +2,40 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-10-31: thiết kế dịch mail tự động và folder dự án (spec 26, chưa có code)
+
+### Quyết định của người dùng (2026-10-31)
+- **Model:** đang dùng OpenRouter để thử, khi vận hành người dùng tự chuyển sang model nội bộ qua gateway kiểu 9router ở máy khác trong mạng nội bộ. Việc chọn model không thuộc phạm vi thiết kế dịch.
+- **Che thông tin giữ nguyên** dù model là nội bộ.
+- **Dịch tự động mail đủ 3 tiêu chí:** thuộc dự án, From thuộc domain khách khai báo ở dự án, nằm trong Inbox. Chỉ từ mốc 14 ngày, mail cũ hơn dịch tay được.
+- **Sau khi dịch, chuyển mail sang folder dự án** chọn ở cấu hình dự án. Đợt này chỉ chuyển trên web, Thunderbird và mail server không đổi. Move thật qua IMAP làm spec riêng sau, lúc đó mới đổi nguyên tắc "không ghi lên mail server".
+- Làm trước phần còn lại của giai đoạn 6.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Mốc 14 ngày tính theo từng dự án, đặt lần đầu khai báo domain. Mục "Mốc theo người dùng hay theo dự án" của ngày 2026-10-31 chốt tại đây.
+- Mail khớp nhiều folder đích thì ở lại Inbox và hỏi người dùng, theo nguyên tắc spec 25.
+- Glossary theo từng người (chung và theo dự án), so khớp trên text đã che; không có translation memory ở đợt này.
+- Kiểm tra sau dịch chỉ cảnh báo, không tự gọi AI lại. Giữ nút dịch tay cho mail ngoài tiêu chí.
+- Job dịch chạy trên queue riêng, dùng role `app_api`.
+
+### Còn để sau
+- Move thật qua IMAP. Cho phép gateway ở máy khác trong LAN, sửa khi chuyển sang model nội bộ.
+
+## 2026-10-31: bỏ chỗ ghi riêng Claude trong giao diện và tài liệu
+
+### Quyết định của người dùng (2026-10-31)
+- Người dùng đã đặt model bất kỳ ở Cài đặt AI, nên giao diện và tài liệu không còn nói riêng về Claude hay Anthropic. Chờ trả lời hiện "Đang tìm mail và chờ AI trả lời…".
+
+### Đã làm
+- Web: `AskPage`, `AiSettingsPage` đổi chữ "Claude" thành "AI" (khối "Nội dung đã gửi cho AI", thông báo gateway, lựa chọn giao thức "Anthropic (Messages API)", placeholder tên model không còn ví dụ Claude). Thông điệp lỗi và docstring backend, ml-service tương tự; schema API sinh lại (`web/openapi.json`).
+- Tài liệu: `CLAUDE.md` gốc, backend, web, ml-service, danh mục spec, spec 20, 21, 22, kế hoạch (bảng công nghệ mục LLM).
+- Không đổi: giao thức `anthropic`/`openai` trong DB và API, SDK `anthropic`, khóa mặc định `ANTHROPIC_API_KEY` (vẫn dùng được khi chưa nhập nhà cung cấp).
+
+## 2026-10-31: profile mẫu để thử bộ lọc dự án
+
+### Đã làm
+- `data/generate_project_test_profile.py` sinh `data/project-test-profile/` (30 mail giả cho 3 dự án Test 1, Test 2, Test 3, mail khách gửi tài liệu đính kèm kèm bản cập nhật, và mail không thuộc dự án nào) cùng `data/expected_projects.json`, `data/expected_documents.json`. Chi tiết: spec 12, mục 10.
+
 ## 2026-10-31: lộ trình mail tự động và cấu hình dự án (spec 25)
 
 ### Quyết định của người dùng (2026-10-31)

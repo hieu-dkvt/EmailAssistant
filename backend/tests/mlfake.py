@@ -1,4 +1,4 @@
-"""ml-service và Claude giả cho test (không tải model, không gọi mạng).
+"""ml-service và AI giả cho test (không tải model, không gọi mạng).
 
 FakeMl: vector theo "khái niệm": text chứa từ của khái niệm i (bất kể ngôn ngữ) → chiều i. Nhờ
 vậy câu tiếng Việt "báo giá" gần mail tiếng Nhật "見積" như embedding đa ngôn ngữ thật.

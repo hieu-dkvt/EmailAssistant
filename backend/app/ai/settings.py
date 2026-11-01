@@ -1,4 +1,4 @@
-"""Cài đặt cấp model theo tác vụ và thống kê lần gọi Claude (spec 2026-10-19-ai-settings-design).
+"""Cài đặt cấp model theo tác vụ và thống kê lần gọi AI (spec 2026-10-19-ai-settings-design).
 
 Chạy trong user_session (RLS): chỉ đọc/ghi cài đặt và thống kê của chính người dùng.
 """

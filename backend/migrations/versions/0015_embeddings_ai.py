@@ -1,4 +1,4 @@
-"""Giai đoạn 5: embedding mail, cài đặt model AI, nhật ký gọi Claude.
+"""Giai đoạn 5: embedding mail, cài đặt model AI, nhật ký gọi AI.
 
 - message_chunks (spec 2026-10-19-mail-embedding-design mục 4): đoạn của body_clean (chỉ vị trí,
   không chép nội dung) + vector halfvec(1024), index HNSW cosine. FK kép (message_id, user_id)
@@ -6,7 +6,7 @@
   app_api chỉ đọc; worker ghi.
 - user_ai_settings (spec 2026-10-19-ai-settings-design mục 5): cấp model theo tác vụ của từng
   người.
-- ai_calls (spec 2026-10-19-ai-ask-design mục 5): mỗi lần gọi Claude — model, token, thời gian.
+- ai_calls (spec 2026-10-19-ai-ask-design mục 5): mỗi lần gọi AI — model, token, thời gian.
   Không có nội dung.
 
 Bảng mới, chưa có dữ liệu: index tạo trong transaction (không cần CONCURRENTLY).

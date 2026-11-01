@@ -1,4 +1,4 @@
-"""Che thông tin trước khi gửi Claude (spec 20). Dữ liệu giả *.example.*, không có mail thật."""
+"""Che thông tin trước khi gửi AI (spec 20). Dữ liệu giả *.example.*, không có mail thật."""
 
 import time
 import unicodedata

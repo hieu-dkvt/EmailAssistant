@@ -1,4 +1,4 @@
-"""Gọi Claude (SDK anthropic) và ghi lại mỗi lần gọi vào ai_calls (spec 21 mục 5, spec 22).
+"""Gọi AI (SDK anthropic) và ghi lại mỗi lần gọi vào ai_calls (spec 21 mục 5, spec 22).
 
 - Output có cấu trúc: structured outputs (output_config.format, schema từ Pydantic) rồi tự kiểm tra
   bằng Pydantic, để luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
@@ -47,7 +47,7 @@ class LlmResponse:
 
 
 class LlmError(Exception):
-    """Lỗi gọi Claude cho web: code (vd. ai_unavailable), http_status, status ghi ai_calls."""
+    """Lỗi gọi AI cho web: code (vd. ai_unavailable), http_status, status ghi ai_calls."""
 
     def __init__(
         self,
@@ -83,7 +83,7 @@ class LlmClient(Protocol):
 
 
 def configured() -> bool:
-    """Có khóa API của Claude trong biến môi trường của backend (không đọc giá trị ra ngoài)."""
+    """Có khóa API của AI trong biến môi trường của backend (không đọc giá trị ra ngoài)."""
     return bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
 
 
@@ -162,17 +162,17 @@ class AnthropicLlm:
                     output_config=output_config,  # type: ignore[arg-type]
                 )
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-            raise _api_error("ai_auth_failed", 503, "Khóa API của Claude không hợp lệ", e) from None
+            raise _api_error("ai_auth_failed", 503, "Khóa API của AI không hợp lệ", e) from None
         except anthropic.RateLimitError as e:
-            raise _api_error("ai_unavailable", 503, "Claude đang quá tải, thử lại sau", e) from None
+            raise _api_error("ai_unavailable", 503, "AI đang quá tải, thử lại sau", e) from None
         except anthropic.BadRequestError as e:
-            raise _api_error("ai_bad_request", 502, "Claude từ chối request", e) from None
+            raise _api_error("ai_bad_request", 502, "AI từ chối request", e) from None
         except anthropic.APIStatusError as e:
             if e.status_code >= 500:
-                raise _api_error("ai_unavailable", 503, "Claude đang lỗi, thử lại sau", e) from None
-            raise _api_error("ai_bad_request", 502, "Claude từ chối request", e) from None
+                raise _api_error("ai_unavailable", 503, "AI đang lỗi, thử lại sau", e) from None
+            raise _api_error("ai_bad_request", 502, "AI từ chối request", e) from None
         except anthropic.APIConnectionError as e:  # gồm APITimeoutError
-            raise _api_error("ai_unavailable", 503, "Không kết nối được Claude", e) from None
+            raise _api_error("ai_unavailable", 503, "Không kết nối được AI", e) from None
         usage = resp.usage
         text_block = next((b.text for b in resp.content if b.type == "text"), None)
         return LlmResponse(
@@ -214,7 +214,7 @@ class CallRecord:
 
 @dataclass
 class CallLog:
-    """Các lần gọi Claude trong một lần hỏi (trả về cho web, không có nội dung)."""
+    """Các lần gọi AI trong một lần hỏi (trả về cho web, không có nội dung)."""
 
     calls: list[CallRecord] = field(default_factory=list)
 
@@ -292,14 +292,14 @@ async def call_task[T: BaseModel](
         usage, served = resp.usage, resp.model or model
         if resp.stop_reason == "refusal":
             status = "refusal"
-            raise LlmError("ai_refused", 502, "Claude từ chối trả lời câu hỏi này", status=status)
+            raise LlmError("ai_refused", 502, "AI từ chối trả lời câu hỏi này", status=status)
         if resp.stop_reason == "max_tokens":
             status = "max_tokens"
-            raise LlmError("ai_truncated", 502, "Câu trả lời của Claude bị cắt giữa chừng")
+            raise LlmError("ai_truncated", 502, "Câu trả lời của AI bị cắt giữa chừng")
         try:
             parsed = output_type.model_validate_json(resp.text or "")
         except ValidationError:
-            raise LlmError("ai_bad_output", 502, "Claude trả kết quả sai định dạng") from None
+            raise LlmError("ai_bad_output", 502, "AI trả kết quả sai định dạng") from None
         status = "ok"
         return parsed
     finally:

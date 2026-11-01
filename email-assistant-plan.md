@@ -78,7 +78,7 @@
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
 | Embedding | `bge-m3` self-host (phương án chính) / Voyage AI (dự phòng) | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Claude Haiku 5.5 (phân loại, phân tích câu hỏi), Sonnet 5.5 (tóm tắt, trả lời, soạn reply); người dùng đổi được sang Opus 5.5 theo từng tác vụ | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che |
+| LLM | Nhà cung cấp và model bất kỳ do người dùng nhập ở Cài đặt AI, theo từng tác vụ (mặc định gợi ý: cấp nhỏ cho phân loại và phân tích câu hỏi, cấp vừa cho tóm tắt, trả lời, soạn reply) | NDA đã xác nhận 2026-10-19: dùng được, phải che thông tin; 2026-10-25: người dùng cho phép thêm gateway công cộng (OpenRouter, 9router…), vẫn phải che; 2026-10-31: dùng OpenRouter để thử, khi vận hành người dùng chuyển sang model nội bộ qua gateway, vẫn che |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |
@@ -250,6 +250,7 @@ audit_log            (user_id, action, target, at)
 ### Giai đoạn 6: Phân loại và theo dõi đối ứng (3 tuần)
 
 **Công việc**
+- [ ] *(Yêu cầu thêm 2026-10-31, làm trước các mục khác)* Tự động dịch mail khách trong Inbox sang tiếng Việt, glossary chung và theo dự án, chuyển mail sang folder dự án trên web (spec 26). Dịch tài liệu, Backlog làm sau bằng spec riêng. Move thật qua IMAP là chức năng riêng, cần đổi nguyên tắc "không ghi lên mail server".
 - [ ] Phân loại mail (Claude Haiku, structured output): loại (QA, bug, thay đổi spec, lịch, báo cáo, hợp đồng, chỉ thông báo), mức ưu tiên, sắc thái của khách.
 - [ ] Trích xuất action item và deadline (ví dụ "来週水曜日までに" chuyển thành ngày cụ thể).
 - [ ] Xác định **ball-in-court** của thread: chờ mình / chờ khách / xử lý nội bộ / đã đóng.

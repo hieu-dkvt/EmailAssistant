@@ -176,17 +176,17 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 - **Truy vấn vector không JOIN trong cùng câu `ORDER BY embedding <=> … LIMIT`**: planner bỏ index HNSW và sắp toàn bộ. Dùng `vector_chunks` (bước 1 chỉ `message_chunks`, bước 2 lọc bằng `messages`, tăng k khi thiếu). Luôn `SET LOCAL hnsw.iterative_scan = relaxed_order` (RLS và bộ lọc loại bớt dòng).
 - Vector truyền vào SQL bằng tham số bind dạng chuỗi `'[…]'` + `CAST(… AS halfvec(1024))` (`vector_literal`); đọc ra là chuỗi (không đăng ký adapter pgvector).
 
-## Claude API
+## Gọi AI (nhà cung cấp và model bất kỳ)
 
 Spec 20, 21, 22, 24.
 
-- Trước khi viết code gọi Claude, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
+- Trước khi viết code gọi SDK `anthropic`, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
 - Khóa mặc định: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Người dùng có thể lưu nhà cung cấp riêng (bảng `user_ai_provider`, key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24): `LlmResolver.for_user` chọn client theo người dùng, `call_task(custom_model=…)` dùng tên model tự nhập. URL qua `validate_base_url` (https công cộng, http chỉ loopback, chặn IP riêng); không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `anthropic_base_url()` (chỉ `*.anthropic.com`) chỉ áp dụng cho client môi trường. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
 - Model theo cấp và tác vụ (`app/ai/models.py`): mặc định phân tích câu hỏi = `claude-haiku-5-5`, trả lời = `claude-sonnet-5-5`; người dùng đổi trên trang "Cài đặt AI" (bảng `user_ai_settings`). `PMM_MODEL_HAIKU/SONNET/OPUS` đổi model của cấp. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS`, gọi qua `call_task`.
-- **Mọi text gửi Claude phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị Claude trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
+- **Mọi text gửi AI phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị AI trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
 - Che từng giá trị riêng (người gửi, người nhận, subject, đoạn mail) rồi mới ghép tên trường (`From:`…): GiNZA nhận nhầm tên trường là tổ chức. Giới hạn độ dài mọi phần (subject 300, To/Cc 10 người).
 - Regex trong `masking.py`/`names.py` chạy trên bản NFKC (`nfkc_map`, đổi vị trí về text gốc); mọi lượng từ phải có giới hạn (`{0,30}`…, không `*`/`+` không giới hạn, không lồng nhau): test `test_patterns_linear_on_crafted_text`. Ranh giới từ cho tên Latin dùng lớp chữ Latin, không dùng `\w` (gồm cả chữ Nhật).
-- Thêm mẫu che mới thì thêm cả test "không che từ thường" (vd. `仕様書`, `1万件`, `PRJ-1234`): che thừa làm Claude mất ngữ cảnh.
+- Thêm mẫu che mới thì thêm cả test "không che từ thường" (vd. `仕様書`, `1万件`, `PRJ-1234`): che thừa làm AI mất ngữ cảnh.
 - Client SDK luôn `base_url=https://api.anthropic.com` (`anthropic_base_url`; `PMM_ANTHROPIC_BASE_URL` chỉ nhận `https://*.anthropic.com`), `open_telemetry=False`. Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).
 - `ML_SERVICE_URL` chỉ nhận `http://` loopback hoặc `https://` (ml-service nhận text chưa che).
 - Output có cấu trúc: `output_config.format` với schema từ Pydantic (`anthropic.transform_schema`), rồi tự `model_validate_json`. Không dùng `messages.parse`: nó ném lỗi khi model từ chối hay hết token, mất `stop_reason` và `usage`.
@@ -196,7 +196,7 @@ Spec 20, 21, 22, 24.
 - Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) qua Message Batches API. System prompt dài cố định thì đặt `cache_control`.
 - Không dùng LangChain / LlamaIndex. Search kiểu agent dùng tool runner của SDK `anthropic`.
 - Câu trả lời luôn kèm link tới mail/thread gốc.
-- Test không gọi Anthropic thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
+- Test không gọi AI thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
 
 ## Quy ước
 

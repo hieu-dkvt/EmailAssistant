@@ -47,7 +47,7 @@ def test_rls_enabled_flags(owner_engine: Engine, migrated: None) -> None:
         # Không chứa mail; app_api không có quyền gì (chỉ qua hàm SECURITY DEFINER, 0010).
         "user_passwords": False,
         "web_sessions": False,
-        # Giai đoạn 5 (0015): vector dẫn xuất từ mail, cài đặt AI và nhật ký gọi Claude.
+        # Giai đoạn 5 (0015): vector dẫn xuất từ mail, cài đặt AI và nhật ký gọi AI.
         "message_chunks": True,
         "user_ai_settings": True,
         # 0016: bí mật (API key mã hóa) của provider AI tùy chỉnh.

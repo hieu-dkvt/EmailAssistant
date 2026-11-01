@@ -95,18 +95,18 @@ function Sources({ sources }: { sources: AskSource[] }) {
   );
 }
 
-function SentToClaude({ result }: { result: AskResult }) {
+function SentToAi({ result }: { result: AskResult }) {
   const counts = Object.entries(result.mask_counts);
   return (
     <details className="rounded-lg border p-3 text-sm">
       <summary className="cursor-pointer font-medium">
-        Nội dung đã gửi Claude (đã che thông tin nhạy cảm)
+        Nội dung đã gửi cho AI (đã che thông tin nhạy cảm)
       </summary>
       <p className="mt-2 text-muted-foreground">
         {counts.length
           ? "Đã che: " +
             counts.map(([k, n]) => `${formatCount(n)} ${KIND_LABEL[k] ?? k}`).join(", ") +
-            ". Claude chỉ thấy nhãn như [PERSON_1]; câu trả lời được thay lại giá trị thật trên máy chủ của mình."
+            ". AI chỉ thấy nhãn như [PERSON_1]; câu trả lời được thay lại giá trị thật trên máy chủ của mình."
           : "Không có thông tin nào cần che."}{" "}
         Kiểm tra bên dưới nếu còn tên hoặc số liệu chưa được che.
       </p>
@@ -168,7 +168,7 @@ function Result({ result }: { result: AskResult }) {
             ". Không có mail nào khớp bộ lọc người gửi/ngày suy ra từ câu hỏi, nên đã tìm lại không dùng bộ lọc đó."}
         </p>
       )}
-      <SentToClaude result={result} />
+      <SentToAi result={result} />
       {result.calls.length > 0 && (
         <p className="text-xs text-muted-foreground">
           {result.calls
@@ -210,7 +210,7 @@ export function AskPage() {
         <p className="text-sm text-muted-foreground">
           Hỏi bằng tiếng Việt, Nhật hoặc Anh. Hệ thống tìm các đoạn mail liên quan trong mail của
           bạn, che tên người, công ty, email, điện thoại, địa chỉ, số tiền, số hợp đồng rồi mới gửi
-          cho Claude. Câu hỏi và câu trả lời không được lưu lại.
+          cho AI. Câu hỏi và câu trả lời không được lưu lại.
         </p>
       </div>
       <form onSubmit={submit} className="grid gap-3 rounded-lg border p-3" aria-label="Hỏi đáp">
@@ -255,7 +255,7 @@ export function AskPage() {
       </form>
       {ask.isPending && (
         <p className="text-sm text-muted-foreground" role="status">
-          Đang tìm mail và hỏi Claude… (thường 10–60 giây)
+          Đang tìm mail và chờ AI trả lời… (thường 10–60 giây)
         </p>
       )}
       {ask.error && (

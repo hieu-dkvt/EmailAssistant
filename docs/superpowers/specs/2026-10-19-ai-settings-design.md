@@ -45,9 +45,9 @@ Giai đoạn 6 thêm tác vụ (phân loại, tóm tắt thread, soạn nháp re
 
 ## 7. Web (`AiSettingsPage`, menu "Cài đặt AI")
 
-- Trạng thái kết nối Claude: "Đã cấu hình" hoặc hướng dẫn đặt `ANTHROPIC_API_KEY` rồi chạy lại backend.
+- Trạng thái kết nối AI: "Đã cấu hình" hoặc hướng dẫn đặt `ANTHROPIC_API_KEY` rồi chạy lại backend.
 - Bảng tác vụ: mỗi tác vụ 3 lựa chọn (radio) Haiku / Sonnet / Opus kèm tên model và giá; nút Lưu; thông báo đã lưu.
-- Ghi chú các nhóm thông tin luôn được che trước khi gửi Claude (không tắt được: theo yêu cầu NDA).
+- Ghi chú các nhóm thông tin luôn được che trước khi gửi AI (không tắt được: theo yêu cầu NDA).
 - Thống kê tháng này: số lần gọi, token, chi phí ước tính theo model.
 
 ## 8. Phân quyền và dữ liệu

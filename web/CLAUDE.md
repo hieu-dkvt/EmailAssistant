@@ -58,6 +58,6 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 - Function component + hooks. Không gọi `setState` đồng bộ trong `useEffect` (rule `react-hooks/set-state-in-effect`): việc chờ worker gom lại chạy trong callback (`rethread.tsx`).
 - Giao diện tiếng Việt; nội dung mail hiển thị nguyên văn.
 - Bản nháp reply (giai đoạn 6) chỉ có nút copy, không có nút gửi.
-- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi Claude" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
+- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
 - Che thông tin không có nút tắt trên web (yêu cầu NDA).
 - Chạy thử giao diện chỉ với dữ liệu giả (profile tự sinh trên DB test), không mở web trên DB dev có mail thật khi Claude Code đọc màn hình.

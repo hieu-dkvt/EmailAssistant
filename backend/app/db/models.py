@@ -416,7 +416,7 @@ class UserAiProvider(Base):
 
 
 class AiCall(Base):
-    """Một lần gọi Claude: model, token, thời gian. Không có nội dung (spec 21 mục 5)."""
+    """Một lần gọi AI: model, token, thời gian. Không có nội dung (spec 21 mục 5)."""
 
     __tablename__ = "ai_calls"
     __table_args__ = (

@@ -1,0 +1,44 @@
+[
+  {
+    "message_id": "<doc-1.0@test1.example.jp>",
+    "project": "Test 1",
+    "filename": "基本設計書.xlsx",
+    "version": 1
+  },
+  {
+    "message_id": "<doc-1.2@test1.example.jp>",
+    "project": "Test 1",
+    "filename": "基本設計書.xlsx",
+    "version": 2
+  },
+  {
+    "message_id": "<doc-2.0@test2.example.jp>",
+    "project": "Test 2",
+    "filename": "画面仕様書.pdf",
+    "version": 1
+  },
+  {
+    "message_id": "<doc-2.1@test2.example.jp>",
+    "project": "Test 2",
+    "filename": "画面仕様書.pdf",
+    "version": 2
+  },
+  {
+    "message_id": "<doc-3.0@test3.example.jp>",
+    "project": "Test 3",
+    "filename": "要件定義書.xlsx",
+    "version": 1
+  },
+  {
+    "message_id": "<doc-3.1@test3.example.jp>",
+    "project": "Test 3",
+    "filename": "テスト仕様書.xlsx",
+    "version": 1
+  },
+  {
+    "message_id": "<doc-none.0@other.example.com>",
+    "project": "",
+    "filename": "unknown.xlsx",
+    "version": 1
+  }
+]
