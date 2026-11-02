@@ -4,7 +4,7 @@ API (FastAPI) và worker xử lý nền (Procrastinate) dùng chung một codeba
 
 ## Công nghệ
 
-Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2.0 + psycopg 3, `pgvector` (kiểu `HALFVEC` cho model), Alembic, Procrastinate, SDK `anthropic` 1.x (dùng `httpx2`), `httpx` (gọi ml-service). Model (bge-m3, GiNZA, spaCy) chạy ở `ml-service/`, backend không nạp model.
+Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2.0 + psycopg 3, `pgvector` (kiểu `HALFVEC` cho model), Alembic, Procrastinate, SDK `anthropic` 1.x (dùng `httpx2`), `httpx` (gọi ml-service, và gọi gateway giao thức `openai`). Model embedding (bge-m3) chạy ở `ml-service/`, backend không nạp model.
 
 ## Cấu trúc
 
@@ -47,25 +47,24 @@ app/search/keyword.py    # search PGroonga + bộ lọc (MessageFilters, dùng c
                          #   bộ lọc folder_id tính theo folder hiệu lực (xem mục "Dịch mail tự động")
 app/search/semantic.py   # nhánh vector (2 bước: index HNSW rồi lọc), nhánh từ khóa OR, RRF, hybrid_search
 app/search/similar.py    # thread liên quan bằng vector đã lưu (lớp 4 gom thread)
-app/ml_client.py         # HttpMlClient: /embed (kiểm model = PMM_EMBED_MODEL), /ner; MlUnavailable
+app/ml_client.py         # HttpMlClient: /embed (kiểm model = PMM_EMBED_MODEL); MlUnavailable
 app/embedding.py         # cắt đoạn body_clean (CHUNKER_VERSION), mail chờ embed, embed_batch/embed_user
-app/ai/models.py         # cấp haiku/sonnet/opus → model (PMM_MODEL_*), giá ước tính, tác vụ (TASKS)
-app/ai/settings.py       # user_ai_settings (cấp + tên model theo tác vụ), thống kê ai_calls theo tháng
-app/ai/provider.py       # nhà cung cấp tùy chỉnh (spec 24): validate_base_url, OpenAiLlm, LlmResolver, user_ai_provider
+app/ai/models.py         # chỉ còn tác vụ (TASKS: question_analysis, answer, translate); không còn cấp model, giá
+app/ai/settings.py       # user_ai_settings (tên model theo tác vụ), thống kê ai_calls theo tháng
+app/ai/provider.py       # nhà cung cấp tùy chỉnh (spec 24, 28): validate_base_url, reject_link_local, is_public_host,
+                         #   OpenAiLlm, LlmResolver (trả None khi chưa nhập), user_ai_provider
 app/ai/secrets.py        # Fernet mã hóa API key (PMM_SECRET_KEY)
-app/ai/names.py          # tách tên hiển thị header thành PERSON/ORG/EMAIL, mẫu tên công ty, tên lõi
-app/ai/people.py         # từ điển người gửi/nhận + công ty trong chữ ký (cache 10 phút / người dùng)
-app/ai/masking.py        # Masker: che (mẫu + từ điển + NER, nhất quán, fail closed), thay ngược
+app/ai/text.py           # cut_text(text, limit): cắt ở ranh giới đoạn / cuối dòng trước khi gửi AI (spec 28)
 app/ai/prompts.py        # system prompt cố định, QuestionPlan, AnswerOut, TranslationOut, dựng tin nhắn
-app/ai/glossary.py       # so khớp glossary trên text đã che (cụm dài trước, không chồng lấn), load_entries
-app/ai/translate.py      # luồng dịch một mail: che → glossary → call_task → check_translation → thay ngược;
+app/ai/glossary.py       # so khớp glossary trên text gốc đã cắt (cụm dài trước, không chồng lấn), load_entries, nfkc_map
+app/ai/translate.py      # luồng dịch một mail: cắt → glossary → call_task → check_translation;
                          #   save_translation, saved_translations (kèm stale), thread_translations
 app/auto_translate.py    # job dịch tự động: tiêu chí (ELIGIBLE_SQL), translate_next, choose_target,
                          #   retarget_no_folder, pending_translate_users (role worker duy nhất)
 app/mail/domains.py      # normalize_domain, domain_matches, is_inbox_path, inbox_path_sql
 seed/glossary-it-ja-vi.csv # 151 thuật ngữ IT/outsource công khai, nạp bằng chức năng nhập của web
-app/ai/client.py         # AnthropicLlm (structured output, fallback), call_task ghi ai_calls, LlmError
-app/ai/ask.py            # RAG: che → phân tích → tìm cục bộ → che nguồn → trả lời → thay ngược; AskGuard
+app/ai/client.py         # AnthropicLlm (structured output, cho giao thức anthropic), call_task ghi ai_calls, LlmError
+app/ai/ask.py            # RAG: phân tích → tìm cục bộ → trả lời (text gốc, không che); AskGuard
 app/threads_view.py      # danh sách thread (keyset), chi tiết thread, toàn văn theo clean_cuts, trạng thái xử lý
 app/overrides.py         # tạo/xóa sửa tay (thread_overrides) + tăng user_thread_state.overrides_version
 app/web_static.py        # phục vụ web/dist (SPA), header CSP/nosniff/no-referrer, /api no-store
@@ -96,10 +95,10 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
                          #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls),
                          #   0017_projects (projects, message_projects, user_project_state, spec 25),
                          #   0018_translation (cột mới của projects, glossary_terms, message_translations,
-                         #   message_auto_runs, spec 26)
+                         #   message_auto_runs, spec 26), 0019_drop_ai_tier (bỏ cột tier, model NOT NULL, spec 28)
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
-                         #   tests/mlfake.py: FakeMl (vector theo "khái niệm", NER giả), FakeLlm
+                         #   tests/mlfake.py: FakeMl (vector theo "khái niệm"), FakeLlm
 app/projects.py          # bộ lọc From, To, CC, Subject: match_projects (hàm thuần), assign_messages, assign_user (job `assign_user_projects` ở tasks bọc hàm này, spec 25)
 app/api/project_routes.py  # CRUD dự án (chỉ phiên web)
 app/db/locks.py          # khóa advisory theo người dùng dùng chung cho gom thread và gán dự án
@@ -141,7 +140,7 @@ Chạy từ thư mục gốc `Email Assistant` (hoặc bỏ `--directory backend
 | Token khác / thu hồi | `... python -m app.cli create-token --email <e>` · `... python -m app.cli revoke-token --email <e>` |
 | Mật khẩu đăng nhập web (thu hồi mọi phiên web cũ) | `... python -m app.cli set-password --email <e>` (hỏi 2 lần, không hiện ra màn hình; dùng cách này cho mật khẩu thật) · `--password-stdin` cho script (đọc UTF-8, bỏ BOM; Windows PowerShell 5.1 mặc định đổi chữ có dấu thành `?` khi pipe) |
 | OpenAPI cho web (không cần DB) | `... python -m app.openapi_dump ../web/openapi.json` (thường gọi qua `npm run gen:api` trong `web/`) |
-| Chạy worker (làm sạch, gom thread, gán dự án, embed, dịch tự động) | `uv run --directory backend python -m app.worker` (không dùng CLI `procrastinate`: trên Windows cần SelectorEventLoop). Dịch cần `$env:PMM_SECRET_KEY` (cùng khóa với API) và ml-service chạy |
+| Chạy worker (làm sạch, gom thread, gán dự án, embed, dịch tự động) | `uv run --directory backend python -m app.worker` (không dùng CLI `procrastinate`: trên Windows cần SelectorEventLoop). Dịch cần `$env:PMM_SECRET_KEY` (cùng khóa với API), nhà cung cấp và tên model dịch đã nhập ở Cài đặt AI; dịch không cần ml-service |
 | Làm sạch + gom ngay, không cần worker | `... python -m app.cli process-mail --email <e> [--rethread]` |
 | Embed ngay, không cần worker (cần ml-service chạy) | `... python -m app.cli embed-mail --email <e> [--limit N]` |
 | Gán lại mail vào dự án ngay, không cần worker (in số mail đã xét và số mail có dự án) | `... python -m app.cli assign-projects --email <e>` |
@@ -187,7 +186,7 @@ Gán dự án theo bộ lọc From, To, CC, Subject do người dùng khai báo 
 
 Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 
-- ml-service (`ML_SERVICE_URL`, mặc định `http://127.0.0.1:8001`) phải chạy cho: embed (worker), tìm kiếm `mode=hybrid`, hỏi đáp (embed câu hỏi + NER). Không chạy thì worker bỏ qua và thử lại phút sau, API trả 503 `ml_unavailable`.
+- ml-service (`ML_SERVICE_URL`, mặc định `http://127.0.0.1:8001`) phải chạy cho: embed (worker), tìm kiếm `mode=hybrid`, hỏi đáp (embed câu hỏi). Không chạy thì worker bỏ qua và thử lại phút sau, API trả 503 `ml_unavailable`.
 - `PMM_EMBED_MODEL` (mặc định `BAAI/bge-m3`) phải trùng model ml-service đang chạy; khác thì không embed, không tìm (503 `embedding_model_mismatch`). Đổi model = embed lại toàn bộ: hỏi người dùng trước.
 - `message_chunks` chỉ lưu vị trí đoạn trên `body_clean`, không chép nội dung. Đoạn hợp lệ: `model` hiện hành và `cleaner_version` = `messages.cleaner_version`. Đổi cách cắt đoạn thì tăng `CHUNKER_VERSION` trong `app/embedding.py`: worker tự embed lại.
 - **Truy vấn vector không JOIN trong cùng câu `ORDER BY embedding <=> … LIMIT`**: planner bỏ index HNSW và sắp toàn bộ. Dùng `vector_chunks` (bước 1 chỉ `message_chunks`, bước 2 lọc bằng `messages`, tăng k khi thiếu). Luôn `SET LOCAL hnsw.iterative_scan = relaxed_order` (RLS và bộ lọc loại bớt dòng).
@@ -195,26 +194,21 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
 
 ## Gọi AI (nhà cung cấp và model bất kỳ)
 
-Spec 20, 21, 22, 24.
+Spec 20, 21, 22, 24, 28.
 
-**Đổi hướng 2026-11-01 (quyết định của người dùng, spec 28):** AI chỉ chạy trên model nội bộ qua gateway kiểu 9router, không dùng API ngoài, không cần che thông tin. Người dùng nhập URL, API key, model ở Cài đặt AI, ô URL nhận mọi địa chỉ. Các mục dưới đây mô tả code hiện tại; `Masker`, `ANTHROPIC_API_KEY`, ba cấp Haiku/Sonnet/Opus bỏ ở spec 28. Code mới không thêm đường gọi AI ngoài cấu hình của người dùng. Bỏ `Masker` và khóa mặc định trong cùng một đợt.
+**Chỉ model nội bộ (quyết định của người dùng 2026-11-01, đã làm ở spec 28):** AI chạy trên model nội bộ qua gateway kiểu 9router, không dùng API ngoài. Text gửi AI là text gốc, không che. Ô URL ở Cài đặt AI nhận mọi địa chỉ nên **code không ngăn mail ra ngoài**: chỉ có cảnh báo trên màn hình khi host là địa chỉ công cộng (`is_public_host`, `AiProviderCustom.public_host`). Code mới không thêm đường gọi AI ngoài cấu hình của người dùng.
 
 - Trước khi viết code gọi SDK `anthropic`, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
-- Khóa mặc định: biến môi trường `ANTHROPIC_API_KEY` (hoặc `ANTHROPIC_AUTH_TOKEN`) của process backend; không lưu DB, không trả ra API. Người dùng có thể lưu nhà cung cấp riêng (bảng `user_ai_provider`, key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24): `LlmResolver.for_user` chọn client theo người dùng, `call_task(custom_model=…)` dùng tên model tự nhập. URL qua `validate_base_url` (https công cộng, http chỉ loopback, chặn IP riêng); không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `anthropic_base_url()` (chỉ `*.anthropic.com`) chỉ áp dụng cho client môi trường. Không có thì `create_app` để `llm = None` và `/ask` trả 503 `ai_not_configured`.
-- Model theo cấp và tác vụ (`app/ai/models.py`): mặc định phân tích câu hỏi = `claude-haiku-5-5`, trả lời = `claude-sonnet-5-5`; người dùng đổi trên trang "Cài đặt AI" (bảng `user_ai_settings`). `PMM_MODEL_HAIKU/SONNET/OPUS` đổi model của cấp. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS`, gọi qua `call_task`.
-- **Cho tới khi làm xong spec 28, mọi text gửi AI phải qua `Masker` (`app/ai/masking.py`)** cùng một bảng nhãn cho cả lần hỏi, kể cả câu hỏi của người dùng. Masker lỗi (NER lỗi…) thì không gửi. Giá trị AI trả về để dùng cục bộ (người gửi, từ khóa) phải `unmask` trước. Không bao giờ log text hay bảng nhãn.
-- Che từng giá trị riêng (người gửi, người nhận, subject, đoạn mail) rồi mới ghép tên trường (`From:`…): GiNZA nhận nhầm tên trường là tổ chức. Giới hạn độ dài mọi phần (subject 300, To/Cc 10 người).
-- Regex trong `masking.py`/`names.py` chạy trên bản NFKC (`nfkc_map`, đổi vị trí về text gốc); mọi lượng từ phải có giới hạn (`{0,30}`…, không `*`/`+` không giới hạn, không lồng nhau): test `test_patterns_linear_on_crafted_text`. Ranh giới từ cho tên Latin dùng lớp chữ Latin, không dùng `\w` (gồm cả chữ Nhật).
-- Ranh giới từ của mẫu dùng `WORD_CHARS`, `NOT_AFTER_WORD`, `NOT_BEFORE_WORD` (`names.py`): chỉ chữ Latin, số, `_`, không dùng `\w` (gồm cả chữ Nhật nên địa chỉ, số điện thoại liền sau chữ Nhật lọt). Cái giá: che thừa cạnh chữ Nhật (`user.idが`, `0123456789件`).
-- **Cắt sau khi che, không bao giờ trước**: cắt trước làm địa chỉ, số điện thoại cụt không khớp mẫu và mảnh đầu lọt ra. Che tối đa `MAX_MASK_INPUT_CHARS` = 40.000 ký tự, rồi `cut_masked` (ranh giới đoạn, cuối dòng, không cắt giữa nhãn; text đã bị chặn 40.000 thì bỏ thêm 512 ký tự đuôi). Chuỗi dài hơn `MAX_SURFACE_CHARS` = 500 không vào từ điển (cây tiền tố sâu theo độ dài, `_trie_pattern` đệ quy), mẫu vẫn che nó ở từng text.
-- `/ask` che theo cửa sổ: `Masker.mask(texts, keep=...)` che cả cửa sổ ±`WINDOW_CHARS` quanh đoạn rồi chỉ xuất phần `keep`, khoảng vắt qua biên thì biên mở rộng theo khoảng. Chuỗi liền (không khoảng trắng, không `URL_BREAK_CHARS`, kể cả chữ Nhật trong URL chưa mã hóa) dài hơn phần đệm bị bỏ phần đuôi (`_chunk_range`). Ai sửa `SOURCES`, `_source_fields` hay `_source_text` (spec 27) phải giữ `keep` và `_chunk_range`, nếu không giá trị cắt đôi ở biên đoạn lọt ra ngoài (test `tests/test_ai_api.py`, nhóm "che theo cửa sổ").
-- Thêm mẫu che mới thì thêm cả test "không che từ thường" (vd. `仕様書`, `1万件`, `PRJ-1234`): che thừa làm AI mất ngữ cảnh.
-- Client SDK luôn `base_url=https://api.anthropic.com` (`anthropic_base_url`; `PMM_ANTHROPIC_BASE_URL` chỉ nhận `https://*.anthropic.com`), `open_telemetry=False`. Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).
-- `ML_SERVICE_URL` chỉ nhận `http://` loopback hoặc `https://` (ml-service nhận text chưa che).
-- Output có cấu trúc: `output_config.format` với schema từ Pydantic (`anthropic.transform_schema`), rồi tự `model_validate_json`. Không dùng `messages.parse`: nó ném lỗi khi model từ chối hay hết token, mất `stop_reason` và `usage`.
-- Sonnet, Opus: `client.beta.messages.create(..., betas=["server-side-fallback-2026-07-01"], fallbacks="default")` (fallback khi bị từ chối); Haiku không có. Tắt bằng `PMM_AI_FALLBACKS=0`.
-- Mỗi lần gọi ghi một dòng `ai_calls` (tác vụ, model thực sự trả lời, status, token, thời gian), kể cả khi lỗi. Cột dự án thêm khi có gán dự án.
+- **Không có khóa mặc định.** Backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_HAIKU/SONNET/OPUS`, kể cả khi còn đặt trong môi trường. Nhà cung cấp của người dùng nằm ở bảng `user_ai_provider` (key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24). `LlmResolver.for_user` trả `LlmClient | None`: `None` khi chưa nhập nhà cung cấp, `/ask` và dịch tay trả 503 `ai_not_configured`, job dịch dừng. `LlmResolver(default=…)` và `create_app(llm=…)` chỉ để test truyền client giả.
+- **Tên model do người dùng nhập theo tác vụ** (bảng `user_ai_settings`, cột `model` NOT NULL, xóa tên = xóa dòng; không còn cấp Haiku/Sonnet/Opus, giá ước tính, `PMM_MODEL_*`). `call_task(model=…)` nhận chuỗi này. Thiếu tên model → 503 `ai_model_missing`: route kiểm trước, `ask()` và `produce_translation` tự kiểm lại vì job dịch và `ask()` không đi qua route. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS` (`app/ai/models.py`), gọi qua `call_task`.
+- URL: `validate_base_url` nhận `http` và `https` tới mọi địa chỉ (LAN, localhost, công cộng); từ chối URL sai dạng, IP viết tắt (`2130706433`, `0x7f.1`) và link-local (`169.254.0.0/16`, `fe80::/10`). `reject_link_local` phân giải host khi lưu và khi dựng client (gồm cả lần thử kết nối); DNS đổi giữa chừng thì không chặn được. Không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `/ai/provider/test` chạy với URL người dùng nhập (SSRF, đã giảm: chỉ phiên web, không theo redirect, không trả body, chặn link-local).
+- Giới hạn độ dài là giới hạn chi phí, không phụ thuộc việc che: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự, thân mail trong `/ask` là đoạn ≤ 800 ký tự (`CHUNK_CHARS`); mail dịch `MAX_BODY_CHARS` = 12.000, ngữ cảnh `MAX_CONTEXT_CHARS` = 1.500. Cắt bằng `cut_text` (`app/ai/text.py`): ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn.
+- Client SDK `anthropic` chỉ dùng cho giao thức `anthropic`: luôn do `_anthropic_llm` (`provider.py`) dựng với `base_url` và key của người dùng, `follow_redirects=False`, `open_telemetry=False`. Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).
+- `ML_SERVICE_URL` chỉ nhận `http://` loopback hoặc `https://` (ml-service nhận text mail gốc).
+- Output có cấu trúc: `output_config.format` với schema từ Pydantic (`anthropic.transform_schema`), rồi tự `model_validate_json`. Không dùng `messages.parse`: nó ném lỗi khi model từ chối hay hết token, mất `stop_reason` và `usage`. Giao thức `openai` gửi `response_format` kiểu `json_schema`, gateway trả 400 thì hỏi lại bằng `json_object` kèm schema trong prompt.
+- Mỗi lần gọi ghi một dòng `ai_calls` (tác vụ, model thực sự trả lời, status, token, thời gian), kể cả khi lỗi. Cột dự án thêm khi có gán dự án. `/ai/usage` chỉ thống kê token, không có giá.
 - Lỗi SDK → `LlmError(code, http_status)`; log chỉ tên lớp lỗi và `request_id`, không log thông điệp.
+- Quy tắc tên riêng của prompt dịch (`TRANSLATE_SYSTEM`): giữ nguyên hoặc phiên âm, viết 様 thành -sama, さん thành -san. Đổi prompt dịch thì tăng `TRANSLATE_PROMPT_VERSION` (hiện 2: bỏ quy tắc nhãn che); bản dịch cũ hiện nhãn "cũ", chỉ dịch lại khi người dùng bấm "Dịch lại".
 - Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) chạy bằng worker qua gateway nội bộ, giới hạn đồng thời theo khả năng của model. Không dùng Message Batches API (API ngoài).
 - Không dùng LangChain / LlamaIndex. Search kiểu agent (nếu làm) không dựa vào tool runner của SDK `anthropic`: model nội bộ đi qua giao thức `openai` và có thể không hỗ trợ tool.
 - Câu trả lời luôn kèm link tới mail/thread gốc.
@@ -224,12 +218,12 @@ Spec 20, 21, 22, 24.
 
 Spec 26 (`docs/superpowers/specs/2026-10-31-mail-translation-design.md`). Bẫy:
 
-- **Job dịch chạy bằng `api_engine` (role `app_api`) qua `user_session`**, không bằng `engine` của worker: `people.correspondents`, `load_entries`, `call_task` không lọc `user_id` trong câu truy vấn mà dựa vào RLS; role `app_worker` có BYPASSRLS nên dùng chung các hàm này sẽ đọc lẫn mail của người khác vào từ điển che. Chỉ `pending_translate_users` chạy role worker (luôn lọc `user_id`, không đọc nội dung mail). Hàm dùng chung mới phải kiểm tra điều này.
-- Worker cần `$env:PMM_SECRET_KEY` để giải mã key nhà cung cấp của người dùng (không có thì job dịch dừng, thử lại phút sau). `LlmResolver.for_user` rơi về khóa môi trường mặc định nếu người dùng xóa nhà cung cấp: chờ người dùng quyết định có chặn không.
+- **Job dịch chạy bằng `api_engine` (role `app_api`) qua `user_session`**, không bằng `engine` của worker: `load_entries` (glossary), `user_models` (tên model), `call_task` (ghi `ai_calls`) không lọc `user_id` trong câu truy vấn mà dựa vào RLS; role `app_worker` có BYPASSRLS nên dùng chung các hàm này sẽ đọc lẫn glossary, cài đặt của người khác. Chỉ `pending_translate_users` chạy role worker (luôn lọc `user_id`, không đọc nội dung mail). Hàm dùng chung mới phải kiểm tra điều này.
+- Worker cần `$env:PMM_SECRET_KEY` để giải mã key nhà cung cấp của người dùng (không có thì job dịch dừng, thử lại phút sau). Người dùng chưa nhập nhà cung cấp (hoặc đã xóa) thì `LlmResolver.for_user` trả `None` và job dịch dừng, không có khóa môi trường để rơi về (spec 28); thiếu tên model dịch thì cũng dừng. Job dịch không gọi ml-service.
 - `app/worker.py` chạy hai vòng `run_worker_async` trong một process: `queues=["default"]` (làm sạch, gom thread, sửa tay, embed, gán dự án, `translate_sweep`) và `queues=["translate"]` (`translate_user`, một lần chờ AI tới 120 giây). Một vòng kết thúc thì dừng vòng kia; không dùng `gather`.
-- `translate_user` xử lý một mail rồi tự đẩy tiếp (`queueing_lock` theo người dùng). Lỗi: theo mail (`ai_bad_output`, `ai_truncated`, `ai_refused`, `mask_unstable`, và `translate_failed` cho lỗi lạ) thì ghi `retry`, chờ `attempts × 10` phút, đủ `MAX_MAIL_ATTEMPTS` = 3 lần thì `failed`; `ai_bad_request` ghi `retry` chờ tối đa 60 phút và không bao giờ `failed` (có thể do sai tên model); lỗi tạm khác (`ml_unavailable`, chưa cấu hình, `ai_auth_failed`, `ai_unavailable`) dừng người dùng, không ghi gì; lỗi hạ tầng (`OperationalError`, `OSError`, `httpx.HTTPError`…) ném ra để job báo lỗi và lần quét sau làm lại. `UPSERT_RUN` chỉ ghi đè dòng `retry`: dòng `done`/`failed` giữ nguyên.
-- Che trong `_mask_mail` lặp tới khi từ điển không đổi (che glossary có thể dạy Masker tên mới), tối đa 4 lần, không ổn định thì `mask_unstable` và không gửi gì.
-- Mọi text gửi AI qua một `Masker` (subject, body, ngữ cảnh mail trước, các dòng glossary). Glossary khớp trên text **đã che và đã cắt**. Không log text, bảng nhãn, giá trị glossary, tên dự án, domain.
+- `translate_user` xử lý một mail rồi tự đẩy tiếp (`queueing_lock` theo người dùng). Lỗi: theo mail (`ai_bad_output`, `ai_truncated`, `ai_refused`, và `translate_failed` cho lỗi lạ) thì ghi `retry`, chờ `attempts × 10` phút, đủ `MAX_MAIL_ATTEMPTS` = 3 lần thì `failed`; `ai_bad_request` ghi `retry` chờ tối đa 60 phút và không bao giờ `failed` (có thể do sai tên model); lỗi tạm khác (chưa cấu hình, thiếu tên model, `ai_auth_failed`, `ai_unavailable`) dừng người dùng, không ghi gì; lỗi hạ tầng (`OperationalError`, `OSError`, `httpx.HTTPError`…) ném ra để job báo lỗi và lần quét sau làm lại. `UPSERT_RUN` chỉ ghi đè dòng `retry`: dòng `done`/`failed` giữ nguyên.
+- Dòng `message_auto_runs` đã `failed` với mã cũ `mask_unstable` (trước spec 28) giữ nguyên `failed`: chỉ nút Dịch tay hoặc "Thử lại" (`auto-retry`) xử lý được; code không còn sinh mã này.
+- Text gửi AI (subject, body, ngữ cảnh mail trước, các dòng glossary) là text gốc đã cắt bằng `cut_text`, không che. Glossary khớp trên text gốc đã cắt. Không log text, giá trị glossary, tên dự án, domain.
 - **Folder hiệu lực**: chuyển mail chỉ ghi `message_auto_runs.target_source_id`, `message_ownership` không đổi (đồng bộ lại không đảo được). Mọi nơi hiển thị folder phải tính theo cùng quy tắc: `filter_conditions` (`search/keyword.py`), `folders_of`, `sources.LIST_FOLDERS`. Mail đã có đích thì ownership ở bất kỳ Inbox nào (hai tài khoản đều có Inbox) coi như đã chuyển; `inbox_path_sql` (`mail/domains.py`) và `is_inbox_path` phải cùng nghĩa (đoạn cuối `folder_path` là `inbox`, không phân biệt hoa thường). `LIST_FOLDERS` viết bằng `LEFT JOIN … IS NULL`, không `NOT (… AND EXISTS …)` (1.562 ms thay vì 60 ms trên 50.000 mail). Xóa mail của folder theo ownership vật lý (spec 7).
 - `update_project` gọi `retarget_no_folder` trong cùng transaction khi `processed_source_id` đổi: mail đã `done` với `move_note = 'no_folder'` được xét lại. `move-back` xóa note nên không bị đảo. `POST /messages/{id}/move` chỉ cho mail có run `done` (409 `move_not_ready`), chọn lại được cả mail đã chuyển.
 - `message_translations` chứa chữ dịch (ngoại lệ có chủ đích với quy tắc không chép nội dung mail): do `app_api` ghi, `ON DELETE CASCADE` tới `messages`. `app_worker` không có quyền gì trên `glossary_terms`, `message_translations` (chỉ `SELECT` trên `message_auto_runs`). Mọi truy vấn bản dịch chạy trong `user_session`.

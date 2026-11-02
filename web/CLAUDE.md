@@ -1,6 +1,6 @@
 # Web (React + Vite + TypeScript)
 
-Giao diện cho PM, BrSE, leader: danh sách thread, xem thread dạng hội thoại, tìm kiếm có tô từ khóa, sửa thread gom sai (spec 16 `docs/superpowers/specs/2026-10-18-web-ui-design.md`); tìm kiếm ngữ nghĩa, gợi ý thread liên quan, hỏi đáp AI, cài đặt model AI (spec 19, 21, 22, 23); cấu hình dự án (spec 25); dịch mail, glossary, chuyển mail sang folder dự án (spec 26). Sau này: dashboard theo dõi đối ứng.
+Giao diện cho PM, BrSE, leader: danh sách thread, xem thread dạng hội thoại, tìm kiếm có tô từ khóa, sửa thread gom sai (spec 16 `docs/superpowers/specs/2026-10-18-web-ui-design.md`); tìm kiếm ngữ nghĩa, gợi ý thread liên quan, hỏi đáp AI, cài đặt AI (spec 19, 21, 22, 23, 24, 28); cấu hình dự án (spec 25); dịch mail, glossary, chuyển mail sang folder dự án (spec 26). Sau này: dashboard theo dõi đối ứng.
 
 ## Công nghệ
 
@@ -32,7 +32,7 @@ src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái
                            #   TagInput (ô nhiều giá trị, `draftRef` giữ phần đang gõ)
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án, bộ lọc gán mail, khối "Dịch tự động" gồm domain khách và folder đích, tab Glossary của dự án), GlossaryPage (/settings/glossary: glossary chung hoặc `?project=id`), AiSettingsPage (/settings/ai: nhà cung cấp AI tùy chỉnh, model theo tác vụ, thống kê)
+                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án, bộ lọc gán mail, khối "Dịch tự động" gồm domain khách và folder đích, tab Glossary của dự án), GlossaryPage (/settings/glossary: glossary chung hoặc `?project=id`), AiSettingsPage (/settings/ai: nhà cung cấp AI (URL, key, giao thức), tên model theo tác vụ, thống kê token)
 src/**/*.test.ts(x)        # Vitest
 ```
 
@@ -65,6 +65,6 @@ Chạy trong `web/` (hoặc `npm --prefix web run …` từ thư mục gốc).
 - Giao diện tiếng Việt; nội dung mail hiển thị nguyên văn.
 - Bản nháp reply (giai đoạn 6) chỉ có nút copy, không có nút gửi.
 - Bản dịch hiển thị dạng text thuần (không render HTML), lấy từ `GET /threads/{id}/translations` (một request cho cả thread, `MessageCard` nhận `translation` theo `message_id`). `MovePicker` hiện cho mọi mail `done` chưa có folder đích khi `move_projects` không rỗng, kể cả sau "Chuyển lại Inbox". Chuyển folder chỉ trên web: Thunderbird vẫn thấy mail ở Inbox.
-- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text đã che mà backend gửi đi, để người dùng tự kiểm tra việc che.
-- Che thông tin không có nút tắt trên web. Từ 2026-11-01 không còn là yêu cầu (dùng model nội bộ), phần hiển thị liên quan bỏ cùng `Masker` ở spec 28.
+- Hỏi đáp AI: câu hỏi và kết quả chỉ nằm trong state của mutation (không lưu storage, không đưa lên URL). Câu trả lời hiển thị dạng text (`whitespace-pre-wrap`); chỉ `[n]` được đổi thành link tới thread của nguồn n. Luôn có khối "Nội dung đã gửi cho AI" hiện đúng text gốc mà backend gửi đi, để người dùng tự kiểm tra.
+- Từ spec 28 mail gửi AI không che (dùng model nội bộ): trang Cài đặt AI luôn hiện "Mail không che sẽ gửi tới <host>" và thêm `Alert` cảnh báo khi `public_host` (host là địa chỉ công cộng, theo URL đã lưu, không theo URL đang gõ). Trang không có ba cấp model: mỗi tác vụ một ô tên model; tác vụ thiếu tên model không có gợi ý trên trang, người dùng thấy lỗi `ai_model_missing` khi dùng chức năng. `MessageTranslation` còn giữ chữ cho cảnh báo `labels_missing`, `labels_unknown` vì bản dịch cũ trong DB còn mã này.
 - Chạy thử giao diện chỉ với dữ liệu giả (profile tự sinh trên DB test), không mở web trên DB dev có mail thật khi Claude Code đọc màn hình.

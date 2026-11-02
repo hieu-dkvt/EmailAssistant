@@ -78,7 +78,7 @@
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
 | Embedding | `bge-m3` self-host | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Model nội bộ của công ty qua gateway kiểu 9router, nhập ở Cài đặt AI, theo từng tác vụ (mặc định gợi ý: cấp nhỏ cho phân loại và phân tích câu hỏi, cấp vừa cho tóm tắt, trả lời, soạn reply) | Quyết định của người dùng 2026-11-01: không dùng API ngoài, không cần che thông tin. Code chưa đổi, xem spec 28 |
+| LLM | Model nội bộ của công ty qua gateway kiểu 9router, nhập ở Cài đặt AI, theo từng tác vụ (gợi ý: model nhỏ cho phân loại và phân tích câu hỏi, model vừa cho tóm tắt, trả lời, soạn reply; code không đặt sẵn tên model nào) | Quyết định của người dùng 2026-11-01: không dùng API ngoài, không cần che thông tin. Đã làm ở spec 28 (2026-11-02): tên model do người dùng nhập, không còn ba cấp |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |
@@ -239,9 +239,9 @@ audit_log            (user_id, action, target, at)
   1. Model cấp nhỏ phân tích câu hỏi thành bộ lọc (dự án, ngày, người gửi) và từ khóa, đồng thời tự dịch Việt sang Nhật.
   2. Hybrid search, **lọc theo quyền của người hỏi**, lấy khoảng 20 đoạn liên quan nhất.
   3. Model cấp vừa trả lời bằng tiếng Việt, **kèm link tới mail/thread gốc**.
-- [ ] Che thông tin nhạy cảm trước khi gửi AI *(đã làm ở spec 20; từ 2026-11-01 không còn là yêu cầu vì dùng model nội bộ, code bỏ ở spec 28)*.
+- [ ] Che thông tin nhạy cảm trước khi gửi AI *(đã làm ở spec 20; từ 2026-11-01 không còn là yêu cầu vì dùng model nội bộ, code đã xóa ở spec 28, 2026-11-02)*.
 - [ ] Lớp 4 của gom thread: gợi ý gộp thread bằng embedding.
-- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ (phân tích câu hỏi, trả lời; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token và chi phí ước tính. *(Từ 2026-11-01 model nội bộ chọn bằng tên model do người dùng nhập.)*
+- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ (phân tích câu hỏi, trả lời; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token và chi phí ước tính. *(Từ 2026-11-01 model nội bộ chọn bằng tên model do người dùng nhập; ba cấp và chi phí ước tính đã bỏ ở spec 28, còn thống kê token.)*
 
 **Tiêu chí hoàn thành:** bộ 30 câu hỏi mẫu do PM soạn, ≥ 80% câu trả lời đúng và có trích dẫn nguồn.
 

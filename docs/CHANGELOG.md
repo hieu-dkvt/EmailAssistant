@@ -2,6 +2,46 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-02: chuyển sang model nội bộ (spec 28, xong)
+
+Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục bên dưới. Mục này ghi phần đã làm.
+
+### Đã làm
+- URL gateway: `validate_base_url` nhận `http` và `https` tới mọi địa chỉ (LAN, localhost, công cộng), chỉ từ chối URL sai dạng, IP viết tắt và link-local (`reject_link_local`). `AiProviderCustom.public_host` và `Alert` cảnh báo trên Cài đặt AI khi host là địa chỉ công cộng.
+- Bỏ khóa mặc định: backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_*`. `LlmResolver.for_user` trả `None` khi chưa nhập nhà cung cấp: `/ask`, dịch tay → 503 `ai_not_configured`, job dịch dừng. Câu hỏi còn treo ở spec 26 (job dịch rơi về khóa môi trường) không còn.
+- Bỏ ba cấp Haiku/Sonnet/Opus và giá ước tính; mỗi tác vụ chỉ có tên model người dùng nhập. Migration 0019: xóa dòng `user_ai_settings` chỉ có cấp, `DROP COLUMN tier`, `model NOT NULL`, cấp `DELETE` cho `app_api`.
+- Bỏ che thông tin: xóa `Masker` (`masking.py`, `names.py`, `people.py`); `/ask` và dịch gửi text gốc; thêm `app/ai/text.py` (`cut_text`); `AskResult` bỏ `mask_counts`; `TRANSLATE_PROMPT_VERSION` lên 2. Dịch không còn gọi ml-service.
+- ml-service: xóa `POST /ner`, `app/ner.py`, spaCy, GiNZA. Đo lại trên máy dev (i5-8500, 15,8 GB RAM): khởi động khoảng 39 giây, bộ nhớ private khoảng 3,2 GB (trước khoảng 4 GB).
+- Web: Cài đặt AI bỏ ba cấp và thẻ "Che thông tin", luôn hiện "Mail không che sẽ gửi tới <host>"; Hỏi đáp bỏ chữ "đã che".
+- Chạy thử đầu cuối trên `mailassist_test` với gateway giả `127.0.0.2`: request có text gốc, không có nhãn, `model` đúng tên đã nhập; đặt `ANTHROPIC_API_KEY` giả rồi xóa nhà cung cấp thì `/ask` và dịch trả 503 `ai_not_configured`, không có request nào ra ngoài (spec 28 mục 10).
+- Kiểm tra cuối: backend 835 test (trước đó 1.051: bớt phần test che đã xóa cùng code), ml-service 13 test, web 107 test, ESLint, Prettier, `tsc` và build web sạch.
+- Tài liệu: spec 28 (xong, mục 10 kết quả đo, mục 11 quyết định của người viết), dòng cập nhật ở đầu spec 17, 20, 21, 22, 24, 26, 27, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI" viết lại), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`.
+
+### Quyết định của người dùng
+- Không có quyết định mới: làm theo quyết định 2026-11-01 (model nội bộ, ô URL nhận mọi địa chỉ, bỏ che).
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Thêm quy tắc tên người vào `TRANSLATE_SYSTEM` (giữ nguyên hoặc phiên âm, 様 → -sama, さん → -san), vì model giờ thấy tên thật; spec 28 chỉ nói bỏ quy tắc nhãn. Có thể sinh cảnh báo `glossary_missing` nếu glossary có thuật ngữ là tên người.
+- `ask()` tự trả 503 `ai_model_missing` khi thiếu tên model; cột đọc mail dịch rút còn `id, thread_id, subject, body_clean, sent_at`; bỏ `AiProvider.configured_env`.
+- Ghim Python `<3.13` của ml-service giữ nguyên dù lý do (GiNZA) đã hết.
+
+### Đã xử lý sau review
+- Sửa spec 28 mục 5: giới hạn thân mail không phải `SOURCE_LIMITS` (hằng đó chỉ giữ From, To, Cc, Subject) mà là đoạn ≤ 800 ký tự (`/ask`) và 12.000 ký tự (dịch).
+
+### Người dùng cần làm sau khi cập nhật code
+1. `uv run --directory backend alembic upgrade head` trên DB dev (migration 0019; chạy trước khi khởi động lại API).
+2. Dừng ml-service đang chạy rồi `uv sync --directory ml-service` (gỡ spaCy, GiNZA; Windows khóa file nên không sync được khi service chạy).
+3. Khởi động lại API và worker.
+4. Ở Cài đặt AI nhập URL gateway, API key và tên model cho từng tác vụ. Dòng cấu hình chỉ có cấp bị xóa nên `/ask` và dịch báo thiếu tên model cho tới khi nhập; trang không tự báo tác vụ nào thiếu. Cần `$env:PMM_SECRET_KEY` để lưu key.
+5. Bản dịch cũ hiện nhãn "cũ" và có thể còn nhãn che; bấm "Dịch lại" nếu cần.
+
+### Còn để sau
+- Gọi thử gateway thật, đo chất lượng và khả năng output có cấu trúc của model nội bộ.
+- Dòng `message_auto_runs` đã `failed` với mã `mask_unstable` giữ nguyên `failed` (dịch tay hoặc "Thử lại").
+- Cảnh báo địa chỉ công cộng theo URL đã lưu, chưa theo URL đang gõ.
+- Làm spec 27 (truy xuất hỏi đáp), rồi phần còn lại của giai đoạn 6.
+- Chờ người dùng: có nới "mỗi bản mail chỉ gọi AI một lần" không.
+
 ## 2026-11-01: chuyển sang model nội bộ, không còn yêu cầu che thông tin (mới đổi tài liệu, code chưa đổi)
 
 ### Quyết định của người dùng

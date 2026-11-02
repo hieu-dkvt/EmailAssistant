@@ -206,7 +206,7 @@ Collector không bị ảnh hưởng. API `/rerank` chỉ dùng nội bộ giữ
 
 ## 9. Phân quyền và dữ liệu
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này viết khi `Masker` còn bắt buộc. Spec 27 làm sau [spec 28](2026-11-01-internal-model-design.md): bỏ các yêu cầu về che và `learn_rows` ở mục 6, 9, 11, phần còn lại giữ nguyên.
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này viết khi `Masker` còn bắt buộc. Spec 27 làm sau [spec 28](2026-11-01-internal-model-design.md), spec 28 đã xong (2026-11-02): `Masker`, `learn_rows`, NER không còn trong code. Các yêu cầu về che và `learn_rows` ở mục 6, 9, 11 và phần "Thời gian" (tính theo NER) là bản viết trước, bỏ khi làm; phần còn lại giữ nguyên.
 
 - Mọi đọc mail (đếm phạm vi, quét chính xác, đoạn, mail trước) chạy trong `user_session` với role `app_api`, RLS áp dụng trước khi có gì gửi đi.
 - Không có bảng mới. `message_projects`, `projects` đã có RLS (spec 25).

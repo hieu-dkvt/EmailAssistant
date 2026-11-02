@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-25 · Thành phần: `backend/app/ai/` (`client.py`, `provider.py`, `secrets.py`, `settings.py`, `models.py`), `backend/app/api/ai_routes.py`, migration 0016 (`user_ai_provider`, cột `user_ai_settings.model`), `web/src/pages/AiSettingsPage.tsx` · Trạng thái: xong (sửa sau review: mục 13; chưa gọi thử gateway thật)
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Màn hình giữ nguyên, ô URL nhận mọi địa chỉ. Spec này mô tả code hiện tại: mục 6 (từ chối IP riêng) và mục 2 "Tắt việc che thông tin" đổi ở [spec 28](2026-11-01-internal-model-design.md).
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Màn hình giữ nguyên, ô URL nhận mọi địa chỉ. Đã làm ở [spec 28](2026-11-01-internal-model-design.md) (2026-11-02): mục 6 (từ chối IP riêng) đổi thành chỉ chặn link-local kèm cảnh báo địa chỉ công cộng, mục 2 "Tắt việc che thông tin" và việc che không còn; khóa môi trường mặc định bỏ, `LlmResolver.for_user` trả `None` khi chưa nhập nhà cung cấp. Nội dung về che chỉ còn ý nghĩa lịch sử.
 
 ## 1. Mục đích
 

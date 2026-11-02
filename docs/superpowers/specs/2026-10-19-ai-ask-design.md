@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/ask.py`, `backend/app/ai/client.py`, `backend/app/ai/prompts.py`, `backend/app/api/ai_routes.py` (`POST /api/v1/ask`), migration 0015 (`ai_calls`), `web/src/pages/AskPage.tsx` · Trạng thái: xong, chưa gọi thử AI thật (sửa sau review bảo mật: mục 10; sửa 2026-11-01 khi làm spec 26: mục 11)
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: các bước che, thay ngược và mục 6 đổi ở [spec 28](2026-11-01-internal-model-design.md).
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Đã làm ở [spec 28](2026-11-01-internal-model-design.md) (2026-11-02): các bước che, thay ngược, `mask_counts` và mục 6 đã bỏ, nội dung về che chỉ còn ý nghĩa lịch sử; `/ask` gửi câu hỏi và nguồn ở dạng gốc, vẫn cần ml-service để embed câu hỏi.
 
 ## 1. Mục đích
 

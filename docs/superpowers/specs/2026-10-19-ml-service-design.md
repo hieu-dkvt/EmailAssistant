@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-19 · Thành phần: `ml-service/` (`app/main.py`, `app/embedder.py`, `app/ner.py`, `app/config.py`, `app/run.py`) · Trạng thái: xong (sửa sau review bảo mật: mục 9)
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). NER chỉ phục vụ bước che nên bỏ cùng `Masker` ở [spec 28](2026-11-01-internal-model-design.md). Embedding vẫn self-host.
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). NER chỉ phục vụ bước che nên đã bỏ cùng `Masker` ở [spec 28](2026-11-01-internal-model-design.md) (đã làm 2026-11-02: không còn `POST /ner`, `app/ner.py`, spaCy, GiNZA; các mục về NER bên dưới chỉ còn ý nghĩa lịch sử). Embedding vẫn self-host. Số đo bộ nhớ và thời gian khởi động sau khi gỡ NER: spec 28 mục 10 và `ml-service/CLAUDE.md`.
 
 ## 1. Mục đích
 
@@ -53,7 +53,7 @@ Theo nguyên tắc NDA, embedding và NER luôn chạy self-host: nội dung mai
   - còn lại → `en_core_web_sm`.
 - Nhãn GiNZA (ENE, đã kiểm danh sách nhãn của `ja_ginza` 5.3) quy về: `Person` → `PERSON`; `Company`, `Company_Group`, `Corporation_Other`, `Organization_Other`, `Government`, `Public_Institution`, `School`, `Research_Institute`… → `ORG`; `Postal_Address` → `ADDRESS`; `Phone_Number`, `Email`, `URL`, `Money` → `PHONE`, `EMAIL`, `URL`, `MONEY` (lớp bổ sung cho mẫu regex của backend) (bảng `JA_LABELS`). Không che: tỉnh/thành phố, ngày, số lượng, `ID_Number` (hay gặp ở mã lỗi như `E1024`, Claude cần để trả lời), `Position_Vocation`. spaCy en: `PERSON`, `ORG`, `MONEY`.
 - Sudachi từ chối input dài hơn khoảng 49 KB: text được chia thành đoạn ≤ 10.000 ký tự (cắt ở cuối dòng nếu được), vị trí cộng lại theo đoạn.
-- Python 3.12 (GiNZA 5.3, spaCy 3.8, PyTorch 2.14, sentence-transformers 6.1). Model `en_core_web_sm` 3.8.0 cài từ GitHub release của spaCy (không có trên PyPI).
+- Python 3.12 (GiNZA 5.3, spaCy 3.8, PyTorch 2.14, sentence-transformers 6.1). *Cập nhật 2026-11-02 (spec 28): GiNZA, spaCy đã gỡ, lý do ghim Python 3.12 không còn; ghim `<3.13` vẫn giữ trong `pyproject.toml` cho tới khi kiểm lại torch và sentence-transformers trên 3.13.* Model `en_core_web_sm` 3.8.0 cài từ GitHub release của spaCy (không có trên PyPI).
 
 ## 5. Phân quyền và dữ liệu
 

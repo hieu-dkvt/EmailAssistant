@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/models.py`, `backend/app/ai/settings.py`, `backend/app/api/ai_routes.py` (`/api/v1/ai/settings`, `/api/v1/ai/usage`), migration 0015 (`user_ai_settings`), `web/src/pages/AiSettingsPage.tsx` · Trạng thái: xong
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: ba cấp Haiku/Sonnet/Opus và ghi chú "không tắt được" bỏ ở [spec 28](2026-11-01-internal-model-design.md).
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Đã làm ở [spec 28](2026-11-01-internal-model-design.md) (2026-11-02): ba cấp Haiku/Sonnet/Opus, giá ước tính và ghi chú "không tắt được" đã bỏ, nội dung về che và ba cấp chỉ còn ý nghĩa lịch sử; mỗi tác vụ chỉ còn tên model do người dùng nhập (migration 0019).
 
 ## 1. Mục đích
 

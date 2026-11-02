@@ -2,7 +2,7 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/masking.py`, `backend/app/ai/names.py`, `backend/app/ai/people.py`, NER ở `ml-service/app/ner.py` · Trạng thái: xong (sửa sau review bảo mật: mục 9; sửa 2026-11-01 khi làm spec 26: mục 10)
 
-> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Spec này mô tả code hiện tại: `Masker` vẫn chạy cho tới khi làm xong [spec 28](2026-11-01-internal-model-design.md). Yêu cầu bốn nhóm thông tin ở mục 1 không còn hiệu lực.
+> **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Đã làm ở [spec 28](2026-11-01-internal-model-design.md) (2026-11-02): `Masker`, `names.py`, `people.py` và NER đã xóa, spec này chỉ còn ý nghĩa lịch sử. Yêu cầu bốn nhóm thông tin ở mục 1 không còn hiệu lực.
 
 ## 1. Mục đích
 

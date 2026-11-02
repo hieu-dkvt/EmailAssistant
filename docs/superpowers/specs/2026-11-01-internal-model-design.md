@@ -1,6 +1,6 @@
 # Spec: Chuyển sang model nội bộ và bỏ che thông tin
 
-Ngày: 2026-11-01 · Thành phần: `backend/app/ai/` (`provider.py`, `client.py`, `models.py`, `settings.py`, `ask.py`, `translate.py`, `glossary.py`, `prompts.py`; xóa `masking.py`, `names.py`, `people.py`), `backend/app/auto_translate.py`, `backend/app/ml_client.py`, `backend/app/main.py`, `backend/app/worker.py`, `backend/app/api/ai_routes.py`, `backend/app/web_schemas.py`, `backend/app/db/models.py`, `ml-service/` (xóa `/ner`, `app/ner.py`, spaCy, GiNZA), `web/src/pages/AiSettingsPage.tsx`, `web/src/pages/AskPage.tsx`, `web/src/components/MessageTranslation.tsx`, migration 0019 · Trạng thái: đang làm (đã duyệt thiết kế, chưa có code)
+Ngày: 2026-11-01 · Thành phần: `backend/app/ai/` (`provider.py`, `client.py`, `models.py`, `settings.py`, `ask.py`, `translate.py`, `glossary.py`, `prompts.py`, mới `text.py`; xóa `masking.py`, `names.py`, `people.py`), `backend/app/auto_translate.py`, `backend/app/ml_client.py`, `backend/app/main.py`, `backend/app/worker.py`, `backend/app/api/ai_routes.py`, `backend/app/web_schemas.py`, `backend/app/db/models.py`, `ml-service/` (xóa `/ner`, `app/ner.py`, spaCy, GiNZA), `web/src/pages/AiSettingsPage.tsx`, `web/src/pages/AskPage.tsx`, `web/src/components/MessageTranslation.tsx`, migration 0019 · Trạng thái: xong (2026-11-02; chạy thử đầu cuối trên DB test với gateway giả: mục 10; chưa gọi thử gateway thật)
 
 ## 1. Mục đích
 
@@ -11,7 +11,7 @@ Quyết định của người dùng (2026-11-01):
 - **Giữ màn hình Cài đặt AI:** người dùng nhập URL gateway, API key, model.
 - **Ô URL nhận mọi địa chỉ.** Người dùng chọn phương án này sau khi được nêu rủi ro, thay vì chỉ nhận địa chỉ nội bộ. Code không chặn API ngoài: "không gửi mail ra API ngoài" là quy ước do người cấu hình đảm bảo.
 
-Code hiện tại làm ngược lại: `validate_base_url` từ chối gateway trong LAN, mọi text gửi AI qua `Masker`, và có đường gọi Anthropic mặc định bằng `ANTHROPIC_API_KEY`.
+Trước spec này code làm ngược lại (đã sửa): `validate_base_url` từ chối gateway trong LAN, mọi text gửi AI qua `Masker`, và có đường gọi Anthropic mặc định bằng `ANTHROPIC_API_KEY`.
 
 ## 2. Không làm
 
@@ -75,7 +75,7 @@ Ba cấp Haiku/Sonnet/Opus chỉ có nghĩa với Claude.
 
 - Xóa `app/ai/masking.py`, `app/ai/names.py`, `app/ai/people.py`, `build_masker`, `learn_rows`, `_participants`, `_mask_ranges`, `WINDOW_CHARS`.
 - `/ask`: câu hỏi và nguồn gửi thẳng, kết quả AI dùng trực tiếp, không còn `unmask`. `plan.sender`, `search_queries`, `keywords` dùng nguyên giá trị.
-- Giữ mọi giới hạn độ dài: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự, thân mail `SOURCE_LIMITS`. Đây là giới hạn chi phí xử lý, không phụ thuộc việc che.
+- Giữ mọi giới hạn độ dài: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự (`MAX_ADDRESSES`, `MAX_NAME_CHARS`, `MAX_SUBJECT_CHARS`). Thân mail trong `/ask` là đoạn embed, mỗi đoạn tối đa 800 ký tự (`CHUNK_CHARS`); thân mail dịch `MAX_BODY_CHARS` = 12.000, ngữ cảnh `MAX_CONTEXT_CHARS` = 1.500. Đây là giới hạn chi phí xử lý, không phụ thuộc việc che. (Bản đầu của spec ghi nhầm giới hạn thân mail là `SOURCE_LIMITS`; hằng đó chỉ giữ From, To, Cc, Subject.)
 - `cut_masked` đổi thành `cut_text(text, limit) -> tuple[str, bool]` trong `app/ai/text.py`: cắt ở ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn; không có thì cắt tại giới hạn.
 - Dịch: bỏ `_mask_mail`, `_masked_glossary`, `MAX_MASK_INPUT_CHARS`, lỗi `mask_unstable`. Glossary khớp trên text gốc đã cắt. Dịch **không còn gọi ml-service**: bỏ tham số `ml` của `translate`, `auto_translate`, và nhánh chờ `ml_unavailable` của job.
 - `check_translation`: bỏ `labels_missing`, `labels_unknown`. Giữ `glossary_missing`, `glossary_conflict`, `truncated`.
@@ -134,7 +134,7 @@ Sinh lại `web/openapi.json`, `web/src/api/schema.ts`. Collector không bị �
 - **ml-service:** `/ner` trả 404, `/health` không có `ner_models`, `/embed` như cũ, app chạy khi không cài spaCy.
 - **Web:** `AiSettingsPage` không còn ba cấp và thẻ che; `AskPage` không còn chữ "đã che".
 - Test che cũ (`test_masking.py`, phần che trong `test_ai_api.py`, `test_translate.py`) xóa cùng code. Không xóa test RLS, test log.
-- Chạy thử đầu cuối trên DB test với server tương thích OpenAI giả trên một IP loopback, cấu hình qua màn hình Cài đặt AI.
+- Chạy thử đầu cuối trên DB test với server tương thích OpenAI giả trên một IP loopback (đã làm, kết quả ở mục 10). Lưu nhà cung cấp và tên model gọi qua API của màn hình Cài đặt AI, không bấm trên giao diện.
 
 ## 8. Giới hạn đã biết
 
@@ -143,10 +143,43 @@ Sinh lại `web/openapi.json`, `web/src/api/schema.ts`. Collector không bị �
 - Chưa gọi thử gateway thật.
 - DNS có thể đổi giữa lúc kiểm tra và lúc kết nối, nên chặn link-local không tuyệt đối.
 - Bản dịch cũ lưu nhãn đã thay ngược, có thể dịch sai tên riêng do bị che lúc dịch. Người dùng bấm "Dịch lại" nếu cần.
+- Dòng `message_auto_runs` đã `failed` với mã `mask_unstable` (sinh trước spec này) giữ nguyên `failed`: code không còn sinh mã này, chỉ nút Dịch tay hoặc "Thử lại" (`auto-retry`, xóa dòng `failed` để lần quét sau làm lại) xử lý được.
+- Cảnh báo địa chỉ công cộng (`public_host`) theo URL **đã lưu**, không theo URL đang gõ: nhập URL công cộng, chưa bấm lưu thì chưa thấy cảnh báo.
+- Trang Cài đặt AI không báo tác vụ thiếu tên model. Sau migration 0019 các dòng chỉ có cấp bị xóa, nên người dùng thấy lỗi `ai_model_missing` khi dùng hỏi đáp hoặc dịch rồi mới nhập ở trang này.
+- Chưa đo chất lượng và tốc độ trả lời của model nội bộ; chưa kiểm khả năng output có cấu trúc của gateway thật.
 
 ## 9. Thứ tự và tài liệu
 
 - Làm trước spec 27, trực tiếp trên `master`.
 - Thứ tự: (1) URL và cảnh báo, (2) bỏ khóa mặc định và ba cấp, migration 0019, (3) bỏ che ở backend, (4) xóa NER ở ml-service, (5) web, (6) tài liệu.
 - Bước (2) và (3) phải vào cùng một đợt phát hành.
-- Khi xong sửa cho khớp: spec 17, 20, 21, 22, 24, 26 (dòng cập nhật ở đầu), `backend/CLAUDE.md` (cấu trúc, mục "Gọi AI"), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `CLAUDE.md` gốc (bỏ đoạn "Code chưa theo kịp", bước chạy thử 4–5), CHANGELOG, danh mục spec.
+- Khi xong sửa cho khớp: spec 17, 20, 21, 22, 24, 26 (dòng cập nhật ở đầu), `backend/CLAUDE.md` (cấu trúc, mục "Gọi AI"), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `CLAUDE.md` gốc (bỏ đoạn "Code chưa theo kịp", bước chạy thử 4–5), CHANGELOG, danh mục spec. Đã làm 2026-11-02.
+
+## 10. Kết quả đo và chạy thử (2026-11-02)
+
+### ml-service sau khi gỡ NER
+
+Máy: i5-8500 (6 nhân, 3,0 GHz), 15,8 GB RAM, không GPU, Windows 11. (`ml-service/CLAUDE.md` cũ ghi i5-1235U, 7,7 GB RAM: số đo cũ, có thể máy khác.) Chạy cổng 8002 song song với ml-service của người dùng (`uv run --no-sync`, cache model đã có). Venv lúc đo vẫn còn spaCy cài sẵn (người dùng đang giữ file nên chưa `uv sync` được), nhưng không có code nào import.
+
+- Khởi động tới khi `/health` trả lời: khoảng 39 giây (nạp model 37,9 giây).
+- Bộ nhớ private: khoảng 3,2 GB sau khi nạp, 3.250 MB sau `/embed` 5 câu ngắn (lần đầu 4,3 giây, lần hai 0,3 giây). Trước đó khoảng 4 GB: bớt khoảng 0,8 GB.
+- `POST /ner` trả 404. Tốc độ embed theo đoạn 800 ký tự không đo lại (số cũ 0,3 đoạn/giây trên máy cũ).
+
+### Chạy thử đầu cuối trên DB test
+
+`mailassist_test` (API, role `app_api`, qua `DATABASE_URL_*`), API riêng cổng 8020, ml-service cổng 8002, server tương thích OpenAI giả bind `127.0.0.2:20128` ghi lại mọi request, `PMM_SECRET_KEY` sinh tạm, `ANTHROPIC_API_KEY` giả đặt trong môi trường API. Dữ liệu: một người dùng và hai mail giả (`*.example.*`, tên người, số tiền, số điện thoại giả) dựng bằng helper của test, đã làm sạch và embed bằng ml-service thật. Kết quả:
+
+- Chưa nhập nhà cung cấp (khóa Anthropic giả có trong môi trường): `/ask` → 503 `ai_not_configured`, gateway giả không nhận request nào.
+- Lưu nhà cung cấp giao thức `openai` và ba tên model qua `PUT /ai/provider`, `PUT /ai/settings`; `POST /ai/provider/test` thành công với tên model của tác vụ trả lời.
+- `/ask`: đúng hai request (phân tích, trả lời), `model` đúng tên đã nhập cho từng tác vụ; câu hỏi nằm nguyên văn trong cả hai request; request trả lời chứa nguyên văn tên người, số tiền, số điện thoại của mail nguồn; không có nhãn dạng `[PERSON_n]`; header `Authorization` đúng key đã nhập; response không còn `mask_counts`.
+- `POST /messages/{id}/translate`: một request, `model` đúng tên tác vụ dịch, subject và thân mail gốc, không có nhãn che; system prompt không còn nhắc nhãn. ml-service không tham gia.
+- Xóa nhà cung cấp rồi `/ask` và dịch tay → 503 `ai_not_configured`, gateway giả không nhận thêm request nào (khóa Anthropic giả vẫn đặt).
+- Log của API không có text mail, câu hỏi, key; chỉ có host, giao thức, tên model, token, thời gian.
+- Đã dừng các tiến trình tự khởi động và xóa người dùng thử khỏi `mailassist_test`.
+
+## 11. Quyết định của người viết (làm trong lúc code, người dùng có thể đổi)
+
+- **Quy tắc tên người trong `TRANSLATE_SYSTEM`** (`prompts.py`): "Tên người, tên công ty: giữ nguyên hoặc phiên âm, không dịch nghĩa. Viết 様 thành -sama, さん thành -san." Spec 28 mục 5 chỉ nói bỏ quy tắc nhãn; quy tắc này thêm vì trước đây nhãn che giữ nguyên tên và giờ model thấy tên thật, có thể dịch nghĩa tên. Có thể gây `glossary_missing` khi glossary có thuật ngữ là tên người và model giữ nguyên tên thay vì dùng bản dịch của glossary.
+- **Kiểm tên model trong `ask()`**: ngoài route, `ask()` tự trả 503 `ai_model_missing` khi thiếu tên model của tác vụ phân tích hoặc trả lời (cùng cách `produce_translation` làm cho job dịch), để không gọi AI với model rỗng.
+- **Cột đọc mail dịch** (`_MAIL_COLUMNS` trong `translate.py`): chỉ còn `id, thread_id, subject, body_clean, sent_at`, bỏ `from_name`, `from_addr`, `to_addrs`, `cc_addrs`, `body_text` vì chỉ phục vụ dựng từ điển che.
+- **`AiProvider.configured_env` bỏ** (spec mục 5 đã nêu, kế hoạch sót): trường này đọc `configured()` đã xóa cùng khóa mặc định.
