@@ -18,7 +18,9 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 - Tài liệu: spec 28 (xong, mục 10 kết quả đo, mục 11 quyết định của người viết), dòng cập nhật ở đầu spec 17, 20, 21, 22, 24, 26, 27, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI" viết lại), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`.
 
 ### Quyết định của người dùng
-- Không có quyết định mới: làm theo quyết định 2026-11-01 (model nội bộ, ô URL nhận mọi địa chỉ, bỏ che).
+- Làm theo quyết định 2026-11-01 (model nội bộ, ô URL nhận mọi địa chỉ, bỏ che).
+- **Đổi URL thì nhập lại API key, không dùng key cũ** (sau review, 2026-11-02): ô key trống chỉ giữ key đã lưu khi URL không đổi, đổi URL thì `PUT /ai/provider` trả 422 ở `api_key`. Web bỏ gợi ý "để trống để giữ nguyên" khi URL trong ô khác URL đã lưu. Thay cho hành vi spec 24. Spec 28 mục 13.
+- **Gateway: mạng nội bộ đã chặn kết nối ra ngoài ở tầng mạng** (2026-11-02), nên code không chặn thêm và không làm cấu hình CA riêng cho gateway `https`.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Thêm quy tắc tên người vào `TRANSLATE_SYSTEM` (giữ nguyên hoặc phiên âm, 様 → -sama, さん → -san), vì model giờ thấy tên thật; spec 28 chỉ nói bỏ quy tắc nhãn. Có thể sinh cảnh báo `glossary_missing` nếu glossary có thuật ngữ là tên người.
@@ -50,9 +52,8 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 - Gọi thử gateway thật, đo chất lượng và khả năng output có cấu trúc của model nội bộ.
 - Dòng `message_auto_runs` đã `failed` với mã `mask_unstable` giữ nguyên `failed` (dịch tay hoặc "Thử lại").
 - Cảnh báo địa chỉ công cộng theo URL đã lưu, chưa theo URL đang gõ.
-- **Chờ người dùng:** đổi URL mà để trống key thì key đã lưu đi theo host mới (`ai_routes.py`, có từ spec 24). Có buộc nhập lại key khi đổi host không?
 - Chặn metadata cloud ngoài link-local (`fd00:ec2::254`, `100.100.100.200`): chờ quyết định nơi đặt server.
-- Gateway `https` với CA riêng: `trust_env=False` tắt `SSL_CERT_FILE`, giao thức `openai` chỉ tin `certifi`. Chưa có cấu hình CA riêng (spec 28 mục 8).
+- Gateway `https` với CA riêng: `trust_env=False` tắt `SSL_CERT_FILE`, giao thức `openai` chỉ tin `certifi`. Không làm cấu hình CA riêng (người dùng: mạng nội bộ đã chặn ra ngoài; spec 28 mục 8).
 - Kiểm lại link-local mỗi lần `for_user`.
 - Web: cảnh báo công cộng khi đang gõ URL, báo tác vụ thiếu tên model ở Cài đặt AI, test xóa tên model.
 - `MessageTranslation.tsx` map `ml_unavailable` không còn dùng cho dịch.

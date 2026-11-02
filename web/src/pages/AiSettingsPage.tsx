@@ -100,7 +100,8 @@ function ProviderForm() {
   const shownUrl = baseUrl ?? p.custom?.base_url ?? "";
   const host = hostOf(shownUrl);
   // public_host do backend tính cho địa chỉ đã lưu: sửa URL trong ô thì chưa biết, bỏ cảnh báo.
-  const publicHost = !!p.custom?.public_host && shownUrl.trim() === p.custom.base_url;
+  const urlChanged = !!p.custom && shownUrl.trim() !== p.custom.base_url;
+  const publicHost = !!p.custom?.public_host && !urlChanged;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -160,13 +161,18 @@ function ProviderForm() {
           value={apiKey}
           autoComplete="new-password"
           placeholder={
-            p.custom?.api_key_set
+            p.custom?.api_key_set && !urlChanged
               ? `Đã đặt (…${p.custom.api_key_hint ?? ""}), để trống để giữ nguyên`
               : "Dán API key"
           }
           onChange={(e) => setApiKey(e.target.value)}
         />
-        {p.custom && !p.custom.api_key_set && (
+        {urlChanged && (
+          <p className="text-xs text-muted-foreground">
+            Đổi URL thì cần nhập lại API key: key đã lưu không dùng cho địa chỉ mới.
+          </p>
+        )}
+        {p.custom && !p.custom.api_key_set && !urlChanged && (
           <p className="text-xs text-destructive">
             Không đọc được key đã lưu (có thể đã đổi <code>PMM_SECRET_KEY</code>): nhập lại key.
           </p>

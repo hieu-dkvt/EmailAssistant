@@ -129,12 +129,33 @@ async def test_blank_key_keeps_existing_and_requires_one_first(
     r = await put_provider(client, api_key=None)
     assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "api_key"]
     assert (await put_provider(client)).status_code == 200
-    r = await put_provider(client, api_key="", base_url="https://other.example/v1")
+    r = await put_provider(client, api_key="")  # cùng URL: giữ key đã lưu
     assert r.status_code == 200 and r.json()["custom"]["api_key_hint"] == KEY[-4:]
     await set_models(client)
     gateway.responses = [plan(), ANSWER]
     assert (await ask(client)).status_code == 200
     assert gateway.built[-1].api_key == KEY  # type: ignore[attr-defined]
+    assert gateway.built[-1].base_url == BODY["base_url"]  # type: ignore[attr-defined]
+
+
+async def test_changing_url_requires_new_key(
+    client: AsyncClient, secret_key: str, gateway: FakeLlm, world: SimpleNamespace
+) -> None:
+    """Quyết định của người dùng 2026-11-02: đổi URL thì nhập lại key, key cũ không đi theo."""
+    assert (await put_provider(client)).status_code == 200
+    for blank in (None, "", "  "):
+        r = await put_provider(client, api_key=blank, base_url="https://other.example/v1")
+        assert r.status_code == 422 and r.json()["detail"][0]["loc"] == ["body", "api_key"]
+        assert KEY not in r.text
+    info = (await client.get("/api/v1/ai/provider")).json()
+    assert info["custom"]["base_url"] == BODY["base_url"]  # không lưu gì khi bị từ chối
+    other = "sk-other-gateway-key-9876"
+    r = await put_provider(client, api_key=other, base_url="https://other.example/v1")
+    assert r.status_code == 200 and r.json()["custom"]["api_key_hint"] == other[-4:]
+    await set_models(client)
+    gateway.responses = [plan(), ANSWER]
+    assert (await ask(client)).status_code == 200
+    assert gateway.built[-1].api_key == other  # type: ignore[attr-defined]
     assert gateway.built[-1].base_url == "https://other.example/v1"  # type: ignore[attr-defined]
 
 

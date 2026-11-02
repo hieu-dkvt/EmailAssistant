@@ -187,5 +187,19 @@ describe("AiSettingsPage", () => {
       expect(screen.queryByText(/địa chỉ công cộng/)).toBeNull();
       expect(screen.getByText(/sẽ gửi tới/)).toHaveTextContent("10.0.0.5");
     });
+
+    it("đổi URL thì yêu cầu nhập lại API key", async () => {
+      stubProvider(false);
+      renderPage();
+      await screen.findByText(/sẽ gửi tới/);
+      const key = screen.getByLabelText("API key");
+      expect(key).toHaveAttribute("placeholder", expect.stringMatching(/để trống để giữ nguyên/));
+      expect(screen.queryByText(/cần nhập lại API key/)).toBeNull();
+      const url = screen.getByLabelText("URL gốc");
+      await userEvent.setup().clear(url);
+      await userEvent.setup().type(url, "http://10.0.0.5/v1");
+      expect(key).toHaveAttribute("placeholder", "Dán API key");
+      expect(screen.getByText(/Đổi URL thì cần nhập lại API key/)).toBeInTheDocument();
+    });
   });
 });

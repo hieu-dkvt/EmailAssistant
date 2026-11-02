@@ -68,7 +68,7 @@ Gọi kiểu `openai`:
 
 ## 8. Web (`AiSettingsPage`)
 
-- Khối "Nhà cung cấp AI": chọn giao thức, ô URL (gợi ý `https://openrouter.ai/api/v1`), ô API key kiểu password (để trống = giữ key cũ, hiện "đã đặt …abcd"), nút Lưu, Kiểm tra kết nối, Xóa (quay về biến môi trường).
+- Khối "Nhà cung cấp AI": chọn giao thức, ô URL (gợi ý `https://openrouter.ai/api/v1`), ô API key kiểu password (để trống = giữ key cũ, hiện "đã đặt …abcd"; từ 2026-11-02 chỉ khi URL không đổi, xem spec 28 mục 13), nút Lưu, Kiểm tra kết nối, Xóa (quay về biến môi trường).
 - Cảnh báo cố định khi dùng provider ngoài: "Mail đã che thông tin sẽ đi qua <host>. Bạn chịu trách nhiệm với NDA của khách."
 - `secret_key_ready=false` thì hiện hướng dẫn đặt `PMM_SECRET_KEY` và khóa nút Lưu.
 - Bảng tác vụ: có provider tùy chỉnh thì thay 3 radio cấp bằng ô nhập tên model; không có thì giữ như cũ.

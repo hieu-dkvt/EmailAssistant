@@ -492,7 +492,11 @@ async def put_provider(
             "secret_key_missing",
         )
     if not key:
+        # Ô key trống chỉ giữ key đã lưu khi URL không đổi: key cũ không bao giờ đi theo sang
+        # địa chỉ khác (quyết định của người dùng 2026-11-02).
         stored = await load_provider(engine, user_id)
+        if stored and stored.base_url != base_url:
+            raise _field_error("api_key", "Đổi URL thì cần nhập lại API key", "api_key")
         key = (stored.key() if stored else None) or ""
         if not key:
             raise _field_error("api_key", "Cần nhập API key", "api_key")
