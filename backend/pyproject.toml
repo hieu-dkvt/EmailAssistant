@@ -13,6 +13,7 @@ dependencies = [
     "anthropic>=1,<2",
     "pgvector>=0.3",
     "httpx>=0.28",
+    "httpx2>=2.0",
     "cryptography>=43",
 ]
 
@@ -22,7 +23,6 @@ dev = [
     "pytest-asyncio>=0.24",
     "ruff>=0.8",
     "pyright>=1.1.390",
-    "httpx2>=2.0",
 ]
 
 [tool.uv]

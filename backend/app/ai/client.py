@@ -9,10 +9,11 @@
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 import anthropic
-from anthropic import AsyncAnthropic, transform_schema
+import httpx2
+from anthropic import APIRequest, AsyncAnthropic, AsyncAPIResponse, AsyncCallNext, transform_schema
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -24,6 +25,8 @@ log = logging.getLogger("app.ai")
 
 TIMEOUT_SECONDS = 120.0
 MAX_RETRIES = 2
+TIMEOUT_MESSAGE = "Model trả lời quá lâu, thử lại sau hoặc dùng model nhanh hơn"
+MAX_MODEL_CHARS = 200
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,36 @@ def _quiet_sdk_logs() -> None:
         logging.getLogger(name).setLevel(logging.WARNING)
 
 
+def served_model(value: object, requested: str) -> str:
+    """Tên model gateway báo đã dùng, nếu an toàn để ghi log và DB; không thì tên đã yêu cầu.
+
+    Giá trị do gateway trả về: chuỗi có xuống dòng giả được dòng log, chuỗi dài làm đầy log.
+    """
+    if isinstance(value, str) and 0 < len(value) <= MAX_MODEL_CHARS and value.isprintable():
+        return value
+    return requested
+
+
+class ReadTimedOut(Exception):
+    """Hết giờ chờ phản hồi. Không thuộc lớp lỗi SDK thử lại (spec 28, sửa sau review)."""
+
+
+async def no_retry_on_read_timeout(
+    request: APIRequest, call_next: AsyncCallNext
+) -> AsyncAPIResponse[Any]:
+    """Middleware của SDK: hết giờ đọc phản hồi thì không thử lại.
+
+    SDK thử lại mọi APITimeoutError; mỗi lần thử tốn tới 120 giây tải của gateway. Hết giờ khi kết
+    nối thì vẫn thử lại như cũ. `from None`: SDK xét cả chuỗi __cause__ để quyết định thử lại.
+    """
+    try:
+        return await call_next(request)
+    except anthropic.APITimeoutError as e:
+        if isinstance(e.__cause__, httpx2.ReadTimeout):
+            raise ReadTimedOut from None
+        raise
+
+
 class AnthropicLlm:
     def __init__(self, client: AsyncAnthropic) -> None:
         # Client luôn do _anthropic_llm (provider.py) dựng với base_url, key của người dùng:
@@ -109,6 +142,8 @@ class AnthropicLlm:
                 messages=messages,  # type: ignore[arg-type]
                 output_config=output_config,  # type: ignore[arg-type]
             )
+        except ReadTimedOut as e:
+            raise _api_error("ai_timeout", 503, TIMEOUT_MESSAGE, e) from None
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
             raise _api_error("ai_auth_failed", 503, "Khóa API của AI không hợp lệ", e) from None
         except anthropic.RateLimitError as e:
@@ -119,13 +154,13 @@ class AnthropicLlm:
             if e.status_code >= 500:
                 raise _api_error("ai_unavailable", 503, "AI đang lỗi, thử lại sau", e) from None
             raise _api_error("ai_bad_request", 502, "AI từ chối request", e) from None
-        except anthropic.APIConnectionError as e:  # gồm APITimeoutError
+        except anthropic.APIConnectionError as e:  # gồm hết giờ kết nối (APITimeoutError)
             raise _api_error("ai_unavailable", 503, "Không kết nối được AI", e) from None
         usage = resp.usage
         text_block = next((b.text for b in resp.content if b.type == "text"), None)
         return LlmResponse(
             text=text_block,
-            model=resp.model,
+            model=served_model(resp.model, model),
             stop_reason=resp.stop_reason,
             usage=LlmUsage(
                 input_tokens=usage.input_tokens or 0,

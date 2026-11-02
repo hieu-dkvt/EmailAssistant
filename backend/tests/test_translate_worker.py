@@ -117,6 +117,23 @@ async def test_no_self_defer_after_transient_error(
     assert run_count(world.owner) == 0
 
 
+async def test_self_defer_after_timeout(
+    job_app: App,
+    api: AsyncEngine,
+    llm: FakeLlm,
+    world: SimpleNamespace,
+) -> None:
+    """Khác lỗi gateway sập: mail hết giờ đã ghi retry, job đi tiếp mail sau."""
+    await put(world, "m1@x.example")
+    await put(world, "m2@x.example", day=2)
+    llm.responses = [LlmError("ai_timeout", 503, ""), OUT]
+    await tasks.defer_translate(job_app, world.a)
+    await run_queue(job_app, "translate", context(world.worker, api, llm))
+    assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "succeeded")] * 2
+    assert len(llm.requests) == 2
+    assert run_count(world.owner) == 2
+
+
 async def test_self_defer_when_more(
     job_app: App,
     api: AsyncEngine,

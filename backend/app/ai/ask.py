@@ -242,7 +242,7 @@ async def ask(
     sent: list[AskSent] = []
 
     async with user_session(engine, user_id) as s:
-        models = await user_models(s)
+        models = await user_models(s, user_id)
         if any(t not in models for t in ASK_TASKS):
             raise LlmError(
                 "ai_model_missing", 503, "Nhập tên model cho tác vụ hỏi đáp (Cài đặt AI)"

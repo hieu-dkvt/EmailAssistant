@@ -189,7 +189,7 @@ export function AskPage() {
         <h1 className="text-lg font-semibold">Hỏi AI về mail</h1>
         <p className="text-sm text-muted-foreground">
           Hỏi bằng tiếng Việt, Nhật hoặc Anh. Hệ thống tìm các đoạn mail liên quan trong mail của
-          bạn rồi gửi cho model AI nội bộ. Câu hỏi và câu trả lời không được lưu lại.
+          bạn rồi gửi tới nhà cung cấp AI đã cấu hình. Câu hỏi và câu trả lời không được lưu lại.
         </p>
       </div>
       <form onSubmit={submit} className="grid gap-3 rounded-lg border p-3" aria-label="Hỏi đáp">

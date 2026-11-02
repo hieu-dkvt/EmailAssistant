@@ -95,7 +95,7 @@ def get_resolver(request: Request) -> LlmResolver:
 
 async def _settings(engine: AsyncEngine, user_id: int) -> AiSettings:
     async with user_session(engine, user_id) as s:
-        models = await user_models(s)
+        models = await user_models(s, user_id)
     return AiSettings(
         configured=await load_provider(engine, user_id) is not None,
         tasks=[
@@ -123,7 +123,7 @@ async def _llm_for(
             "ai_not_configured",
         )
     async with user_session(engine, user_id) as s:
-        models = await user_models(s)
+        models = await user_models(s, user_id)
     if any(t not in models for t in tasks):
         raise ApiError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -537,7 +537,7 @@ async def test_provider(
         if llm is None:
             raise LlmError("ai_not_configured", 503, "Chưa lưu nhà cung cấp AI")
         async with user_session(engine, user_id) as s:
-            model = (await user_models(s)).get("answer")
+            model = (await user_models(s, user_id)).get("answer")
         if not model:
             raise LlmError("ai_model_missing", 503, "Nhập tên model cho tác vụ trả lời trước")
         started = time.monotonic()
@@ -559,4 +559,14 @@ async def test_provider(
             )
     except LlmError as e:
         raise ApiError(e.http_status, e.message, e.code) from None
+    except (ApiError, DBAPIError):
+        raise  # đã có handler riêng, không lộ nội dung
+    except Exception as e:
+        # Thông điệp lỗi có thể chứa phản hồi của gateway: uvicorn sẽ log cả traceback.
+        log.error("provider test failed user=%s error=%s", user_id, type(e).__name__)
+        raise ApiError(
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+            "Lỗi khi thử kết nối nhà cung cấp AI",
+            "provider_test_failed",
+        ) from None
     return AiProviderTest(ok=True, model=resp.model or model, duration_ms=ms)

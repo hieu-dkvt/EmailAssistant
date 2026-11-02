@@ -5,21 +5,29 @@ Gateway thật được thay bằng FakeLlm (build_llm bị monkeypatch); client
 test riêng trong test_ai_provider.py.
 """
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from types import SimpleNamespace
+from typing import Any
 
+import httpx
 import pytest
 from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Engine, text
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from app.ai import provider
-from app.ai.client import LlmResponse, LlmUsage
+from app.ai.client import LlmClient, LlmResponse, LlmUsage
+from app.ai.provider import LlmResolver, delete_provider, load_provider, save_provider
+from app.ai.settings import user_models
+from app.db.session import user_session
 from app.main import create_app
+from tests.dbutil import url_for_test_db
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
     ANSWER,
+    Gateway,
     api,
     ask,
     client,
@@ -27,6 +35,7 @@ from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
     ml,
     no_llm_client,
     plan,
+    real_gateway,
     world,
 )
 from tests.test_ai_api import app as app  # noqa: F401
@@ -243,6 +252,155 @@ async def test_provider_test_endpoint(
     with owner_engine.connect() as conn:
         rows = conn.execute(text("select task, status, input_tokens from ai_calls")).all()
     assert [tuple(x) for x in rows] == [("provider_test", "ok", 5)]
+
+
+@pytest.mark.parametrize("usage", [{"prompt_tokens": "SECRET-GATEWAY-TEXT"}, "SECRET-GATEWAY-TEXT"])
+async def test_provider_test_odd_usage_is_bad_output(
+    real_gateway: Gateway,
+    world: SimpleNamespace,
+    owner_engine: Engine,
+    usage: object,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Thông điệp ValueError chứa chuỗi của gateway: không vào response, log hay traceback."""
+    real_gateway.replies = [
+        httpx.Response(
+            200,
+            json={
+                "choices": [{"finish_reason": "stop", "message": {"content": "{}"}}],
+                "usage": usage,
+            },
+        )
+    ]
+    with caplog.at_level("DEBUG"):
+        r = await real_gateway.client.post("/api/v1/ai/provider/test", headers=CSRF)
+    assert (r.status_code, r.json()["code"]) == (502, "ai_bad_output")
+    assert "SECRET" not in r.text and "SECRET" not in caplog.text
+
+
+async def test_provider_test_unexpected_error_hides_message(
+    client: AsyncClient, llm: FakeLlm, caplog: pytest.LogCaptureFixture
+) -> None:
+    llm.responses = [RuntimeError("SECRET-GATEWAY-TEXT")]
+    with caplog.at_level("DEBUG"):
+        r = await client.post("/api/v1/ai/provider/test", headers=CSRF)
+    assert (r.status_code, r.json()["code"]) == (500, "provider_test_failed")
+    assert "SECRET" not in r.text and "SECRET" not in caplog.text
+    assert "provider test failed" in caplog.text and "RuntimeError" in caplog.text
+
+
+async def test_provider_test_read_timeout_is_ai_timeout(real_gateway: Gateway) -> None:
+    real_gateway.replies = [httpx.ReadTimeout("SECRET-GATEWAY-TEXT")]
+    r = await real_gateway.client.post("/api/v1/ai/provider/test", headers=CSRF)
+    assert (r.status_code, r.json()["code"]) == (503, "ai_timeout")
+    assert "SECRET" not in r.text
+
+
+# --- LlmResolver: một resolver dùng chung cho mọi người dùng (spec 28 mục 7) ---
+
+URL_A, URL_B = "http://10.0.0.5:20128/v1", "http://10.0.0.6:20128/v1"
+KEY_B = "sk-gateway-b-abcdefghijklmnop"
+
+
+async def reached(llm: LlmClient | None) -> tuple[str, str]:
+    """(URL, Authorization) mà client thật của resolver gửi tới; chỉ thay transport."""
+    assert isinstance(llm, provider.OpenAiLlm)
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        message: dict[str, Any] = {"message": {"content": "{}"}}
+        return httpx.Response(200, json={"choices": [message]})
+
+    llm._http._transport = httpx.MockTransport(handle)
+    await llm.create(model="m", system="s", user="u", schema={}, max_tokens=5, effort="low")
+    return str(seen[0].url), seen[0].headers["authorization"]
+
+
+async def test_resolver_user_without_provider_gets_none(
+    api: AsyncEngine, world: SimpleNamespace, secret_key: str
+) -> None:
+    resolver = LlmResolver()
+    await save_provider(api, world.a, "openai", URL_A, KEY)
+    assert await resolver.for_user(api, world.a) is not None
+    assert await resolver.for_user(api, world.b) is None
+
+
+async def test_resolver_each_user_reaches_own_gateway(
+    api: AsyncEngine, world: SimpleNamespace, secret_key: str
+) -> None:
+    """Nhà cung cấp của B không dùng cho A, kể cả khi cả hai cùng một resolver."""
+    resolver = LlmResolver()
+    await save_provider(api, world.a, "openai", URL_A, KEY)
+    await save_provider(api, world.b, "openai", URL_B, KEY_B)
+    assert await reached(await resolver.for_user(api, world.a)) == (
+        f"{URL_A}/chat/completions",
+        f"Bearer {KEY}",
+    )
+    assert await reached(await resolver.for_user(api, world.b)) == (
+        f"{URL_B}/chat/completions",
+        f"Bearer {KEY_B}",
+    )
+    # Cache theo người dùng: lần hai vẫn đúng người.
+    assert await reached(await resolver.for_user(api, world.a)) == (
+        f"{URL_A}/chat/completions",
+        f"Bearer {KEY}",
+    )
+
+
+async def test_resolver_sees_edit_without_forget(
+    api: AsyncEngine, world: SimpleNamespace, secret_key: str
+) -> None:
+    """Đường worker: API sửa nhà cung cấp, resolver của process worker không nhận forget()."""
+    resolver = LlmResolver()
+    await save_provider(api, world.a, "openai", URL_A, KEY)
+    first = await resolver.for_user(api, world.a)
+    assert await resolver.for_user(api, world.a) is first  # chưa đổi thì dùng lại client
+    await save_provider(api, world.a, "openai", URL_B, KEY)
+    second = await resolver.for_user(api, world.a)
+    assert second is not first
+    assert (await reached(second))[0] == f"{URL_B}/chat/completions"
+
+
+async def test_resolver_sees_delete_without_forget(
+    api: AsyncEngine, world: SimpleNamespace, secret_key: str
+) -> None:
+    resolver = LlmResolver()
+    await save_provider(api, world.a, "openai", URL_A, KEY)
+    assert await resolver.for_user(api, world.a) is not None
+    await delete_provider(api, world.a)
+    assert await resolver.for_user(api, world.a) is None
+
+
+# --- truy vấn tự lọc user_id, không chỉ dựa vào RLS (sửa sau review) ---
+
+
+@pytest.fixture
+async def no_rls() -> AsyncIterator[AsyncEngine]:
+    """Role chủ bảng không chịu RLS: như truyền nhầm engine không phải app_api."""
+    engine = create_async_engine(url_for_test_db("owner"))
+    yield engine
+    await engine.dispose()
+
+
+async def test_provider_queries_filter_user_without_rls(
+    no_rls: AsyncEngine, api: AsyncEngine, world: SimpleNamespace, secret_key: str
+) -> None:
+    await save_provider(api, world.a, "openai", URL_A, KEY)
+    assert await load_provider(no_rls, world.b) is None
+    await delete_provider(no_rls, world.b)
+    assert await load_provider(no_rls, world.a) is not None
+
+
+async def test_user_models_filter_user_without_rls(
+    no_rls: AsyncEngine, owner_engine: Engine, world: SimpleNamespace
+) -> None:
+    with owner_engine.begin() as conn:
+        conn.execute(
+            text("update user_ai_settings set model = 'of-b' where user_id = :u"), {"u": world.b}
+        )
+    async with user_session(no_rls, world.a) as s:
+        assert set((await user_models(s, world.a)).values()) == {"test-model"}
 
 
 async def test_other_user_cannot_see_provider(

@@ -4,16 +4,19 @@ Không gọi gateway thật: dùng httpx.MockTransport.
 """
 
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
+import httpx2
 import pytest
 from cryptography.fernet import Fernet
 
 from app.ai import provider
 from app.ai import secrets as ai_secrets
-from app.ai.client import LlmError
+from app.ai.client import TIMEOUT_MESSAGE, TIMEOUT_SECONDS, LlmError
 from app.ai.provider import OpenAiLlm, is_public_host, reject_link_local, validate_base_url
+from tests.test_ai_client import message
 
 SCHEMA: dict[str, object] = {
     "type": "object",
@@ -76,6 +79,7 @@ def test_missing_or_bad_secret_key(monkeypatch: pytest.MonkeyPatch) -> None:
         ("https://gateway.internal/v1", "https://gateway.internal/v1"),
         ("https://localhost", "https://localhost"),
         ("http://printer.local/v1", "http://printer.local/v1"),
+        ("https://gateway.internal./v1", "https://gateway.internal/v1"),  # dấu chấm cuối (FQDN)
     ],
 )
 def test_url_accepted(raw: str, expected: str) -> None:
@@ -107,6 +111,21 @@ def test_url_accepted(raw: str, expected: str) -> None:
         "http://[fe80::1]",
         "https://[fe80::1]/v1",
         "http://[::ffff:169.254.169.254]",
+        # Dấu chấm cuối không được che IP dạng số hay link-local (sửa sau review).
+        "http://2852039166.",
+        "http://0xa9fea9fe.",
+        "http://169.254.169.254.",
+        "http://169.254.169.254../v1",
+        "http://...",
+        # Ký tự điều khiển, khoảng trắng: urlsplit tự bỏ \t \r \n nên phải chặn trước khi tách.
+        "http://host/\x01x",
+        "http://ho\x01st/v1",
+        "http://host/a b",
+        "http://ho st/v1",
+        "http://host/\tx",
+        "http://ho\nst/v1",
+        "http://host/\x7fx",
+        "http://host/\u00a0x",
     ],
 )
 def test_url_rejected(raw: str) -> None:
@@ -129,7 +148,7 @@ def completion(
     return httpx.Response(200, json=body)
 
 
-def make(handler: Any) -> tuple[OpenAiLlm, list[httpx.Request]]:
+def make(handler: Any, retries: int = 0) -> tuple[OpenAiLlm, list[httpx.Request]]:
     seen: list[httpx.Request] = []
 
     def record(request: httpx.Request) -> httpx.Response:
@@ -140,7 +159,7 @@ def make(handler: Any) -> tuple[OpenAiLlm, list[httpx.Request]]:
         base_url="https://gateway.example/v1",
         api_key=KEY,
         transport=httpx.MockTransport(record),
-        max_retries=0,
+        max_retries=retries,
     )
     return llm, seen
 
@@ -257,6 +276,54 @@ async def test_network_error_is_unavailable() -> None:
     assert e.value.code == "ai_unavailable"
 
 
+class SlowBody(httpx.AsyncByteStream):
+    """Gateway gửi header rồi im: hết giờ giữa lúc đọc body."""
+
+    async def __aiter__(self) -> AsyncIterator[bytes]:
+        yield b"{"
+        raise httpx.ReadTimeout("SECRET-TIMEOUT-TEXT")
+
+
+async def test_read_timeout_is_ai_timeout_without_retry(caplog: pytest.LogCaptureFixture) -> None:
+    """Mỗi lần thử tốn tới 120 giây tải của gateway: hết giờ đọc phản hồi thì không thử lại."""
+
+    def slow(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("SECRET-TIMEOUT-TEXT", request=request)
+
+    llm, seen = make(slow, retries=2)
+    with caplog.at_level("WARNING", logger="app.ai"), pytest.raises(LlmError) as e:
+        await create(llm)
+    assert (e.value.code, e.value.http_status) == ("ai_timeout", 503)
+    assert e.value.message == TIMEOUT_MESSAGE
+    assert len(seen) == 1
+    assert "type=ReadTimeout" in caplog.text and "SECRET" not in caplog.text
+
+
+async def test_read_timeout_in_body_is_ai_timeout_without_retry() -> None:
+    llm, seen = make(lambda r: httpx.Response(200, stream=SlowBody()), retries=2)
+    with pytest.raises(LlmError) as e:
+        await create(llm)
+    assert e.value.code == "ai_timeout"
+    assert len(seen) == 1
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout])
+async def test_connection_errors_stay_unavailable_and_retry(
+    error: type[httpx.TransportError],
+) -> None:
+    """Gateway tắt: dừng người dùng là đúng, không phải lỗi của một mail."""
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise error("SECRET-TIMEOUT-TEXT", request=request)
+
+    llm, seen = make(down, retries=2)
+    with pytest.raises(LlmError) as e:
+        await create(llm)
+    assert e.value.code == "ai_unavailable"
+    assert "SECRET" not in e.value.message
+    assert len(seen) == 3
+
+
 async def test_redirect_is_not_followed() -> None:
     llm, seen = make(lambda r: httpx.Response(302, headers={"location": "https://evil.example/"}))
     with pytest.raises(LlmError):
@@ -281,6 +348,47 @@ async def test_odd_200_responses(response: httpx.Response) -> None:
         assert e.code in {"ai_bad_output", "ai_unavailable"}
     else:
         assert not resp.text  # để call_task báo ai_bad_output
+
+
+def body_with_usage(usage: object) -> str:
+    return json.dumps(
+        {"choices": [{"finish_reason": "stop", "message": {"content": "{}"}}], "usage": usage}
+    )
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"prompt_tokens": "SECRET-USAGE"},
+        {"prompt_tokens": 1, "completion_tokens": "SECRET-USAGE"},
+        "SECRET-USAGE",
+        ["SECRET-USAGE"],
+        {"prompt_tokens": float("inf")},
+    ],
+)
+async def test_odd_usage_is_bad_output_without_echo(
+    usage: object, caplog: pytest.LogCaptureFixture
+) -> None:
+    llm, _ = make(lambda r: httpx.Response(200, content=body_with_usage(usage)))
+    with caplog.at_level("DEBUG"), pytest.raises(LlmError) as e:
+        await create(llm)
+    assert e.value.code == "ai_bad_output"
+    assert e.value.__cause__ is None and e.value.__suppress_context__
+    assert "SECRET" not in e.value.message and "SECRET" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "served", ["a\nb", "m\r\nai user=9 status=ok", "\x1b[2Jm", "x" * 201, "", 123, ["m"], None]
+)
+async def test_odd_model_name_falls_back_to_requested(served: object) -> None:
+    llm, _ = make(lambda r: completion(model=served))
+    assert (await create(llm)).model == "anthropic/claude-sonnet-5-5"
+
+
+@pytest.mark.parametrize("served", ["gw/model-2", "x" * 200, "モデル 1"])
+async def test_model_name_of_gateway_is_kept(served: str) -> None:
+    llm, _ = make(lambda r: completion(model=served))
+    assert (await create(llm)).model == served
 
 
 async def test_oversized_response_is_rejected() -> None:
@@ -377,6 +485,53 @@ async def test_openai_llm_posts_to_lan_url() -> None:
     )
     await create(llm)
     assert seen == ["http://10.0.0.5:20128/v1/chat/completions"]
+
+
+@pytest.fixture
+def proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proxy trong môi trường: mail gốc và API key không được đi qua, kể cả tới địa chỉ LAN."""
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.setenv(name, "http://127.0.0.1:9")
+
+
+async def test_openai_client_ignores_env_proxy(proxy_env: None) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return completion()
+
+    llm: Any = provider.build_llm(
+        provider.ProviderConfig("openai", "http://10.0.0.5:20128/v1", KEY)
+    )
+    http = llm._http
+    assert http.trust_env is False
+    assert http._mounts == {}
+    http._transport = httpx.MockTransport(handler)
+    await create(llm)
+    assert seen == ["http://10.0.0.5:20128/v1/chat/completions"]
+
+
+async def test_anthropic_client_ignores_env_proxy(proxy_env: None) -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        seen.append(str(request.url))
+        return message()
+
+    llm: Any = provider.build_llm(
+        provider.ProviderConfig("anthropic", "http://10.0.0.5:20128", KEY)
+    )
+    http = llm._client._client
+    assert http.trust_env is False
+    assert http._mounts == {}
+    assert http.follow_redirects is False
+    assert http.timeout == httpx2.Timeout(TIMEOUT_SECONDS)
+    http._transport = httpx2.MockTransport(handler)
+    await create(llm)
+    assert seen == ["http://10.0.0.5:20128/v1/messages"]
 
 
 async def test_anthropic_protocol_does_not_follow_redirects() -> None:

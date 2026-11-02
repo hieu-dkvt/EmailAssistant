@@ -92,6 +92,17 @@ describe("AnswerText", () => {
 });
 
 describe("AskPage", () => {
+  it("không khẳng định model là nội bộ: ô URL ở Cài đặt AI nhận mọi địa chỉ", () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json(200, [])),
+    );
+    renderAt(<AskPage />);
+    expect(screen.getByText(/gửi tới nhà cung cấp AI đã cấu hình/)).toBeInTheDocument();
+    expect(screen.getByText(/không được lưu lại/)).toBeInTheDocument();
+    expect(screen.queryByText(/nội bộ/)).toBeNull();
+  });
+
   it("gửi câu hỏi kèm header chống CSRF và hiện câu trả lời, nguồn, nội dung đã gửi", async () => {
     const posts: Request[] = [];
     vi.stubGlobal(

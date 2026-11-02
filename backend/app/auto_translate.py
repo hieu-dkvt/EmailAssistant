@@ -1,8 +1,8 @@
 """Job dịch tự động: chọn mail khách trong Inbox, dịch, ghi kết quả và chuyển folder trên web
 (spec 26 mục 4, 5, 8).
 
-Mọi đọc, ghi dữ liệu mail chạy trong user_session của engine role app_api (RLS): glossary,
-call_task không lọc user_id trong câu truy vấn, role worker sẽ đọc lẫn mail người khác.
+Mọi đọc, ghi dữ liệu mail chạy trong user_session của engine role app_api (RLS): role worker có
+BYPASSRLS, một truy vấn quên lọc user_id sẽ đọc lẫn mail người khác.
 Riêng pending_translate_users chạy role app_worker: luôn lọc user_id, chỉ trả về id người dùng.
 Không giữ transaction trong lúc chờ AI. Log chỉ có user, message_id, mã lỗi, ms.
 """
@@ -38,9 +38,10 @@ RETRY_WAIT_MINUTES = 10  # chờ attempts × ngần này phút
 MAX_RETRY_WAIT_MINUTES = 60  # trần thời gian chờ
 # Lỗi gắn với mail này: dừng ở mail này, mail sau vẫn chạy.
 PER_MAIL_ERRORS = {"ai_bad_output", "ai_truncated", "ai_refused"}
-# Có thể do một mail (quá dài) hoặc do cấu hình (sai tên model): mail chờ, mail sau vẫn chạy, nhưng
-# không thành failed, nếu không sai tên model sẽ làm hỏng vĩnh viễn mọi mail đang chờ.
-UNBOUNDED_RETRY_ERRORS = {"ai_bad_request"}
+# Có thể do một mail (quá dài) hoặc do cấu hình (sai tên model, model quá chậm): mail chờ, mail sau
+# vẫn chạy, nhưng không thành failed, nếu không cấu hình sai sẽ làm hỏng mọi mail đang chờ.
+# Hết giờ kết nối là ai_unavailable: gateway tắt thì dừng người dùng, không phải lỗi của mail.
+UNBOUNDED_RETRY_ERRORS = {"ai_bad_request", "ai_timeout"}
 # Mọi LlmError khác là lỗi tạm: dừng người dùng này, không ghi gì.
 RECORDED_ERRORS = PER_MAIL_ERRORS | UNBOUNDED_RETRY_ERRORS
 NOTHING_TO_TRANSLATE = "nothing_to_translate"
@@ -323,7 +324,7 @@ async def translate_next(api_engine: AsyncEngine, resolver: LlmResolver, user_id
     if llm is None:
         return stop
     async with user_session(api_engine, user_id) as s:
-        if TASK_TRANSLATE not in await user_models(s):
+        if TASK_TRANSLATE not in await user_models(s, user_id):
             return stop
         picked = await next_message(s, user_id)
         if picked is None:

@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app import auto_translate
 from app.ai.client import LlmClient, LlmError, LlmResponse
 from app.ai.prompts import TranslationOut
-from app.ai.provider import LlmResolver
+from app.ai.provider import MAX_RETRIES, LlmResolver, OpenAiLlm
 from app.ai.translate import TranslateError, mail_hash, saved_translations
 from app.auto_translate import (
     ELIGIBLE_SQL,
@@ -47,7 +47,7 @@ from tests.dbutil import (
     set_ai_models,
 )
 from tests.mlfake import FakeLlm
-from tests.test_ai_api import api, llm  # noqa: F401
+from tests.test_ai_api import api, chat_reply, llm  # noqa: F401
 from tests.test_web_api import put_mail
 
 INBOX_PATH = "ImapMail/imap.example.com/INBOX"
@@ -581,18 +581,20 @@ async def test_other_llm_errors_are_transient(
     assert run_row(world.owner, world.a, m) is None
 
 
-async def test_bad_request_never_fails_and_does_not_block_next_mail(
-    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
+@pytest.mark.parametrize("code", ["ai_bad_request", "ai_timeout"])
+async def test_unbounded_retry_never_fails_and_does_not_block_next_mail(
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace, code: str
 ) -> None:
-    """ai_bad_request có thể do một mail (quá dài) hoặc do cấu hình (sai tên model): mail chờ, mail
-    sau vẫn chạy, và không bao giờ thành failed để sửa cấu hình xong là mail chạy lại được."""
+    """ai_bad_request có thể do một mail (quá dài) hoặc do cấu hình (sai tên model), ai_timeout do
+    mail dài hoặc model chậm: mail chờ, mail sau vẫn chạy, và không bao giờ thành failed để sửa
+    cấu hình hay đổi model xong là mail chạy lại được."""
     blocked = await put(world, "old@x.example", day=1)
     after = await put(world, "new@x.example", day=2)
-    llm.responses = [LlmError("ai_bad_request", 502, ""), OUT]
+    llm.responses = [LlmError(code, 502, ""), OUT]
     before = datetime.now(UTC)
     assert await next_run(api, llm, world.a) == RunStats(True, True)
     row = run_row(world.owner, world.a, blocked)
-    assert (row.status, row.attempts, row.error_code) == ("retry", 1, "ai_bad_request")
+    assert (row.status, row.attempts, row.error_code) == ("retry", 1, code)
     assert timedelta(minutes=10) <= row.next_attempt_at - before < timedelta(minutes=11)
 
     assert await picked(api, world.a) == (after, world.inbox)
@@ -601,11 +603,11 @@ async def test_bad_request_never_fails_and_does_not_block_next_mail(
 
     for attempt in range(2, 12):
         execute(world.owner, "update message_auto_runs set next_attempt_at = now()")
-        llm.responses = [LlmError("ai_bad_request", 502, "")]
+        llm.responses = [LlmError(code, 502, "")]
         before = datetime.now(UTC)
         assert await next_run(api, llm, world.a) == RunStats(True, True)
         row = run_row(world.owner, world.a, blocked)
-        assert (row.status, row.attempts, row.error_code) == ("retry", attempt, "ai_bad_request")
+        assert (row.status, row.attempts, row.error_code) == ("retry", attempt, code)
         minutes = min(attempt * 10, MAX_RETRY_WAIT_MINUTES)
         assert timedelta(minutes=minutes) <= row.next_attempt_at - before
         assert row.next_attempt_at - before < timedelta(minutes=minutes, seconds=30)
@@ -616,6 +618,53 @@ async def test_bad_request_never_fails_and_does_not_block_next_mail(
     await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, blocked)
     assert (row.status, row.error_code, row.target_source_id) == ("done", None, world.folder)
+
+
+def gateway_llm(replies: list[Any]) -> tuple[OpenAiLlm, list[httpx.Request]]:
+    """Client thật trước transport giả: MAX_RETRIES như chạy thật, không có mạng."""
+    seen: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        reply = replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+    llm = OpenAiLlm(
+        base_url="http://10.0.0.5:20128/v1", api_key="k", transport=httpx.MockTransport(handle)
+    )
+    return llm, seen
+
+
+async def test_mail_gateway_cannot_finish_does_not_block_queue(
+    api: AsyncEngine, world: SimpleNamespace
+) -> None:
+    """Spec 28 (sửa sau review): cũ nhất trước, nên trước đây mail này chặn mọi mail sau nó."""
+    blocked = await put(world, "old@x.example", day=1)
+    after = await put(world, "new@x.example", day=2)
+    llm, seen = gateway_llm([httpx.ReadTimeout("slow"), chat_reply(OUT)])
+    resolver = LlmResolver(llm)
+    assert await translate_next(api, resolver, world.a) == RunStats(True, True)
+    assert len(seen) == 1  # không thử lại: mỗi lần tốn tới 120 giây của gateway
+    row = run_row(world.owner, world.a, blocked)
+    assert (row.status, row.attempts, row.error_code) == ("retry", 1, "ai_timeout")
+    assert await translate_next(api, resolver, world.a) == RunStats(True, False)
+    assert run_row(world.owner, world.a, after).status == "done"
+    assert translation_of(world.owner, world.a, blocked) is None
+
+
+@pytest.mark.parametrize("error", [httpx.ConnectTimeout("off"), httpx.ConnectError("off")])
+async def test_connect_failure_still_stops_user(
+    api: AsyncEngine, world: SimpleNamespace, error: httpx.TransportError
+) -> None:
+    """Gateway tắt không phải lỗi của mail: không ghi gì, không tính lượt, lần quét sau làm lại."""
+    m = await put(world, "m1@x.example")
+    llm, seen = gateway_llm([error] * (MAX_RETRIES + 1))
+    assert await translate_next(api, LlmResolver(llm), world.a) == RunStats(False, False)
+    assert len(seen) == MAX_RETRIES + 1
+    assert run_row(world.owner, world.a, m) is None
+    assert (await picked(api, world.a)) == (m, world.inbox)
 
 
 async def test_bad_request_from_resolver_stops_without_row(

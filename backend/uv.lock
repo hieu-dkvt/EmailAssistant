@@ -736,6 +736,7 @@ dependencies = [
     { name = "cryptography" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "httpx2" },
     { name = "pgvector" },
     { name = "procrastinate" },
     { name = "psycopg", extra = ["binary"] },
@@ -745,7 +746,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx2" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -759,6 +759,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=43" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.28" },
+    { name = "httpx2", specifier = ">=2.0" },
     { name = "pgvector", specifier = ">=0.3" },
     { name = "procrastinate", specifier = "==3.10.0" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
@@ -768,7 +769,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx2", specifier = ">=2.0" },
     { name = "pyright", specifier = ">=1.1.390" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

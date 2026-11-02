@@ -194,6 +194,18 @@ describe("MessageTranslation", () => {
     expect(alert.textContent).not.toMatch(/che/);
   });
 
+  it("hết giờ chờ model có thông báo riêng", async () => {
+    stub((call) =>
+      call.path.endsWith("/translate")
+        ? json(503, { detail: "chi tiết kỹ thuật", code: "ai_timeout" })
+        : null,
+    );
+    show(item());
+    await userEvent.setup().click(screen.getByRole("button", { name: "Dịch" }));
+    expect(await screen.findByText(/Model trả lời quá lâu/)).toBeInTheDocument();
+    expect(screen.queryByText("chi tiết kỹ thuật")).toBeNull();
+  });
+
   it("bản dịch cũ có nút Dịch lại", async () => {
     const calls = stub();
     show(item({ translation: translation({ stale: true }) }));

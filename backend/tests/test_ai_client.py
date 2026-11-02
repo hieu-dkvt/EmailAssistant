@@ -10,7 +10,8 @@ import httpx2
 import pytest
 from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
 
-from app.ai.client import AnthropicLlm, LlmError
+from app.ai import provider
+from app.ai.client import TIMEOUT_MESSAGE, AnthropicLlm, LlmError
 
 SCHEMA: dict[str, object] = {
     "type": "object",
@@ -36,14 +37,18 @@ def make(handler: Any) -> tuple[AnthropicLlm, list[httpx2.Request]]:
     return AnthropicLlm(client), seen
 
 
-def message(stop_reason: str = "end_turn", text: str = '{"answer": "ok"}') -> httpx2.Response:
+def message(
+    stop_reason: str = "end_turn",
+    text: str = '{"answer": "ok"}',
+    model: str = "claude-sonnet-5-5",
+) -> httpx2.Response:
     return httpx2.Response(
         200,
         json={
             "id": "msg_test",
             "type": "message",
             "role": "assistant",
-            "model": "claude-sonnet-5-5",
+            "model": model,
             "content": [{"type": "text", "text": text}],
             "stop_reason": stop_reason,
             "stop_sequence": None,
@@ -131,7 +136,87 @@ async def test_connection_error() -> None:
     assert exc.value.code == "ai_unavailable"
 
 
-def test_client_is_required() -> None:
-    # Không còn client dựng sẵn từ biến môi trường: chỉ nhận client đã cấu hình base_url.
-    with pytest.raises(TypeError):
-        AnthropicLlm()  # type: ignore[call-arg]
+def built(
+    handler: Any, base_url: str = "http://gateway.example"
+) -> tuple[Any, list[httpx2.Request]]:
+    """Client đúng như chạy thật (_anthropic_llm), chỉ thay transport bằng handler."""
+    seen: list[httpx2.Request] = []
+
+    def record(request: httpx2.Request) -> httpx2.Response:
+        seen.append(request)
+        return handler(request)
+
+    llm: Any = provider._anthropic_llm(provider.ProviderConfig("anthropic", base_url, "test-key"))
+    llm._client._client._transport = httpx2.MockTransport(record)
+    return llm, seen
+
+
+async def test_sdk_env_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SDK tự đọc các biến này: chỉ key và URL người dùng nhập được dùng (spec 28 mục 4).
+
+    pyproject chỉ ghim anthropic>=1,<2 nên test này canh khi nâng SDK.
+    """
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key")
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "env-token")
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example")
+    monkeypatch.setenv(
+        "ANTHROPIC_CUSTOM_HEADERS", "X-Env-Leak: SECRET-ENV\nAuthorization: Bearer env-token"
+    )
+    llm, seen = built(lambda _: message())
+    await call(llm)
+    (req,) = seen
+    assert str(req.url) == "http://gateway.example/v1/messages"
+    assert req.headers["x-api-key"] == "test-key"
+    assert "authorization" not in req.headers and "x-env-leak" not in req.headers
+    assert "SECRET-ENV" not in str(req.headers.raw)
+    inner = llm._client
+    assert inner.auth_token is None and inner.credentials is None
+    assert inner.auth_headers == {"X-Api-Key": "test-key"}
+    assert "X-Env-Leak" not in inner.default_headers
+
+
+async def test_read_timeout_is_ai_timeout_without_sdk_retry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def slow(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ReadTimeout("SECRET-TIMEOUT-TEXT", request=request)
+
+    llm, seen = built(slow)
+    with caplog.at_level("WARNING", logger="app.ai"), pytest.raises(LlmError) as exc:
+        await call(llm)
+    assert (exc.value.code, exc.value.http_status) == ("ai_timeout", 503)
+    assert exc.value.message == TIMEOUT_MESSAGE
+    assert len(seen) == 1  # SDK mặc định thử lại mọi APITimeoutError
+    assert "SECRET" not in caplog.text
+
+
+@pytest.mark.parametrize("error", [httpx2.ConnectTimeout, httpx2.ConnectError, httpx2.PoolTimeout])
+async def test_connection_errors_stay_unavailable_and_sdk_retries(
+    error: type[httpx2.TransportError],
+) -> None:
+    def down(request: httpx2.Request) -> httpx2.Response:
+        raise error("SECRET-TIMEOUT-TEXT", request=request)
+
+    llm, seen = built(down)
+    with pytest.raises(LlmError) as exc:
+        await call(llm)
+    assert exc.value.code == "ai_unavailable"
+    assert len(seen) == provider.MAX_RETRIES + 1
+
+
+async def test_overload_is_still_retried_by_sdk() -> None:
+    replies = [httpx2.Response(529, json={"type": "error", "error": {}}), message()]
+    llm, seen = built(lambda _: replies.pop(0))
+    assert (await call(llm)).text == '{"answer": "ok"}'
+    assert len(seen) == 2
+
+
+@pytest.mark.parametrize("served", ["a\nb", "\x1b[2Jm", "x" * 201])
+async def test_odd_model_name_falls_back_to_requested(served: str) -> None:
+    llm, _ = make(lambda _: message(model=served))
+    assert (await call(llm)).model == "claude-sonnet-5-5"
+
+
+async def test_model_name_of_gateway_is_kept() -> None:
+    llm, _ = make(lambda _: message(model="gw/model-2"))
+    assert (await call(llm)).model == "gw/model-2"

@@ -21,6 +21,7 @@ const ERROR_TEXT: Record<string, string> = {
   ml_unavailable: "Dịch vụ ml-service chưa chạy: bật ml-service rồi thử lại.",
   ai_not_configured: "Chưa cấu hình AI: vào Cài đặt AI để nhập nhà cung cấp.",
   ai_model_missing: "Chưa chọn model dịch: vào Cài đặt AI để chọn model cho tác vụ dịch.",
+  ai_timeout: "Model trả lời quá lâu, thử lại sau hoặc dùng model nhanh hơn.",
   move_invalid: "Dự án này không chứa mail hoặc chưa có folder đích.",
   move_not_ready: "Mail chưa được xử lý tự động nên chưa chuyển được.",
   auto_retry_invalid: "Mail không ở trạng thái lỗi nên không cần thử lại.",

@@ -4,23 +4,29 @@
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.ai.client import LlmError
+from app.ai.client import TIMEOUT_MESSAGE, LlmError
 from app.ai.prompts import TranslationOut
 from app.main import create_app
 from app.processing import process_user
 from tests.dbutil import add_auto_run, add_glossary, add_project, add_source, add_translation
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
+    GATEWAY_KEY,
+    GATEWAY_URL,
+    Gateway,
     api,
+    chat_reply,
     client,
     llm,
     ml,
+    real_gateway,
     world,
 )
 from tests.test_ai_api import app as app  # noqa: F401
@@ -378,6 +384,32 @@ async def test_logs_have_no_mail_text(
     for secret in ("田中", "見積", "サンプルA", "1,250,000", "bản-dịch-riêng", "ghi-chú-riêng"):
         assert secret not in caplog.text, secret
     assert "translate user=" in caplog.text
+
+
+async def test_logs_have_no_key_or_full_url(
+    real_gateway: Gateway, world: SimpleNamespace, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Qua client thật, từ DB tới gateway: key và URL đầy đủ không vào log."""
+    real_gateway.replies = [chat_reply(GOOD)]
+    with caplog.at_level("DEBUG"):
+        r = await translate(real_gateway.client, world.est)
+    assert r.status_code == 200, r.text
+    assert len(real_gateway.requests) == 1
+    assert "CT-2026-0042" in real_gateway.requests[0].content.decode()
+    for secret in ("田中", "見積", "1,250,000", GATEWAY_KEY, GATEWAY_URL, "secret-path"):
+        assert secret not in caplog.text, secret
+    assert "translate user=" in caplog.text
+
+
+async def test_read_timeout_saves_nothing(
+    real_gateway: Gateway, world: SimpleNamespace, owner_engine: Engine
+) -> None:
+    real_gateway.replies = [httpx.ReadTimeout("SECRET-TIMEOUT-TEXT")]
+    r = await translate(real_gateway.client, world.est)
+    assert (r.status_code, r.json()["code"]) == (503, "ai_timeout")
+    assert r.json()["detail"] == TIMEOUT_MESSAGE
+    assert "SECRET" not in r.text
+    assert translation_count(owner_engine) == 0
 
 
 async def test_thread_translations_projects_of_each_mail(

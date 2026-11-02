@@ -272,7 +272,7 @@ async def produce_translation(
         mail = await read_mail(s, user_id, message_id)
         ensure_translatable(mail)
         previous = await _previous_mail(s, user_id, mail)
-        models = await user_models(s)
+        models = await user_models(s, user_id)
         entries = await load_entries(s, user_id, message_id)
     # Job không qua kiểm tra của route: tự kiểm tên model trước khi gọi AI.
     if TASK_TRANSLATE not in models:

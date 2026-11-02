@@ -21,16 +21,19 @@ from typing import Any, Literal
 from urllib.parse import SplitResult, urlsplit
 
 import httpx
+import httpx2
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app.ai import secrets
 from app.ai.client import (
+    TIMEOUT_MESSAGE,
     TIMEOUT_SECONDS,
     LlmClient,
     LlmError,
     LlmResponse,
     LlmUsage,
+    served_model,
 )
 from app.ai.models import Effort
 from app.db.session import user_session
@@ -63,13 +66,17 @@ def validate_base_url(raw: str) -> str:
     Nhận mọi địa chỉ (LAN, localhost, công cộng); chỉ từ chối URL sai dạng và link-local.
     """
     raw = raw.strip()
+    # Xét trước khi tách: urlsplit tự bỏ \t \r \n, URL lưu lại sẽ khác URL đã kiểm tra.
+    if any(c.isspace() or not c.isprintable() for c in raw):
+        raise ValueError("URL không hợp lệ")
     try:
         url = urlsplit(raw)
         port = url.port  # ném ValueError khi cổng không phải số hoặc ngoài 0–65535
     except ValueError:
         raise ValueError("URL không hợp lệ") from None
     scheme = url.scheme.lower()
-    host = (url.hostname or "").lower()
+    # Dấu chấm cuối (FQDN) trỏ tới cùng host: không được che IP dạng số hay link-local.
+    host = (url.hostname or "").lower().rstrip(".")
     if scheme not in ("http", "https") or not host:
         raise ValueError("URL phải bắt đầu bằng http:// hoặc https://")
     if url.username is not None or url.password is not None or "@" in url.netloc:
@@ -174,7 +181,10 @@ class OpenAiLlm:
         self._key = api_key
         self._retries = max_retries
         self._http = httpx.AsyncClient(
-            transport=transport, timeout=TIMEOUT_SECONDS, follow_redirects=False
+            transport=transport,
+            timeout=TIMEOUT_SECONDS,
+            follow_redirects=False,
+            trust_env=False,  # không đi qua proxy của môi trường: mail gốc và key chỉ tới gateway
         )
 
     async def aclose(self) -> None:
@@ -219,7 +229,10 @@ class OpenAiLlm:
         for _ in range(self._retries + 1):
             try:
                 resp = await self._send(headers, json.dumps(body))
-            except httpx.HTTPError as e:  # lỗi mạng, timeout
+            except httpx.ReadTimeout as e:
+                # Không thử lại: mỗi lần tốn tới TIMEOUT_SECONDS tải của gateway.
+                raise _llm_error("ai_timeout", 503, TIMEOUT_MESSAGE, type(e).__name__) from None
+            except httpx.HTTPError as e:  # lỗi mạng, hết giờ kết nối
                 last = e
                 continue
             if resp.status_code == 429 or resp.status_code >= 500:
@@ -278,18 +291,20 @@ class OpenAiLlm:
             content = choice["message"]["content"]
             finish = choice.get("finish_reason")
             usage = data.get("usage") or {}
-        except (ValueError, KeyError, IndexError, TypeError):
+            tokens = LlmUsage(
+                input_tokens=int(usage.get("prompt_tokens") or 0),
+                output_tokens=int(usage.get("completion_tokens") or 0),
+            )
+        except (ValueError, KeyError, IndexError, TypeError, AttributeError, OverflowError):
+            # Thông điệp của ValueError chứa nguyên giá trị gateway trả: không giữ lại.
             raise _llm_error(
                 "ai_bad_output", 502, "Nhà cung cấp AI trả kết quả sai định dạng", "Shape"
             ) from None
         return LlmResponse(
             text=content if isinstance(content, str) else None,
-            model=str(data.get("model") or model),
+            model=served_model(data.get("model"), model),
             stop_reason=FINISH_REASONS.get(str(finish), "end_turn"),
-            usage=LlmUsage(
-                input_tokens=int(usage.get("prompt_tokens") or 0),
-                output_tokens=int(usage.get("completion_tokens") or 0),
-            ),
+            usage=tokens,
         )
 
 
@@ -301,27 +316,36 @@ def build_llm(config: ProviderConfig) -> LlmClient:
 
 
 def _anthropic_llm(config: ProviderConfig) -> LlmClient:
-    from anthropic import AsyncAnthropic, DefaultAsyncHttpxClient
+    from anthropic import AsyncAnthropic
 
-    from app.ai.client import AnthropicLlm, _quiet_sdk_logs
+    from app.ai.client import AnthropicLlm, _quiet_sdk_logs, no_retry_on_read_timeout
 
     _quiet_sdk_logs()
-    return AnthropicLlm(
-        AsyncAnthropic(
-            api_key=config.api_key,
-            base_url=config.base_url,
-            timeout=TIMEOUT_SECONDS,
-            max_retries=MAX_RETRIES,
-            open_telemetry=False,
-            # SDK mặc định theo redirect: header x-api-key và mail gốc sẽ bị gửi tới host khác.
-            http_client=DefaultAsyncHttpxClient(follow_redirects=False, timeout=TIMEOUT_SECONDS),
-        )
+    client = AsyncAnthropic(
+        api_key=config.api_key,
+        base_url=config.base_url,
+        timeout=TIMEOUT_SECONDS,
+        max_retries=MAX_RETRIES,
+        open_telemetry=False,
+        middleware=[no_retry_on_read_timeout],
+        # SDK mặc định theo redirect: header x-api-key và mail gốc sẽ bị gửi tới host khác.
+        # Không dùng DefaultAsyncHttpxClient: lớp đó luôn gắn proxy của môi trường, kể cả khi
+        # trust_env=False.
+        http_client=httpx2.AsyncClient(
+            trust_env=False, follow_redirects=False, timeout=TIMEOUT_SECONDS
+        ),
     )
+    # Hàm dựng luôn trộn ANTHROPIC_CUSTOM_HEADERS, không có tham số tắt: header từ môi trường không
+    # được gửi tới URL người dùng nhập. Có test canh khi nâng SDK.
+    client._custom_headers = {}
+    return AnthropicLlm(client)
 
 
-# --- DB (RLS: chỉ dòng của chính người dùng) ---
+# --- DB (RLS, và tự lọc user_id: truyền nhầm engine không được lấy gateway của người khác) ---
 
-SELECT_PROVIDER = text("SELECT protocol, base_url, api_key_enc FROM user_ai_provider")
+SELECT_PROVIDER = text(
+    "SELECT protocol, base_url, api_key_enc FROM user_ai_provider WHERE user_id = :u"
+)
 UPSERT_PROVIDER = text(
     """
     INSERT INTO user_ai_provider (user_id, protocol, base_url, api_key_enc)
@@ -330,7 +354,7 @@ UPSERT_PROVIDER = text(
         base_url = excluded.base_url, api_key_enc = excluded.api_key_enc, updated_at = now()
     """
 )
-DELETE_PROVIDER = text("DELETE FROM user_ai_provider")
+DELETE_PROVIDER = text("DELETE FROM user_ai_provider WHERE user_id = :u")
 
 
 @dataclass(frozen=True)
@@ -345,7 +369,7 @@ class StoredProvider:
 
 async def load_provider(engine: AsyncEngine, user_id: int) -> StoredProvider | None:
     async with user_session(engine, user_id) as s:
-        row = (await s.execute(SELECT_PROVIDER)).first()
+        row = (await s.execute(SELECT_PROVIDER, {"u": user_id})).first()
     if row is None:
         return None
     return StoredProvider(row.protocol, row.base_url, row.api_key_enc)
@@ -363,7 +387,7 @@ async def save_provider(
 
 async def delete_provider(engine: AsyncEngine, user_id: int) -> None:
     async with user_session(engine, user_id) as s:
-        await s.execute(DELETE_PROVIDER)
+        await s.execute(DELETE_PROVIDER, {"u": user_id})
 
 
 def key_hint(key: str | None) -> str | None:

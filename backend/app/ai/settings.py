@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.models import TASKS
 
-SELECT_MODELS = text("SELECT task, model FROM user_ai_settings")
+SELECT_MODELS = text("SELECT task, model FROM user_ai_settings WHERE user_id = :u")
 UPSERT_MODEL = text(
     """
     INSERT INTO user_ai_settings (user_id, task, model) VALUES (:u, :task, :model)
@@ -31,9 +31,10 @@ USAGE = text(
 )
 
 
-async def user_models(session: AsyncSession) -> dict[str, str]:
+async def user_models(session: AsyncSession, user_id: int) -> dict[str, str]:
     """Tên model người dùng nhập theo tác vụ (spec 24); tác vụ chưa nhập thì không có mặt."""
-    return {r.task: r.model for r in await session.execute(SELECT_MODELS) if r.task in TASKS}
+    rows = await session.execute(SELECT_MODELS, {"u": user_id})
+    return {r.task: r.model for r in rows if r.task in TASKS}
 
 
 async def save_models(

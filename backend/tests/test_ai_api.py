@@ -5,17 +5,23 @@ gửi AI là text gốc, không che (xem test_ask_text.py).
 """
 
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from types import SimpleNamespace
+from typing import Any
 
+import httpx
 import pytest
+from cryptography.fernet import Fernet
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from pydantic import BaseModel
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import embedding
 from app.ai import ask as ask_module
-from app.ai.client import LlmError, LlmResponse, LlmUsage
+from app.ai import provider
+from app.ai.client import TIMEOUT_MESSAGE, LlmError, LlmResponse, LlmUsage
 from app.ai.prompts import AnswerOut, QuestionPlan, TranslationOut
 from app.db.session import create_api_engine
 from app.main import create_app
@@ -95,6 +101,66 @@ async def client(app: FastAPI, world: SimpleNamespace) -> AsyncIterator[AsyncCli
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         await login(c, "a@example.com")
         yield c
+
+
+GATEWAY_KEY = "sk-gateway-secret-1234567890"
+GATEWAY_URL = "http://10.0.0.5:20128/secret-path/v1"
+
+
+def chat_reply(out: BaseModel, model: str = "gw/model") -> httpx.Response:
+    """Phản hồi chat/completions của gateway với nội dung là output có cấu trúc."""
+    return httpx.Response(
+        200,
+        json={
+            "model": model,
+            "choices": [{"finish_reason": "stop", "message": {"content": out.model_dump_json()}}],
+            "usage": {"prompt_tokens": 11, "completion_tokens": 3},
+        },
+    )
+
+
+@dataclass
+class Gateway:
+    """Gateway giả sau client OpenAiLlm thật: đi đủ resolver, giải mã key, parse, không có mạng."""
+
+    client: AsyncClient
+    replies: list[Any] = field(default_factory=list)
+    requests: list[httpx.Request] = field(default_factory=list)
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        self.requests.append(request)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+@pytest.fixture
+async def real_gateway(
+    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[Gateway]:
+    """A đã lưu nhà cung cấp trong DB, app không có client AI giả."""
+
+    async def lan(host: str, port: int) -> list[str]:
+        return ["10.0.0.5"]
+
+    def build(config: provider.ProviderConfig) -> provider.OpenAiLlm:
+        return provider.OpenAiLlm(
+            base_url=config.base_url,
+            api_key=config.api_key,
+            transport=httpx.MockTransport(gateway.handle),
+            max_retries=0,
+        )
+
+    monkeypatch.setenv("PMM_SECRET_KEY", Fernet.generate_key().decode())
+    monkeypatch.setattr(provider, "resolve_ips", lan)
+    monkeypatch.setattr(provider, "build_llm", build)
+    await provider.save_provider(api, world.a, "openai", GATEWAY_URL, GATEWAY_KEY)
+    app = create_app(api, ml=ml, web_dist=None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        await login(c, "a@example.com")
+        gateway = Gateway(c)
+        yield gateway
 
 
 def plan(**kw: object) -> QuestionPlan:
@@ -340,6 +406,18 @@ async def test_one_question_at_a_time(
     assert (r.status_code, r.json()["code"]) == (409, "ask_in_progress")
 
 
+async def test_read_timeout_is_503_with_fixed_message(
+    real_gateway: Gateway, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Cùng status với ai_unavailable, nhưng người dùng biết model quá chậm chứ không phải tắt."""
+    real_gateway.replies = [httpx.ReadTimeout("SECRET-TIMEOUT-TEXT")]
+    with caplog.at_level("DEBUG"):
+        r = await ask(real_gateway.client)
+    assert (r.status_code, r.json()["code"]) == (503, "ai_timeout")
+    assert r.json()["detail"] == TIMEOUT_MESSAGE
+    assert "SECRET" not in r.text and "SECRET" not in caplog.text
+
+
 @pytest.fixture
 async def no_llm_client(
     api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
@@ -352,13 +430,26 @@ async def no_llm_client(
 
 
 async def test_env_key_ignored_without_provider(
-    no_llm_client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Đặt biến trước create_app: chặn cả code đọc môi trường lúc dựng app, không chỉ lúc gọi."""
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
         monkeypatch.setenv(name, "x")
-    r = await ask(no_llm_client)
-    assert (r.status_code, r.json()["code"]) == (503, "ai_not_configured")
-    assert (await no_llm_client.get("/api/v1/ai/settings")).json()["configured"] is False
+    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example")
+    app = create_app(api, ml=ml, web_dist=None)
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        await login(c, "a@example.com")
+        r = await ask(c)
+        assert (r.status_code, r.json()["code"]) == (503, "ai_not_configured")
+        assert (await c.get("/api/v1/ai/settings")).json()["configured"] is False
+    assert ml.embedded == []  # dừng trước bước tìm kiếm
+
+
+def test_app_state_has_no_llm(api: AsyncEngine, ml: FakeMl, llm: FakeLlm) -> None:
+    """Client giả chỉ đi vào LlmResolver, không có đường thứ hai (spec 28 mục 4)."""
+    app = create_app(api, ml=ml, llm=llm, web_dist=None)
+    assert not hasattr(app.state, "llm")
+    assert app.state.llm_resolver.default is llm
 
 
 async def test_user_with_provider_but_no_model_gets_model_missing(
@@ -372,12 +463,28 @@ async def test_user_with_provider_but_no_model_gets_model_missing(
 
 
 async def test_ask_log_has_no_question(
-    client: AsyncClient, llm: FakeLlm, caplog: pytest.LogCaptureFixture
+    real_gateway: Gateway, caplog: pytest.LogCaptureFixture
 ) -> None:
-    llm.responses = [plan(), ANSWER]
-    with caplog.at_level("INFO"):
-        await ask(client, "田中さんの見積はいくらでしたか?")
-    assert "田中" not in caplog.text and "見積" not in caplog.text
+    """Đi đủ hai lượt gọi qua client thật: text mail, câu hỏi, key, URL đầy đủ không vào log."""
+    real_gateway.replies = [chat_reply(plan()), chat_reply(ANSWER)]
+    with caplog.at_level("DEBUG"):
+        r = await ask(real_gateway.client, "田中さんの見積はいくらでしたか?")
+    assert r.status_code == 200, r.text
+    assert len(real_gateway.requests) == 2
+    answer_request = real_gateway.requests[1].content.decode()
+    assert "CT-2026-0042" in answer_request  # text mail đã thật sự đi qua bước trả lời
+    assert real_gateway.requests[0].headers["authorization"] == f"Bearer {GATEWAY_KEY}"
+    for secret in (
+        "田中",
+        "見積",
+        "サンプルA",
+        "1,250,000",
+        "CT-2026-0042",
+        GATEWAY_KEY,
+        GATEWAY_URL,
+        "secret-path",
+    ):
+        assert secret not in caplog.text, secret
     assert "ask user=" in caplog.text and "ai user=" in caplog.text
 
 

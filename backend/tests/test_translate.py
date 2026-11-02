@@ -85,6 +85,8 @@ async def test_system_prompt_is_constant_with_rules(world: SimpleNamespace) -> N
     assert "Bạn là biên dịch viên Nhật–Việt và Anh–Việt" in TRANSLATE_SYSTEM
     # Không còn quy tắc về nhãn che (spec 28).
     assert "[PERSON_1]" not in TRANSLATE_SYSTEM and "nhãn" not in TRANSLATE_SYSTEM
+    # Glossary thắng quy tắc tên riêng: thuật ngữ có thể là tên người, tên công ty.
+    assert "không dịch nghĩa, trừ khi có trong <glossary>" in TRANSLATE_SYSTEM
 
 
 async def test_translate_runs_without_ml_service(

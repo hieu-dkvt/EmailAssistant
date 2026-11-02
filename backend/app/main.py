@@ -65,8 +65,9 @@ def create_app(
 ) -> FastAPI:
     """web_dist: thư mục build của web; "auto" = PMM_WEB_DIST hoặc web/dist nếu đã build.
 
-    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: client AI (mặc định
-    AnthropicLlm nếu đã cấu hình khóa API, không thì None → hỏi đáp trả 503 ai_not_configured).
+    ml: client ml-service (mặc định HTTP tới ML_SERVICE_URL). llm: chỉ để test truyền client giả,
+    đi vào LlmResolver. Chạy thật client lấy từ nhà cung cấp người dùng lưu trong DB; chưa nhập thì
+    hỏi đáp và dịch trả 503 ai_not_configured, không có đường đọc môi trường (spec 28 mục 4).
     """
     owns_engine = engine is None
     api_engine = engine or create_api_engine()
@@ -97,8 +98,6 @@ def create_app(
     )
     app.state.engine = api_engine
     app.state.ml = ml or HttpMlClient()
-    # llm chỉ để test truyền client giả; chạy thật thì client lấy từ nhà cung cấp trong DB.
-    app.state.llm = llm
     app.state.llm_resolver = LlmResolver(llm)
     app.state.ask_guard = AskGuard()
     app.state.translate_guard = AskGuard()
