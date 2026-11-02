@@ -35,7 +35,6 @@ def main() -> int:
     from app.config import Settings
     from app.embedder import SentenceTransformerEmbedder
     from app.main import create_app
-    from app.ner import SpacyRecognizer
 
     settings = Settings()
     # Model đã có trong cache cục bộ thì không hỏi Hugging Face nữa (chỉ lần đầu mới tải).
@@ -51,7 +50,6 @@ def main() -> int:
             batch_size=settings.batch_size,
             torch_threads=settings.torch_threads,
         ),
-        lambda: SpacyRecognizer(settings.ner_ja_model, settings.ner_en_model),
         settings,
     )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")

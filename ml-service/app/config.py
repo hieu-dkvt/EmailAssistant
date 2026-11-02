@@ -25,6 +25,4 @@ class Settings:
     batch_size: int = field(default_factory=lambda: _int("ML_BATCH_SIZE", 8))
     # Số luồng CPU cho PyTorch; 0 = để PyTorch tự chọn.
     torch_threads: int = field(default_factory=lambda: _int("ML_TORCH_THREADS", 0))
-    ner_ja_model: str = field(default_factory=lambda: os.environ.get("ML_NER_JA", "ja_ginza"))
-    ner_en_model: str = field(default_factory=lambda: os.environ.get("ML_NER_EN", "en_core_web_sm"))
     allowed_hosts: list[str] = field(default_factory=_hosts)

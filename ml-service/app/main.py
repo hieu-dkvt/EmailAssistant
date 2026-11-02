@@ -19,17 +19,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings
 from app.embedder import Embedder
-from app.ner import Recognizer
 
 log = logging.getLogger("ml")
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_TEXTS = 64
 MAX_EMBED_CHARS = 10_000
-MAX_NER_CHARS = 50_000
 
 EmbedText = Annotated[str, StringConstraints(max_length=MAX_EMBED_CHARS)]
-NerText = Annotated[str, StringConstraints(max_length=MAX_NER_CHARS)]
 
 
 class EmbedRequest(BaseModel):
@@ -42,32 +39,15 @@ class EmbedResponse(BaseModel):
     vectors: list[list[float]]
 
 
-class NerRequest(BaseModel):
-    texts: list[NerText] = Field(min_length=1, max_length=MAX_TEXTS)
-
-
-class EntityOut(BaseModel):
-    start: int
-    end: int
-    label: str
-
-
-class NerResponse(BaseModel):
-    models: list[str]
-    entities: list[list[EntityOut]]
-
-
 class Health(BaseModel):
     status: str
     embed_model: str
     dim: int
     max_seq_length: int
-    ner_models: list[str]
 
 
 def create_app(
     load_embedder: Callable[[], Embedder],
-    load_recognizer: Callable[[], Recognizer],
     settings: Settings | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
@@ -77,7 +57,6 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         started = time.monotonic()
         models["embedder"] = await run_in_threadpool(load_embedder)
-        models["recognizer"] = await run_in_threadpool(load_recognizer)
         log.info("models loaded ms=%d", (time.monotonic() - started) * 1000)
         yield
 
@@ -86,7 +65,7 @@ def create_app(
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
-        # FastAPI bật sẵn OpenTelemetry: tắt hẳn (service này nhận text CHƯA che).
+        # FastAPI bật sẵn OpenTelemetry: tắt hẳn (service này nhận text mail).
         telemetry={
             "tracing": False,
             "metrics": False,
@@ -107,9 +86,6 @@ def create_app(
     def embedder() -> Embedder:
         return models["embedder"]  # type: ignore[return-value]
 
-    def recognizer() -> Recognizer:
-        return models["recognizer"]  # type: ignore[return-value]
-
     @app.get("/health", response_model=Health)
     def health() -> Health:
         e = embedder()
@@ -118,12 +94,11 @@ def create_app(
             embed_model=e.model_name,
             dim=e.dim,
             max_seq_length=e.max_seq_length,
-            ner_models=recognizer().models,
         )
 
     def failed(what: str, exc: Exception) -> JSONResponse:
         # Bắt lỗi ngay trong endpoint: handler Exception của Starlette vẫn để uvicorn log cả
-        # traceback, mà thông điệp lỗi của tokenizer/Sudachi có thể chứa mẩu text đầu vào.
+        # traceback, mà thông điệp lỗi của tokenizer có thể chứa mẩu text đầu vào.
         log.error("%s error type=%s", what, type(exc).__name__)
         return JSONResponse(status_code=500, content={"detail": "Lỗi ml-service"})
 
@@ -138,27 +113,6 @@ def create_app(
             return failed("embed", exc)
         log.info("embed n=%d ms=%d", len(req.texts), (time.monotonic() - started) * 1000)
         return EmbedResponse(model=e.model_name, dim=e.dim, vectors=vectors)
-
-    @app.post("/ner", response_model=NerResponse)
-    def ner(req: NerRequest) -> NerResponse | JSONResponse:
-        started = time.monotonic()
-        r = recognizer()
-        try:
-            found = r.entities(req.texts)
-        except Exception as exc:
-            return failed("ner", exc)
-        log.info(
-            "ner n=%d entities=%d ms=%d",
-            len(req.texts),
-            sum(len(x) for x in found),
-            (time.monotonic() - started) * 1000,
-        )
-        return NerResponse(
-            models=r.models,
-            entities=[
-                [EntityOut(start=x.start, end=x.end, label=x.label) for x in row] for row in found
-            ],
-        )
 
     @app.exception_handler(RequestValidationError)
     async def invalid(_: Request, exc: RequestValidationError) -> Response:

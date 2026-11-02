@@ -1,17 +1,13 @@
 [project]
 name = "pm-mail-assistant-ml"
 version = "0.1.0"
-description = "ML service nội bộ của PM Mail Assistant: embedding (bge-m3) và nhận dạng tên riêng (NER)"
+description = "ML service nội bộ của PM Mail Assistant: embedding (bge-m3)"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn>=0.32",
     "sentence-transformers>=3.3",
     "torch>=2.5",
-    "spacy>=3.7",
-    "ginza>=5.2",
-    "ja-ginza>=5.2",
-    "en-core-web-sm",
 ]
 
 [dependency-groups]
@@ -24,10 +20,6 @@ dev = [
 
 [tool.uv]
 package = false
-
-[tool.uv.sources]
-# Model spaCy tiếng Anh không có trên PyPI; bản phải khớp spaCy 3.8.
-en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
