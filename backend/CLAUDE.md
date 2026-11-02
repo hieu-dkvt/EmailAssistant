@@ -63,6 +63,7 @@ app/auto_translate.py    # job dịch tự động: tiêu chí (ELIGIBLE_SQL), t
                          #   retarget_no_folder, pending_translate_users (role worker duy nhất)
 app/mail/domains.py      # normalize_domain, domain_matches, is_inbox_path, inbox_path_sql
 seed/glossary-it-ja-vi.csv # 151 thuật ngữ IT/outsource công khai, nạp bằng chức năng nhập của web
+seed/glossary-programming-ja-vi.csv # 153 thuật ngữ lập trình, không trùng file trên (test_seed_files_do_not_overlap)
 app/ai/client.py         # AnthropicLlm (structured output, cho giao thức anthropic), call_task ghi ai_calls, LlmError,
                          #   served_model, no_retry_on_read_timeout (middleware SDK)
 app/ai/ask.py            # RAG: phân tích → tìm cục bộ → trả lời (text gốc, không che); AskGuard

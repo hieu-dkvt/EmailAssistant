@@ -2,6 +2,12 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-02: glossary mẫu cho lập trình (spec 26)
+
+### Đã làm
+- `backend/seed/glossary-programming-ja-vi.csv`: 153 thuật ngữ lập trình Nhật → Việt, không trùng 151 thuật ngữ của `glossary-it-ja-vi.csv`. Nạp bằng "Nhập" ở trang Glossary.
+- Test: mỗi file hạt giống nhập sạch, và nạp lần lượt hai file vào glossary chung không có dòng trùng.
+
 ## 2026-11-02: chuyển sang model nội bộ (spec 28, xong)
 
 Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục bên dưới. Mục này ghi phần đã làm.

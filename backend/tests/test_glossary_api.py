@@ -16,7 +16,8 @@ from tests.dbutil import add_project, url_for_test_db
 from tests.webutil import CSRF, add_web_user, login, web_client
 
 URL = "/api/v1/glossary"
-SEED = Path(__file__).parents[1] / "seed" / "glossary-it-ja-vi.csv"
+SEED_DIR = Path(__file__).parents[1] / "seed"
+SEEDS = ("glossary-it-ja-vi.csv", "glossary-programming-ja-vi.csv")
 
 
 @pytest.fixture
@@ -277,9 +278,18 @@ async def test_requires_session_and_csrf(api: AsyncEngine, ca: AsyncClient) -> N
         assert (await c.delete(f"{URL}/1", headers=CSRF)).status_code == 401
 
 
-async def test_seed_csv_imports_cleanly(ca: AsyncClient) -> None:
-    r = await imp(ca, SEED.read_text(encoding="utf-8"), apply=False)
+@pytest.mark.parametrize("name", SEEDS)
+async def test_seed_csv_imports_cleanly(ca: AsyncClient, name: str) -> None:
+    r = await imp(ca, (SEED_DIR / name).read_text(encoding="utf-8"), apply=False)
     assert r.status_code == 200
     result = r.json()
     assert result["invalid"] == 0 and result["duplicate"] == 0
     assert 100 <= result["added"] <= 200
+
+
+async def test_seed_files_do_not_overlap(ca: AsyncClient) -> None:
+    """Nạp lần lượt các file hạt giống vào glossary chung: không thuật ngữ nào trùng nhau."""
+    for name in SEEDS:
+        r = await imp(ca, (SEED_DIR / name).read_text(encoding="utf-8"), apply=True)
+        assert r.status_code == 200
+        assert r.json()["duplicate"] == 0, name

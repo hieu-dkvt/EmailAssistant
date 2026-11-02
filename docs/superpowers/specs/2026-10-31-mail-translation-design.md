@@ -210,6 +210,8 @@ Chuyển folder không đổi `message_ownership`, nên đồng bộ lại khôn
 
 File `backend/seed/glossary-it-ja-vi.csv`, 100–200 thuật ngữ IT/outsource công khai, nạp bằng chức năng nhập. Commit được vì không có dữ liệu khách.
 
+File `backend/seed/glossary-programming-ja-vi.csv` (thêm 2026-11-02): 153 thuật ngữ lập trình (ngôn ngữ, DB, API, hạ tầng, giao diện, quy trình phát triển và kiểm thử, từ quen dùng trong outsource Nhật như デグレ, 先祖返り, 横展開, 切り分け, 押下). Không trùng file trên, nạp được cả hai vào glossary chung; test `test_seed_files_do_not_overlap` canh việc này.
+
 ## 10. Bản dịch lưu trữ
 
 ### Bảng `message_translations`
