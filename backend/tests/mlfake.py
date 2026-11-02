@@ -5,6 +5,7 @@ vậy câu tiếng Việt "báo giá" gần mail tiếng Nhật "見積" như em
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -12,7 +13,7 @@ from pydantic import BaseModel
 
 from app.ai.client import LlmResponse, LlmUsage
 from app.config import embed_model
-from app.ml_client import EMBED_DIM, EmbeddingModelMismatch, MlUnavailable
+from app.ml_client import EMBED_DIM, EmbeddingModelMismatch, MlUnavailable, check_scores
 
 CONCEPTS: list[tuple[str, ...]] = [
     ("見積", "báo giá", "quote", "estimate"),
@@ -40,6 +41,10 @@ class FakeMl:
     model: str = field(default_factory=embed_model)
     down: bool = False
     embedded: list[str] = field(default_factory=list)
+    rerank_scores: Callable[[str, list[str]], list[float]] | None = None
+    rerank_down: bool = False
+    reranked: list[list[str]] = field(default_factory=list)
+    rerank_queries: list[str] = field(default_factory=list)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if self.down:
@@ -48,6 +53,14 @@ class FakeMl:
             raise EmbeddingModelMismatch(self.model, embed_model())
         self.embedded += texts
         return [concept_vector(t) for t in texts]
+
+    async def rerank(self, query: str, texts: list[str]) -> list[float]:
+        if self.rerank_down:
+            raise MlUnavailable("down")
+        self.reranked.append(list(texts))
+        self.rerank_queries.append(query)
+        scores = self.rerank_scores(query, texts) if self.rerank_scores else [0.0] * len(texts)
+        return check_scores(scores, len(texts))  # như HttpMlClient
 
 
 @dataclass

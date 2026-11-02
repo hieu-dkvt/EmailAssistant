@@ -45,9 +45,11 @@ app/search/query.py      # dựng truy vấn Groonga từ ô tìm kiếm (AND, O
 app/search/highlight.py  # tô từ khóa (NFKC + lower), đoạn trích; trả danh sách đoạn {text, hit}
 app/search/keyword.py    # search PGroonga + bộ lọc (MessageFilters, dùng chung với danh sách thread);
                          #   bộ lọc folder_id tính theo folder hiệu lực (xem mục "Dịch mail tự động")
-app/search/semantic.py   # nhánh vector (2 bước: index HNSW rồi lọc), nhánh từ khóa OR, RRF, hybrid_search
+app/search/semantic.py   # nhánh vector (HNSW 2 bước, hoặc quét chính xác khi phạm vi lọc ≤ EXACT_SCAN_MAX_CHUNKS =
+                         #   20.000 đoạn: scope_is_small, exact_chunks_sql), nhánh từ khóa OR, RRF, hybrid_search
 app/search/similar.py    # thread liên quan bằng vector đã lưu (lớp 4 gom thread)
-app/ml_client.py         # HttpMlClient: /embed (kiểm model = PMM_EMBED_MODEL); MlUnavailable
+app/ml_client.py         # HttpMlClient: /embed (kiểm model = PMM_EMBED_MODEL), /rerank (timeout 30 giây, cắt query
+                         #   2.000 / text 10.000 ký tự, tối đa 64 text, check_scores); MlUnavailable
 app/embedding.py         # cắt đoạn body_clean (CHUNKER_VERSION), mail chờ embed, embed_batch/embed_user
 app/ai/models.py         # chỉ còn tác vụ (TASKS: question_analysis, answer, translate); không còn cấp model, giá
 app/ai/settings.py       # user_ai_settings (tên model theo tác vụ), thống kê ai_calls theo tháng
@@ -66,7 +68,11 @@ seed/glossary-it-ja-vi.csv # 151 thuật ngữ IT/outsource công khai, nạp b�
 seed/glossary-programming-ja-vi.csv # 153 thuật ngữ lập trình, không trùng file trên (test_seed_files_do_not_overlap)
 app/ai/client.py         # AnthropicLlm (structured output, cho giao thức anthropic), call_task ghi ai_calls, LlmError,
                          #   served_model, no_retry_on_read_timeout (middleware SDK)
-app/ai/ask.py            # RAG: phân tích → tìm cục bộ → trả lời (text gốc, không che); AskGuard
+app/ai/ask.py            # RAG: phân tích → tìm cục bộ (_candidates → rerank tùy chọn → pick) → đọc nguồn và mail trước
+                         #   (_fetch_context, user_session thứ hai) → trả lời (text gốc, không che); AskGuard
+app/ai/context.py        # hàm thuần dựng ngữ cảnh gửi AI (spec 27 mục 6): gộp đoạn theo mail (group_sources), mở rộng
+                         #   (expand_spans), chia ngân sách (plan_context), CONTEXT_MAX_CHARS 24.000,
+                         #   SOURCE_MAX_CHARS 3.000, PREVIOUS_MAX_CHARS 1.200, MIN_EXPANSION_CHARS 200
 app/threads_view.py      # danh sách thread (keyset), chi tiết thread, toàn văn theo clean_cuts, trạng thái xử lý
 app/overrides.py         # tạo/xóa sửa tay (thread_overrides) + tăng user_thread_state.overrides_version
 app/web_static.py        # phục vụ web/dist (SPA), header CSP/nosniff/no-referrer, /api no-store
@@ -97,7 +103,8 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
                          #   0015_embeddings_ai (message_chunks + HNSW, user_ai_settings, ai_calls),
                          #   0017_projects (projects, message_projects, user_project_state, spec 25),
                          #   0018_translation (cột mới của projects, glossary_terms, message_translations,
-                         #   message_auto_runs, spec 26), 0019_drop_ai_tier (bỏ cột tier, model NOT NULL, spec 28)
+                         #   message_auto_runs, spec 26), 0019_drop_ai_tier (bỏ cột tier, model NOT NULL, spec 28),
+                         #   0020_chunks_hnsw_params (build lại index HNSW m=16, ef_construction=128, CONCURRENTLY, spec 27)
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
                          #   tests/mlfake.py: FakeMl (vector theo "khái niệm"), FakeLlm
@@ -186,12 +193,14 @@ Gán dự án theo bộ lọc From, To, CC, Subject do người dùng khai báo 
 
 ## Embedding và tìm kiếm ngữ nghĩa
 
-Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`).
+Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`); spec 27 (`2026-11-01-ask-retrieval-design.md`): lọc dự án, quét chính xác, ngữ cảnh, rerank.
 
 - ml-service (`ML_SERVICE_URL`, mặc định `http://127.0.0.1:8001`) phải chạy cho: embed (worker), tìm kiếm `mode=hybrid`, hỏi đáp (embed câu hỏi). Không chạy thì worker bỏ qua và thử lại phút sau, API trả 503 `ml_unavailable`.
 - `PMM_EMBED_MODEL` (mặc định `BAAI/bge-m3`) phải trùng model ml-service đang chạy; khác thì không embed, không tìm (503 `embedding_model_mismatch`). Đổi model = embed lại toàn bộ: hỏi người dùng trước.
 - `message_chunks` chỉ lưu vị trí đoạn trên `body_clean`, không chép nội dung. Đoạn hợp lệ: `model` hiện hành và `cleaner_version` = `messages.cleaner_version`. Đổi cách cắt đoạn thì tăng `CHUNKER_VERSION` trong `app/embedding.py`: worker tự embed lại.
 - **Truy vấn vector không JOIN trong cùng câu `ORDER BY embedding <=> … LIMIT`**: planner bỏ index HNSW và sắp toàn bộ. Dùng `vector_chunks` (bước 1 chỉ `message_chunks`, bước 2 lọc bằng `messages`, tăng k khi thiếu). Luôn `SET LOCAL hnsw.iterative_scan = relaxed_order` (RLS và bộ lọc loại bớt dòng).
+- **Phạm vi lọc nhỏ thì quét chính xác** (spec 27 mục 4): `vector_chunks` có bộ lọc người dùng (folder, dự án, người gửi, ngày, đính kèm; `exclude_thread_id` không tính) thì `scope_is_small` đếm tới `EXACT_SCAN_MAX_CHUNKS + 1` đoạn một lần mỗi lượt `_candidates`; không quá ngưỡng thì CTE `MATERIALIZED` quét hết, `ORDER BY distance, message_id, chunk_no` (không dùng index HNSW, cố ý). Quá ngưỡng hoặc không có bộ lọc thì vòng lặp HNSW. Index HNSW build với `m = 16`, `ef_construction = 128` (migration 0020, `models.py`); dev DB cũ cần `alembic upgrade head`, build lâu theo số đoạn.
+- **Hỏi đáp theo dự án và ngữ cảnh** (spec 27): `AskRequest.project_id` (dự án không thấy → 404 `project_not_found`, kiểm trước ml-service và AI); `project_id` nằm trong cả `base` và `narrowed`. Đoạn được gộp theo mail, mỗi mail một nguồn, mở rộng và kèm mail liền trước (`PREVIOUS_MAILS`) trong `<previous_mail>`; mọi hằng số ở `app/ai/context.py`. `PMM_RERANK=1` bật rerank (mặc định tắt): lấy `RERANK_CANDIDATES = 40` đoạn đầu sau RRF, gọi `/rerank` ngoài transaction, lỗi thì giữ thứ tự RRF (log `reranked=0`, không log câu hỏi hay điểm). Cần `ML_RERANK_MODEL` ở ml-service, nếu không `/rerank` trả 503 và backend dùng thứ tự RRF.
 - Vector truyền vào SQL bằng tham số bind dạng chuỗi `'[…]'` + `CAST(… AS halfvec(1024))` (`vector_literal`); đọc ra là chuỗi (không đăng ký adapter pgvector).
 
 ## Gọi AI (nhà cung cấp và model bất kỳ)
@@ -204,7 +213,7 @@ Spec 20, 21, 22, 24, 28.
 - **Không có khóa mặc định.** Backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_HAIKU/SONNET/OPUS`, kể cả khi còn đặt trong môi trường. Nhà cung cấp của người dùng nằm ở bảng `user_ai_provider` (key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24). `LlmResolver.for_user` trả `LlmClient | None`: `None` khi chưa nhập nhà cung cấp, `/ask` và dịch tay trả 503 `ai_not_configured`, job dịch dừng. `LlmResolver(default=…)` và `create_app(llm=…)` chỉ để test truyền client giả.
 - **Tên model do người dùng nhập theo tác vụ** (bảng `user_ai_settings`, cột `model` NOT NULL, xóa tên = xóa dòng; không còn cấp Haiku/Sonnet/Opus, giá ước tính, `PMM_MODEL_*`). `call_task(model=…)` nhận chuỗi này. Thiếu tên model → 503 `ai_model_missing`: route kiểm trước, `ask()` và `produce_translation` tự kiểm lại vì job dịch và `ask()` không đi qua route. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS` (`app/ai/models.py`), gọi qua `call_task`.
 - URL: `validate_base_url` nhận `http` và `https` tới mọi địa chỉ (LAN, localhost, công cộng); từ chối URL sai dạng, IP viết tắt (`2130706433`, `0x7f.1`), link-local (`169.254.0.0/16`, `fe80::/10`), ký tự điều khiển và khoảng trắng; dấu chấm cuối của host được bỏ trước khi xét. `reject_link_local` phân giải host khi lưu (`PUT /ai/provider`) và khi `LlmResolver` dựng client mới; cache trúng thì không kiểm lại, nên DNS đổi sau đó không chặn được cho tới khi client được dựng lại. Không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `/ai/provider/test` chạy với URL người dùng nhập (SSRF, đã giảm: chỉ phiên web, không theo redirect, không trả body, chặn link-local).
-- Giới hạn độ dài là giới hạn chi phí, không phụ thuộc việc che: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự, thân mail trong `/ask` là đoạn ≤ 800 ký tự (`CHUNK_CHARS`); mail dịch `MAX_BODY_CHARS` = 12.000, ngữ cảnh `MAX_CONTEXT_CHARS` = 1.500. Cắt bằng `cut_text` (`app/ai/text.py`): ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn.
+- Giới hạn độ dài là giới hạn chi phí, không phụ thuộc việc che: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự, thân mail trong `/ask` tối đa `SOURCE_MAX_CHARS` = 3.000 ký tự mỗi nguồn và `CONTEXT_MAX_CHARS` = 24.000 tổng (spec 27; trước đó chỉ đoạn ≤ 800 ký tự `CHUNK_CHARS`); mail dịch `MAX_BODY_CHARS` = 12.000, ngữ cảnh `MAX_CONTEXT_CHARS` = 1.500. Cắt bằng `cut_text` (`app/ai/text.py`): ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn.
 - **`trust_env=False` là bắt buộc ở cả hai client** (`OpenAiLlm` và `_anthropic_llm`), như `ml_client.py`: có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail gốc và API key sẽ đi qua proxy, kể cả tới địa chỉ LAN. Giao thức `anthropic` dùng `httpx2.AsyncClient(trust_env=False, …)`, không dùng `DefaultAsyncHttpxClient`: lớp đó gọi `get_environment_proxies()` vô điều kiện (`anthropic/_base_client.py:1770`), `trust_env=False` không tắt được. Tác dụng phụ: `SSL_CERT_FILE`, `SSL_CERT_DIR` cũng bị bỏ qua (spec 28 mục 8).
 - `PUT /ai/provider` với ô key trống chỉ giữ key đã lưu khi URL không đổi; đổi URL thì 422 `api_key`, key cũ không bao giờ đi theo sang địa chỉ khác (quyết định của người dùng 2026-11-02, spec 28 mục 13).
 - Client SDK `anthropic` chỉ dùng cho giao thức `anthropic`: luôn do `_anthropic_llm` (`provider.py`) dựng với `base_url` và key của người dùng, `follow_redirects=False`, `open_telemetry=False`, `client._custom_headers = {}` (hàm dựng luôn trộn `ANTHROPIC_CUSTOM_HEADERS`, `anthropic/_client.py:703`, không có tham số tắt; `tests/test_ai_client.py::test_sdk_env_is_ignored` canh khi nâng SDK; không gọi `with_options`/`copy` vì chúng dựng lại client và đọc lại biến này). Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).

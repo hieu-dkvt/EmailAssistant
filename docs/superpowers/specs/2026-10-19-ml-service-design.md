@@ -15,7 +15,7 @@ Theo nguyên tắc NDA, embedding và NER luôn chạy self-host: nội dung mai
 
 ## 2. Không làm
 
-- Reranker (`/rerank`): chạy CPU quá chậm (vài giây cho 50 đoạn). Để sau khi có GPU hoặc khi eval cho thấy cần.
+- Reranker (`/rerank`): chạy CPU quá chậm (vài giây cho 50 đoạn) nên bản đầu không làm. Đã làm sẵn, **mặc định tắt**, ở [spec 27](2026-11-01-ask-retrieval-design.md) mục 7 (`ML_RERANK_MODEL` rỗng thì không nạp, `/rerank` trả 503 `rerank_disabled`); chỉ `/ask` dùng khi `PMM_RERANK=1`.
 - Vector sparse/ColBERT của bge-m3: search từ khóa đã có PGroonga.
 - NER tiếng Việt: không có model tốt chạy cục bộ; backend che tên tiếng Việt bằng từ điển người gửi/nhận và mẫu (spec 20).
 - Xác thực giữa backend và ml-service: chỉ lắng nghe `127.0.0.1` và kiểm Host (mục 5). Khi tách máy (giai đoạn 7) cần thêm.
@@ -24,8 +24,9 @@ Theo nguyên tắc NDA, embedding và NER luôn chạy self-host: nội dung mai
 
 | Endpoint | Vào | Ra |
 |---|---|---|
-| `GET /health` | — | `{status, embed_model, dim, max_seq_length, ner_models}` |
+| `GET /health` | — | `{status, embed_model, dim, max_seq_length, rerank_model}` (`rerank_model` null khi tắt) |
 | `POST /embed` | `{texts: [str]}`: 1–64 text, mỗi text ≤ 10.000 ký tự | `{model, dim, vectors}`: vector đã chuẩn hóa (độ dài 1), dùng khoảng cách cosine |
+| `POST /rerank` | `{query: str, texts: [str]}`: query 1–2.000 ký tự, 1–64 text, mỗi text ≤ 10.000 ký tự | `{model, scores}`: điểm từng text theo thứ tự vào. 503 `rerank_disabled` khi `ML_RERANK_MODEL` rỗng (mặc định tắt, spec 27 mục 7) |
 | `POST /ner` | `{texts: [str]}`: 1–64 text, mỗi text ≤ 50.000 ký tự | `{models, entities}`: mỗi text một danh sách `{start, end, label}`, vị trí theo code point, `label` ∈ `PERSON`, `ORG`, `ADDRESS`, `PHONE`, `EMAIL`, `URL`, `MONEY` |
 
 - Body tối đa 8 MiB theo `Content-Length` (413). Lỗi 422 chỉ trả vị trí và loại lỗi, **không trả lại text** (mặc định FastAPI trả cả input). Lỗi khi suy luận được bắt ngay trong endpoint, trả 500 `{"detail": "Lỗi ml-service"}`, log chỉ có tên lớp lỗi (handler `Exception` của Starlette vẫn để uvicorn log cả traceback, mà thông điệp lỗi của tokenizer/Sudachi có thể chứa mẩu text).

@@ -3,7 +3,7 @@ import { type FormEvent, Fragment, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { errorMessage, type AskResult, type AskSource } from "@/api/client";
-import { useAsk, useFolders } from "@/api/hooks";
+import { useAsk, useFolders, useProjects } from "@/api/hooks";
 import { selectClass } from "@/components/FilterBar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -166,6 +166,7 @@ function Result({ result }: { result: AskResult }) {
 export function AskPage() {
   const ask = useAsk();
   const folders = useFolders();
+  const projects = useProjects();
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -173,11 +174,13 @@ export function AskPage() {
     const question = String(data.get("question") ?? "").trim();
     if (!question) return;
     const folder = String(data.get("folder") ?? "");
+    const project = String(data.get("project") ?? "");
     const after = localMidnight(String(data.get("from") ?? ""));
     const before = localMidnight(String(data.get("to") ?? ""), 1);
     ask.mutate({
       question,
       ...(folder ? { folder_id: Number(folder) } : {}),
+      ...(project ? { project_id: Number(project) } : {}),
       ...(after ? { sent_after: after.toISOString() } : {}),
       ...(before ? { sent_before: before.toISOString() } : {}),
     });
@@ -214,6 +217,17 @@ export function AskPage() {
               {folders.data?.map((f) => (
                 <option key={f.id} value={f.id} title={f.folder_path}>
                   {folderName(f.folder_path)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="ask-project">Dự án</Label>
+            <select id="ask-project" name="project" defaultValue="" className={selectClass}>
+              <option value="">Tất cả dự án</option>
+              {projects.data?.items.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
                 </option>
               ))}
             </select>

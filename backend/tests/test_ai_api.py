@@ -612,7 +612,7 @@ async def test_long_name_cut_at_limit(
     assert len(line.removeprefix("From: ")) <= ask_module.MAX_NAME_CHARS * 2 + 3
 
 
-async def test_only_the_retrieved_chunk_is_sent(
+async def test_short_mail_is_sent_whole(
     client: AsyncClient,
     llm: FakeLlm,
     world: SimpleNamespace,
@@ -620,7 +620,7 @@ async def test_only_the_retrieved_chunk_is_sent(
     worker: AsyncEngine,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SOURCES đọc đúng đoạn [start, end) của body_clean, không đệm thêm."""
+    """Mail ngắn: nguồn là cả thân mail (spec 27), không chỉ đoạn [start, end) được chọn."""
     with owner_engine.begin() as conn:
         m = put_mail(
             conn,
@@ -638,8 +638,8 @@ async def test_only_the_retrieved_chunk_is_sent(
     async def retrieve(*_: object) -> list[tuple[int, int, int]]:
         return [(m, body.index("中盤"), body.index("後半"))]
 
-    monkeypatch.setattr(ask_module, "_retrieve", retrieve)
+    monkeypatch.setattr(ask_module, "_candidates", retrieve)
     llm.responses = [plan(), ANSWER]
     assert (await ask(client)).status_code == 200
     chunk = llm.requests[-1]["user"].split("\n\n", 1)[1].split("\n</source>")[0]
-    assert chunk == "中盤の文章。"
+    assert chunk == body

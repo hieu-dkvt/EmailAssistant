@@ -4,6 +4,7 @@ Text gửi qua 127.0.0.1, không ra ngoài. Lỗi không mang thông điệp g�
 MlUnavailable / EmbeddingModelMismatch. Không log text.
 """
 
+import math
 from typing import Protocol
 
 import httpx
@@ -12,6 +13,10 @@ from app.config import embed_model, ml_service_url
 
 EMBED_DIM = 1024
 EMBED_MAX_TEXTS = 32
+RERANK_MAX_TEXTS = 64  # giới hạn của ml-service /rerank
+RERANK_MAX_QUERY_CHARS = 2_000
+RERANK_MAX_TEXT_CHARS = 10_000
+RERANK_TIMEOUT_SECONDS = 30.0  # ngắn hơn timeout mặc định: rerank lỗi thì /ask dùng thứ tự RRF
 
 
 class MlUnavailable(Exception):
@@ -32,6 +37,26 @@ class MlClient(Protocol):
         """Vector (đã chuẩn hóa) của model hiện hành; khác model → EmbeddingModelMismatch."""
         ...
 
+    async def rerank(self, query: str, texts: list[str]) -> list[float]:
+        """Điểm liên quan của từng text với query, cùng thứ tự `texts`. Lỗi → MlUnavailable."""
+        ...
+
+
+def _finite(x: object) -> bool:
+    if isinstance(x, bool) or not isinstance(x, int | float):
+        return False
+    try:
+        return math.isfinite(x)
+    except OverflowError:  # số nguyên quá lớn cho float
+        return False
+
+
+def check_scores(scores: object, expected: int) -> list[float]:
+    """Điểm hợp lệ: đúng số lượng, số hữu hạn. Sai → MlUnavailable (thông điệp không chứa text)."""
+    if not isinstance(scores, list) or len(scores) != expected or not all(map(_finite, scores)):
+        raise MlUnavailable("ml-service /rerank trả điểm sai dạng")
+    return [float(x) for x in scores]
+
 
 class HttpMlClient:
     def __init__(
@@ -47,11 +72,13 @@ class HttpMlClient:
         self._timeout = timeout
         self._transport = transport
 
-    async def _post(self, path: str, body: dict[str, object]) -> dict[str, object]:
+    async def _post(
+        self, path: str, body: dict[str, object], timeout: float | None = None
+    ) -> dict[str, object]:
         try:
             async with httpx.AsyncClient(
                 base_url=self._base_url,
-                timeout=self._timeout,
+                timeout=self._timeout if timeout is None else timeout,
                 transport=self._transport,
                 follow_redirects=False,
                 trust_env=False,  # không đi qua proxy hệ thống: dữ liệu mail chỉ tới máy này
@@ -86,6 +113,19 @@ class HttpMlClient:
                 raise MlUnavailable("ml-service /embed trả vector sai dạng")
             out.extend(vectors)
         return out
+
+    async def rerank(self, query: str, texts: list[str]) -> list[float]:
+        if not texts or len(texts) > RERANK_MAX_TEXTS:
+            raise MlUnavailable("rerank: số text ngoài giới hạn")
+        data = await self._post(
+            "/rerank",
+            {
+                "query": query[:RERANK_MAX_QUERY_CHARS],
+                "texts": [t[:RERANK_MAX_TEXT_CHARS] for t in texts],
+            },
+            timeout=RERANK_TIMEOUT_SECONDS,
+        )
+        return check_scores(data.get("scores"), len(texts))
 
 
 def vector_literal(vector: list[float]) -> str:

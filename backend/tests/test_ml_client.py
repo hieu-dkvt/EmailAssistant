@@ -8,6 +8,7 @@ import pytest
 from app.config import ml_service_url
 from app.ml_client import (
     EMBED_DIM,
+    RERANK_TIMEOUT_SECONDS,
     EmbeddingModelMismatch,
     HttpMlClient,
     MlUnavailable,
@@ -96,3 +97,76 @@ def test_ml_service_url_must_be_local_or_https(
     else:
         with pytest.raises(ValueError):
             ml_service_url()
+
+
+# --- rerank (spec 27 mục 7) ---
+
+
+def rerank_client(scores: object, seen: list[httpx.Request] | None = None) -> HttpMlClient:
+    def handle(request: httpx.Request) -> httpx.Response:
+        if seen is not None:
+            seen.append(request)
+        return httpx.Response(200, json={"model": "rr", "scores": scores})
+
+    return client(handle)
+
+
+async def test_rerank_sends_body_and_timeout() -> None:
+    seen: list[httpx.Request] = []
+    scores = await rerank_client([0.5, -1.0], seen).rerank("câu hỏi", ["a", "b"])
+    assert scores == [0.5, -1.0]
+    assert json.loads(seen[0].content) == {"query": "câu hỏi", "texts": ["a", "b"]}
+    assert seen[0].url.path == "/rerank"
+    assert seen[0].extensions["timeout"]["read"] == RERANK_TIMEOUT_SECONDS
+
+
+async def test_rerank_truncates_to_ml_service_limits() -> None:
+    seen: list[httpx.Request] = []
+    await rerank_client([0.0], seen).rerank("q" * 5000, ["t" * 20_000])
+    body = json.loads(seen[0].content)
+    assert len(body["query"]) == 2000 and len(body["texts"][0]) == 10_000
+
+
+async def test_rerank_rejects_too_many_texts_without_calling() -> None:
+    seen: list[httpx.Request] = []
+    with pytest.raises(MlUnavailable):
+        await rerank_client([0.0] * 65, seen).rerank("q", ["t"] * 65)
+    assert seen == []
+
+
+@pytest.mark.parametrize(
+    "scores", [[1.0], [1.0, 2.0, 3.0], "x", None, [1.0, "a"], [1.0, None], [True, 1.0]]
+)
+async def test_rerank_wrong_shape(scores: object) -> None:
+    with pytest.raises(MlUnavailable):
+        await rerank_client(scores).rerank("q", ["a", "b"])
+
+
+@pytest.mark.parametrize("bad", ["NaN", "Infinity", "-Infinity", "1" + "0" * 400])
+async def test_rerank_non_finite(bad: str) -> None:
+    def handle(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=b'{"model":"rr","scores":[1.0,' + bad.encode() + b"]}",
+            headers={"content-type": "application/json"},
+        )
+
+    with pytest.raises(MlUnavailable):
+        await client(handle).rerank("q", ["a", "b"])
+
+
+async def test_rerank_503_and_errors_have_no_text() -> None:
+    def disabled(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"detail": "rerank_disabled"})
+
+    def boom(_: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("SECRET-TEXT")
+
+    for handler in (disabled, boom):
+        with pytest.raises(MlUnavailable) as exc:
+            await client(handler).rerank("SECRET-Q", ["SECRET-TEXT"])
+        assert "SECRET" not in str(exc.value)
+
+
+def test_rerank_timeout_is_shorter_than_default() -> None:
+    assert RERANK_TIMEOUT_SECONDS == 30.0

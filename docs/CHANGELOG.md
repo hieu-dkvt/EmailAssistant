@@ -2,6 +2,39 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-02: cải thiện truy xuất cho hỏi đáp (spec 27, xong)
+
+### Đã làm
+- Hỏi theo dự án: `POST /ask` nhận `project_id` (dự án không thấy hoặc của người khác → 404 `project_not_found`, kiểm trước khi gọi ml-service và AI); điều kiện `message_projects` trong `filter_conditions`; trang Hỏi đáp có ô chọn dự án (mặc định "Tất cả dự án"). Đổi schema API: `web/openapi.json`, `web/src/api/schema.ts` sinh lại.
+- Quét vector chính xác khi phạm vi lọc nhỏ (`scope_is_small`, `EXACT_SCAN_MAX_CHUNKS = 20_000`, CTE `MATERIALIZED`); `/search` có bộ lọc nhận kết quả đầy đủ hơn (thread liên quan không có bộ lọc nên vẫn đi HNSW).
+- Migration 0020: build lại index HNSW với `m = 16`, `ef_construction = 128` (CONCURRENTLY, giữ tên index).
+- Ngữ cảnh gửi AI: `app/ai/context.py`; mỗi mail là một nguồn, mở rộng quanh đoạn khớp (mail ngắn gửi cả mail), thêm mail liền trước trong `<previous_mail>`, tối đa 24.000 ký tự thân mail; `_safe` thành regex cho `source`, `sources`, `question`, `previous_mail`. `sources` của `/ask` nay theo mail thay vì theo đoạn.
+- Reranker làm sẵn, **mặc định tắt**: ml-service `POST /rerank`, `ML_RERANK_MODEL`, `ML_RERANK_MAX_LENGTH`, `/health.rerank_model`; backend `PMM_RERANK=1`, `MlClient.rerank`, rerank 40 đoạn đầu rồi `pick`; lỗi thì giữ thứ tự RRF.
+- Eval: `eval/retrieval_eval.py` thêm dòng `hybrid_or_rerank` (bỏ qua và ghi chú khi `/health` có `rerank_model` null) và đo recall HNSW so với quét chính xác; `eval/vector_bench.py` đo ngưỡng quét và recall (vector tổng hợp có cụm).
+- Chạy thử đầu cuối trên `mailassist_test` với `FakeMl` và `FakeLlm`: hỏi với `project_id` chỉ trả mail của dự án, request có `<previous_mail>`, không có mail của người dùng khác.
+- Kiểm tra cuối: backend 987 test (đầu đợt 903), ml-service 23 (đầu đợt 13), web 112 (đầu đợt 110); ruff, pyright, ESLint, Prettier, build sạch.
+- Tài liệu: spec 27 (xong, mục 15 sửa sau review), dòng cập nhật ở spec 17, 19, 21, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md`, `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `.claude/rules/database.md`.
+
+### Quyết định của người dùng
+- 2026-11-01: gửi AI cả mail kèm mail liền trước, tổng tối đa khoảng 24.000 ký tự (không gửi nhiều mail trong thread).
+- 2026-11-01: làm sẵn reranker nhưng mặc định tắt; bật sau khi có số liệu eval (không tự bật, không tự tải model).
+- 2026-11-02: làm theo cách giao từng task cho subagent và chưa commit cho tới khi xong cả đợt.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- `EXACT_SCAN_MAX_CHUNKS = 20_000` (bench: trung vị 72 ms, lớn nhất 241 ms), `CONTEXT_MAX_CHARS = 24_000`, `SOURCE_MAX_CHARS = 3_000`, `PREVIOUS_MAX_CHARS = 1_200`, `MIN_EXPANSION_CHARS = 200`, `RERANK_CANDIDATES = 40`, `RERANK_TIMEOUT_SECONDS = 30`, `m = 16`, `ef_construction = 128`.
+- Spec 28 đã bỏ che nên các yêu cầu che trong spec 27 và kế hoạch không áp dụng; kiểm thử đầu cuối thay "không còn tên người" bằng "có `<previous_mail>`, chỉ mail của dự án, không có mail người dùng khác".
+- `create_app` của ml-service chỉ thêm `load_reranker` (không còn `load_recognizer`).
+
+### Đã xử lý sau review
+- Test mail chưa embed của dự án (chèn link sau `process_user`), test EXPLAIN của đường quét chính xác (có đối chứng), bench sang vector có cụm, `DROP INDEX ... _new` đầu migration 0020, test RLS của mail trước không dùng DDL, thêm test mail dài, `OverflowError` khi điểm rerank là số nguyên rất lớn. Chi tiết: spec 27 mục 15.
+- Security review và final review (2026-11-02, 0 Critical): tag giả `</source>` chen ký tự vô hình, khoảng trắng dài hoặc `＜` bị vô hiệu hóa (cả tag dịch); mail trước chọn theo thread là chủ ý; helper `embed_text` dùng chung; thêm test đếm phạm vi một lần, log rerank; sửa các chỗ spec còn viết theo NER/`Masker`, thread liên quan, `_retrieve`, eval 40 mail.
+
+### Còn để sau
+- Reranker vẫn tắt: chờ người dùng quyết định tải model `BAAI/bge-reranker-v2-m3` (1,1 GB) và chạy eval có dòng `hybrid_or_rerank`, so với tiêu chí ở spec 27 mục 10.
+- Eval với embedding thật (DB test chưa có embedding bge-m3 của profile giả; embed cả profile trên CPU mất hàng giờ): recall HNSW so với quét chính xác chưa đo trên dữ liệu thật.
+- DB dev (`mailassist`, `mailassist_proj`) cần `alembic upgrade head` để có migration 0020.
+- Chi phí câu đếm phạm vi và câu quét chính xác với bộ lọc thật (dự án, folder, người gửi, ngày, RLS) trên hộp mail lớn chưa đo bằng `EXPLAIN ANALYZE` (bench chỉ đo phạm vi theo khoảng id); `eval/retrieval_eval.py` chưa từng chạy (chỉ kiểm ruff/ast), lần chạy đầu có thể lỗi; vài Minor của review để lại (xem `.superpowers/sdd/2026-11-01-ask-retrieval/progress.md`).
+
 ## 2026-11-02: glossary mẫu cho lập trình (spec 26)
 
 ### Đã làm

@@ -16,7 +16,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai import secrets
-from app.ai.ask import ASK_TASKS, AskBusy, AskFilters, ask
+from app.ai.ask import ASK_TASKS, AskBusy, AskFilters, ProjectNotFound, ask
 from app.ai.client import LlmClient, LlmError, LlmResponse, LlmUsage, record_call
 from app.ai.models import TASK_TRANSLATE, TASKS
 from app.ai.provider import (
@@ -188,6 +188,7 @@ async def get_usage(user_id: WebUserId, engine: Engine) -> AiUsage:
     responses={
         **UNAUTHORIZED,
         403: {"model": ErrorBody, "description": "Thiếu header X-PMM-Request"},
+        404: {"model": ErrorBody, "description": "project_not_found"},
         409: {"model": ErrorBody, "description": "ask_in_progress"},
         502: {"model": ErrorBody, "description": "ai_refused, ai_truncated, ai_bad_output…"},
         503: {"model": ErrorBody, "description": "ai_not_configured, ai_unavailable, ml_…"},
@@ -210,11 +211,18 @@ async def post_ask(
         raise ApiError(status.HTTP_400_BAD_REQUEST, "Câu hỏi đang trống", "question_empty")
     llm = await _llm_for(engine, resolver, user_id, ASK_TASKS)
     filters = AskFilters(
-        folder_id=req.folder_id, sent_after=req.sent_after, sent_before=req.sent_before
+        folder_id=req.folder_id,
+        sent_after=req.sent_after,
+        sent_before=req.sent_before,
+        project_id=req.project_id,
     )
     try:
         with request.app.state.ask_guard.hold(user_id):
             return await ask(engine, ml, llm, user_id, req.question, filters)
+    except ProjectNotFound:
+        raise ApiError(
+            status.HTTP_404_NOT_FOUND, "Không tìm thấy dự án", "project_not_found"
+        ) from None
     except AskBusy:
         raise ApiError(
             status.HTTP_409_CONFLICT, "Đang có một câu hỏi chưa trả lời xong", "ask_in_progress"

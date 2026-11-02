@@ -44,3 +44,9 @@ def embed_model() -> str:
     """Model embedding hiện hành. ml-service chạy model khác thì không embed, không tìm (spec 18
     mục 5): đổi model nghĩa là embed lại toàn bộ, phải hỏi người dùng trước."""
     return os.environ.get("PMM_EMBED_MODEL") or "BAAI/bge-m3"
+
+
+def rerank_enabled() -> bool:
+    """Rerank nguồn của /ask qua ml-service `/rerank` (spec 27 mục 7). Mặc định tắt: chỉ bật khi
+    người dùng đặt PMM_RERANK=1 sau khi có số liệu eval."""
+    return os.environ.get("PMM_RERANK") == "1"

@@ -8,7 +8,14 @@ from sqlalchemy import Engine, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from tests.conftest import MAIL_TABLES
-from tests.dbutil import add_message, add_ownership, add_source, as_user
+from tests.dbutil import (
+    add_message,
+    add_message_project,
+    add_ownership,
+    add_project,
+    add_source,
+    as_user,
+)
 
 type Visible = tuple[set[int], set[tuple[int, int]], set[int]]
 
@@ -333,3 +340,25 @@ def test_roles_and_table_owner(owner_engine: Engine, migrated: None) -> None:
         }
     assert roles == {"app_api": (False, False), "app_worker": (False, True)}
     assert owners == dict.fromkeys(MAIL_TABLES, "app_owner")
+
+
+def test_message_projects_hidden_from_other_user(
+    owner_engine: Engine, api_engine: Engine, seeded: SimpleNamespace
+) -> None:
+    """A đặt project_id của B (hoặc xem mail của B) thì message_projects không trả dòng."""
+    with owner_engine.begin() as conn:
+        pb = add_project(conn, seeded.b, "PB")
+        add_message_project(conn, seeded.b, seeded.m2, pb)
+    with api_engine.begin() as conn:
+        as_user(conn, seeded.a)
+        rows = conn.scalar(
+            text("select count(*) from message_projects where project_id = :p"), {"p": pb}
+        )
+        projects = conn.scalar(text("select count(*) from projects where id = :p"), {"p": pb})
+    assert rows == 0 and projects == 0
+    with api_engine.begin() as conn:
+        as_user(conn, seeded.b)
+        own = conn.scalar(
+            text("select count(*) from message_projects where project_id = :p"), {"p": pb}
+        )
+    assert own == 1

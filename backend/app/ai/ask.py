@@ -6,6 +6,7 @@ trong lúc chờ AI. Không lưu, không log câu hỏi hay câu trả lời.
 """
 
 import logging
+import math
 import re
 import time
 from collections.abc import Hashable, Iterator, Sequence
@@ -18,28 +19,40 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.ai.client import CallLog, LlmClient, LlmError, call_task
+from app.ai.context import (
+    PREVIOUS_MAX_CHARS,
+    ChunkKey,
+    PreviousMail,
+    SourcePlan,
+    group_sources,
+    plan_context,
+    render_body,
+)
 from app.ai.prompts import (
     ANALYSIS_SYSTEM,
     ANSWER_SYSTEM,
     AnswerOut,
+    AnswerSource,
     QuestionPlan,
     analysis_message,
     answer_message,
 )
 from app.ai.settings import user_models
+from app.config import rerank_enabled
 from app.db.session import user_session
-from app.embedding import CHUNK_CHARS, MAX_CHUNKS, MAX_SUBJECT_CHARS, split_chunks
-from app.ml_client import MlClient
+from app.embedding import CHUNK_CHARS, MAX_CHUNKS, MAX_SUBJECT_CHARS, embed_text, split_chunks
+from app.ml_client import RERANK_MAX_TEXT_CHARS, MlClient, MlUnavailable, check_scores
 from app.search.highlight import find_spans
 from app.search.keyword import MessageFilters
 from app.search.query import QueryError, parse_query
-from app.search.semantic import keyword_messages, vector_chunks
+from app.search.semantic import keyword_messages, scope_is_small, vector_chunks
 from app.web_schemas import AskCall, AskPlan, AskResult, AskSent, AskSource
 
 log = logging.getLogger("app.ai")
 
 CONTEXT_CHUNKS = 20
 MAX_PER_MESSAGE = 3
+RERANK_CANDIDATES = 40  # đoạn đứng đầu sau RRF đưa vào reranker (spec 27 mục 7)
 VECTOR_K = 120  # đoạn gần nhất cho mỗi câu tìm kiếm
 KEYWORD_K = 40  # mail khớp từ khóa
 RRF_K = 60
@@ -51,7 +64,9 @@ NO_SOURCES_ANSWER = (
     "(hoặc mail chưa được xử lý cho tìm kiếm ngữ nghĩa)."
 )
 
-type ChunkKey = tuple[int, int, int]  # (message_id, start, end)
+
+class ProjectNotFound(Exception):
+    """Dự án không tồn tại hoặc không thuộc người hỏi (RLS ẩn)."""
 
 
 class AskBusy(Exception):
@@ -80,6 +95,7 @@ class AskFilters:
     folder_id: int | None = None
     sent_after: datetime | None = None
     sent_before: datetime | None = None
+    project_id: int | None = None
 
 
 def fuse(rankings: Sequence[Sequence[Hashable]], k: int = RRF_K) -> list[Hashable]:
@@ -121,15 +137,16 @@ KEYWORD_BODIES = text(
 )
 
 
-async def _retrieve(
+async def _candidates(
     session: AsyncSession,
     vectors: Sequence[Sequence[float]],
     keyword_query: Any,
     filters: MessageFilters,
 ) -> list[ChunkKey]:
     rankings: list[list[ChunkKey]] = []
+    exact = await scope_is_small(session, filters)  # đếm một lần cho mọi vector (spec 27 mục 4)
     for v in vectors:
-        hits = await vector_chunks(session, v, filters, limit=VECTOR_K)
+        hits = await vector_chunks(session, v, filters, limit=VECTOR_K, exact=exact)
         rankings.append([(h.message_id, h.start, h.end) for h in hits])
     if keyword_query is not None:
         ids = await keyword_messages(session, keyword_query, filters, limit=KEYWORD_K)
@@ -157,31 +174,120 @@ async def _retrieve(
                 )
                 keys.append((mid, best.start, best.end))
             rankings.append(keys)
+    return [key for key in fuse(rankings) if isinstance(key, tuple)]  # type: ignore[misc]
+
+
+def pick(keys: Sequence[ChunkKey]) -> list[ChunkKey]:
+    """Áp MAX_PER_MESSAGE và CONTEXT_CHUNKS lên danh sách đã xếp hạng."""
     picked: list[ChunkKey] = []
     per_message: dict[int, int] = {}
-    for key in fuse(rankings):
-        assert isinstance(key, tuple)
+    for key in keys:
         mid = key[0]
         if per_message.get(mid, 0) >= MAX_PER_MESSAGE:
             continue
         per_message[mid] = per_message.get(mid, 0) + 1
-        picked.append(key)  # type: ignore[arg-type]
+        picked.append(key)
         if len(picked) >= CONTEXT_CHUNKS:
             break
     return picked
 
 
+RERANK_BODIES = text(
+    "SELECT m.id, m.subject, left(m.body_clean, :cap) AS body FROM messages m "
+    "WHERE m.id = ANY(CAST(:ids AS bigint[]))"
+)
+
+
+async def _rerank_texts(session: AsyncSession, keys: Sequence[ChunkKey]) -> list[str]:
+    """Text của từng đoạn như `embed_input`: 300 ký tự đầu subject, xuống dòng, đoạn. Phiên RLS."""
+    rows = {
+        r.id: r
+        for r in await session.execute(
+            RERANK_BODIES,
+            {"ids": sorted({k[0] for k in keys}), "cap": MAX_CHUNKS * CHUNK_CHARS},
+        )
+    }
+    out: list[str] = []
+    for mid, start, end in keys:
+        r = rows.get(mid)
+        subject, body = (r.subject or "", r.body or "") if r is not None else ("", "")
+        out.append(embed_text(subject, body[start:end])[:RERANK_MAX_TEXT_CHARS])
+    return out
+
+
+async def _rerank(
+    ml: MlClient, question: str, keys: list[ChunkKey], texts: list[str]
+) -> tuple[list[ChunkKey], int]:
+    """Xếp lại theo điểm giảm dần (sorted ổn định: bằng điểm giữ thứ tự RRF). Gọi ngoài transaction.
+    Lỗi bất kỳ của ml-service → giữ thứ tự RRF, trả 0 (không log câu hỏi, text, điểm)."""
+    try:
+        scores = check_scores(await ml.rerank(question, texts), len(keys))
+    except MlUnavailable:
+        return keys, 0
+    if not all(math.isfinite(x) for x in scores):
+        return keys, 0
+    order = sorted(range(len(keys)), key=lambda i: -scores[i])
+    return [keys[i] for i in order], len(keys)
+
+
 SOURCES = text(
     """
     SELECT p.ord, m.id, m.thread_id, m.subject, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs,
-           m.sent_at, m.sent_tz_offset_min,
-           substr(coalesce(m.body_clean, ''), p.s + 1, p.e - p.s) AS chunk
-    FROM unnest(CAST(:ids AS bigint[]), CAST(:starts AS integer[]), CAST(:ends AS integer[]))
-         WITH ORDINALITY AS p(id, s, e, ord)
+           m.sent_at, m.sent_tz_offset_min, left(coalesce(m.body_clean, ''), :cap) AS body
+    FROM unnest(CAST(:ids AS bigint[])) WITH ORDINALITY AS p(id, ord)
     JOIN messages m ON m.id = p.id
     ORDER BY p.ord
     """
 )
+
+# Mail trước của mỗi nguồn (spec 27 mục 6). Chạy trong cùng phiên RLS với SOURCES; thêm điều kiện
+# user_id và thread_id để mail trước luôn của người hỏi và cùng thread, kể cả khi RLS bị lỡ.
+PREVIOUS_MAILS = text(
+    """
+    SELECT s.id AS source_id, p.id, p.from_name, p.from_addr, p.to_addrs, p.cc_addrs,
+           p.sent_at, p.sent_tz_offset_min, left(p.body_clean, :previous_max) AS body
+    FROM messages s
+    JOIN LATERAL (
+      SELECT x.* FROM messages x
+      WHERE x.user_id = s.user_id AND x.thread_id = s.thread_id AND x.id <> s.id
+        AND coalesce(x.body_clean, '') <> ''
+        AND (x.id = s.thread_parent_id OR x.sent_at < s.sent_at)
+      ORDER BY (x.id IS NOT DISTINCT FROM s.thread_parent_id) DESC,
+               x.sent_at DESC NULLS LAST, x.id DESC
+      LIMIT 1
+    ) p ON true
+    WHERE s.id = ANY(CAST(:ids AS bigint[]))
+    """
+)
+
+
+async def _fetch_context(
+    session: AsyncSession, picked: Sequence[ChunkKey]
+) -> tuple[list[Any], list[SourcePlan], dict[int, Any]]:
+    """Hàng nguồn (mỗi mail một hàng, theo thứ tự `group_sources`), kế hoạch ngữ cảnh và hàng mail
+    trước theo id. Cùng phiên RLS của người hỏi. Chặn ở CONTEXT_CHUNKS đoạn để lớp đảm bảo của
+    `plan_context` có trần (≤ 20 × 800 ký tự)."""
+    groups = group_sources(picked[:CONTEXT_CHUNKS])
+    if not groups:
+        return [], [], {}
+    ids = [g.message_id for g in groups]
+    cap = MAX_CHUNKS * CHUNK_CHARS
+    by_id = {r.id: r for r in await session.execute(SOURCES, {"ids": ids, "cap": cap})}
+    groups = [g for g in groups if g.message_id in by_id]
+    rows = [by_id[g.message_id] for g in groups]
+    previous_rows = {
+        r.source_id: r
+        for r in await session.execute(
+            PREVIOUS_MAILS,
+            {"ids": [g.message_id for g in groups], "previous_max": PREVIOUS_MAX_CHARS},
+        )
+    }
+    plans = plan_context(
+        groups,
+        {r.id: len(r.body) for r in rows},  # 0 cho mail chỉ có subject
+        {sid: PreviousMail(r.id, len(r.body)) for sid, r in previous_rows.items()},
+    )
+    return rows, plans, {r.id: r for r in previous_rows.values()}
 
 
 def _local_time(sent_at: datetime | None, offset_min: int | None) -> str:
@@ -209,17 +315,27 @@ def _addresses(items: Any) -> str:
     return ", ".join(out)
 
 
-def _source_text(r: Any) -> str:
-    """Một nguồn gửi AI: header (đã giới hạn độ dài, chi phí có trần) và đoạn mail."""
+def _header(r: Any, *, full: bool) -> list[str]:
     lines = [
         f"Date: {_local_time(r.sent_at, r.sent_tz_offset_min)}",
         f"From: {_person(r.from_name, r.from_addr)}",
-        f"To: {_addresses(r.to_addrs)}",
     ]
-    if cc := _addresses(r.cc_addrs):
-        lines.append(f"Cc: {cc}")
-    lines += [f"Subject: {(r.subject or '')[:MAX_SUBJECT_CHARS]}", "", r.chunk.strip()]
-    return "\n".join(lines)
+    if full:
+        lines.append(f"To: {_addresses(r.to_addrs)}")
+        if cc := _addresses(r.cc_addrs):
+            lines.append(f"Cc: {cc}")
+        lines.append(f"Subject: {(r.subject or '')[:MAX_SUBJECT_CHARS]}")
+    return lines
+
+
+def _source_text(r: Any, plan: SourcePlan) -> str:
+    """Một nguồn gửi AI: header (đã giới hạn độ dài, chi phí có trần) và thân mail đã mở rộng."""
+    return "\n".join([*_header(r, full=True), "", render_body(r.body, plan.spans).strip()])
+
+
+def _previous_text(r: Any, plan: SourcePlan) -> str:
+    """Mail trước: Date, From và `previous_chars` ký tự đầu của thân mail."""
+    return "\n".join([*_header(r, full=False), "", r.body[: plan.previous_chars].strip()])
 
 
 _CITE = re.compile(r"\[(\d{1,3})\]")
@@ -242,6 +358,10 @@ async def ask(
     sent: list[AskSent] = []
 
     async with user_session(engine, user_id) as s:
+        if filters.project_id is not None and not await s.scalar(
+            text("SELECT 1 FROM projects WHERE id = :id"), {"id": filters.project_id}
+        ):
+            raise ProjectNotFound
         models = await user_models(s, user_id)
         if any(t not in models for t in ASK_TASKS):
             raise LlmError(
@@ -272,9 +392,11 @@ async def ask(
         folder_id=filters.folder_id,
         sent_after=filters.sent_after,
         sent_before=filters.sent_before,
+        project_id=filters.project_id,
     )
     narrowed = MessageFilters(
         folder_id=base.folder_id,
+        project_id=base.project_id,
         sender=sender[:200] if sender else None,
         sent_after=max(
             (d for d in (base.sent_after, _day_start(after) if after else None) if d), default=None
@@ -287,25 +409,27 @@ async def ask(
     vectors = await ml.embed([question, *queries])
     keyword_query = _keyword_query(keywords)
     relaxed = False
+    texts: list[str] | None = None
     async with user_session(engine, user_id) as s:
-        picked = await _retrieve(s, vectors, keyword_query, narrowed)
-        if not picked and narrowed != base:
+        candidates = await _candidates(s, vectors, keyword_query, narrowed)
+        if not candidates and narrowed != base:
             relaxed = True
-            picked = await _retrieve(s, vectors, keyword_query, base)
-        rows = (
-            list(
-                await s.execute(
-                    SOURCES,
-                    {
-                        "ids": [k[0] for k in picked],
-                        "starts": [k[1] for k in picked],
-                        "ends": [k[2] for k in picked],
-                    },
-                )
-            )
-            if picked
-            else []
-        )
+            candidates = await _candidates(s, vectors, keyword_query, base)
+        head = candidates[:RERANK_CANDIDATES]
+        if question and len(head) >= 2 and rerank_enabled():
+            texts = await _rerank_texts(s, head)
+    # Gọi reranker ngoài transaction (không giữ kết nối DB trong lúc chờ ml-service).
+    reranked = 0
+    if texts is not None:
+        head, reranked = await _rerank(ml, question, head, texts)
+        candidates = [*head, *candidates[RERANK_CANDIDATES:]]
+    picked = pick(candidates)
+    rows: list[Any] = []
+    plans: list[SourcePlan] = []
+    previous_rows: dict[int, Any] = {}
+    if picked:
+        async with user_session(engine, user_id) as s:
+            rows, plans, previous_rows = await _fetch_context(s, picked)
     ask_plan = AskPlan(
         search_queries=queries,
         keywords=keywords,
@@ -317,10 +441,11 @@ async def ask(
 
     def result(answer: str, insufficient: bool, sources: list[AskSource]) -> AskResult:
         log.info(
-            "ask user=%s sources=%d calls=%d ms=%d",
+            "ask user=%s sources=%d calls=%d reranked=%d ms=%d",
             user_id,
             len(sources),
             len(calls.calls),
+            reranked,
             (time.monotonic() - started) * 1000,
         )
         return AskResult(
@@ -336,7 +461,18 @@ async def ask(
         return result(NO_SOURCES_ANSWER, True, [])
 
     # 3. Trả lời từ các nguồn đã tìm.
-    content = answer_message(question, [_source_text(r) for r in rows])
+    content = answer_message(
+        question,
+        [
+            AnswerSource(
+                _source_text(r, plan_),
+                _previous_text(previous_rows[plan_.previous_id], plan_)
+                if plan_.previous_id is not None
+                else None,
+            )
+            for r, plan_ in zip(rows, plans, strict=True)
+        ],
+    )
     sent.append(AskSent(task="answer", content=content))
     out = await call_task(
         engine,

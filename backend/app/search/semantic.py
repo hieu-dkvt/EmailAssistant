@@ -11,7 +11,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import text
+from sqlalchemy import TextClause, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
 
@@ -63,6 +63,50 @@ NEAREST_CHUNKS = text(
     """
 )
 MAX_CANDIDATES = 20_000  # bằng hnsw.max_scan_tuples mặc định
+# Spec 27 mục 4: phạm vi (đoạn hợp lệ thỏa bộ lọc) không quá ngưỡng này thì quét chính xác.
+EXACT_SCAN_MAX_CHUNKS = 20_000
+
+
+def _scope_sql(conds: Sequence[str]) -> str:
+    return " AND ".join(["c.model = :model", "m.cleaner_version = c.cleaner_version", *conds])
+
+
+def exact_chunks_sql(conds: Sequence[str]) -> TextClause:
+    """Quét chính xác: CTE MATERIALIZED, ORDER BY không dùng được index HNSW (kết quả xác định)."""
+    return text(
+        f"""
+        WITH scope AS MATERIALIZED (
+          SELECT c.message_id, c.chunk_no, c.start_pos, c.end_pos,
+                 c.embedding <=> CAST(:qv AS halfvec(1024)) AS distance
+          FROM message_chunks c
+          JOIN messages m ON m.id = c.message_id AND m.user_id = c.user_id
+          WHERE {_scope_sql(conds)}
+        )
+        SELECT * FROM scope ORDER BY distance, message_id, chunk_no LIMIT :k
+        """
+    )
+
+
+async def scope_is_small(session: AsyncSession, filters: MessageFilters) -> bool:
+    """Phạm vi lọc có không quá EXACT_SCAN_MAX_CHUNKS đoạn hợp lệ? Không có bộ lọc: False, không
+    truy vấn (đi đường HNSW)."""
+    conds, params = filter_conditions(filters)
+    if not conds:
+        return False
+    count = await session.scalar(
+        text(
+            f"""
+            SELECT count(*) FROM (
+              SELECT 1 FROM message_chunks c
+              JOIN messages m ON m.id = c.message_id AND m.user_id = c.user_id
+              WHERE {_scope_sql(conds)}
+              LIMIT :cap
+            ) s
+            """
+        ),
+        {**params, "model": embed_model(), "cap": EXACT_SCAN_MAX_CHUNKS + 1},
+    )
+    return int(count or 0) <= EXACT_SCAN_MAX_CHUNKS
 
 
 async def vector_chunks(
@@ -72,16 +116,28 @@ async def vector_chunks(
     *,
     limit: int = VECTOR_CHUNKS,
     exclude_thread_id: int | None = None,
+    exact: bool | None = None,
 ) -> list[ChunkHit]:
     """Đoạn gần vector nhất thỏa bộ lọc (đoạn hợp lệ: model hiện hành, cleaner_version khớp).
 
     Bước 2 lọc ứng viên bằng messages (bộ lọc, cleaner_version) trong cùng phiên RLS. Bộ lọc loại
-    nhiều quá thì lấy thêm ứng viên (×4) tới MAX_CANDIDATES.
+    nhiều quá thì lấy thêm ứng viên (×4) tới MAX_CANDIDATES. Phạm vi lọc nhỏ (exact, mặc định tự
+    đếm bằng scope_is_small) thì quét chính xác, không qua index.
     """
+    if exact is None:
+        exact = await scope_is_small(session, filters)
     conds, params = filter_conditions(filters)
     if exclude_thread_id is not None:
         conds.append("m.thread_id IS DISTINCT FROM :exclude_thread")
         params["exclude_thread"] = exclude_thread_id
+    if exact:
+        found = await session.execute(
+            exact_chunks_sql(conds),
+            {**params, "qv": vector_literal(list(vector)), "model": embed_model(), "k": limit},
+        )
+        return [
+            ChunkHit(r.message_id, r.chunk_no, r.start_pos, r.end_pos, r.distance) for r in found
+        ]
     where = " AND ".join(["m.cleaner_version = p.cv", *conds])
     keep = text(
         f"""

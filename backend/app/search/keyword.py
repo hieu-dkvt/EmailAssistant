@@ -38,6 +38,7 @@ class MessageFilters:
     sent_after: datetime | None = None
     sent_before: datetime | None = None
     has_attachments: bool | None = None
+    project_id: int | None = None
 
 
 def like_pattern(value: str) -> str:
@@ -67,6 +68,13 @@ def filter_conditions(f: MessageFilters, alias: str = "m") -> tuple[list[str], d
             "AND r.target_source_id = :folder_id))"
         )
         params["folder_id"] = f.folder_id
+    if f.project_id is not None:
+        conds.append(
+            "EXISTS (SELECT 1 FROM message_projects mp "
+            f"WHERE mp.message_id = {alias}.id AND mp.user_id = {alias}.user_id "
+            "AND mp.project_id = :project_id)"
+        )
+        params["project_id"] = f.project_id
     if f.sender:
         conds.append(
             f"({alias}.from_addr ILIKE :sender ESCAPE '\\' "

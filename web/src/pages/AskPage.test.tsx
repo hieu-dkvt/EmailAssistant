@@ -59,6 +59,11 @@ const RESULT: AskResult = {
   ],
 };
 
+const PROJECTS = [
+  { id: 7, name: "Dự án A" },
+  { id: 8, name: "Dự án B" },
+];
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -79,6 +84,12 @@ function renderAt(ui: React.ReactNode) {
   );
 }
 
+function getBody(request: Request): Response {
+  return new URL(request.url).pathname.endsWith("/projects")
+    ? json(200, { items: PROJECTS, assigning: false })
+    : json(200, []); // /folders
+}
+
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AnswerText", () => {
@@ -95,7 +106,7 @@ describe("AskPage", () => {
   it("không khẳng định model là nội bộ: ô URL ở Cài đặt AI nhận mọi địa chỉ", () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => json(200, [])),
+      vi.fn(async (request: Request) => getBody(request)),
     );
     renderAt(<AskPage />);
     expect(screen.getByText(/gửi tới nhà cung cấp AI đã cấu hình/)).toBeInTheDocument();
@@ -112,7 +123,7 @@ describe("AskPage", () => {
           posts.push(request.clone());
           return json(200, RESULT);
         }
-        return json(200, []); // /folders
+        return getBody(request);
       }),
     );
     renderAt(<AskPage />);
@@ -132,7 +143,7 @@ describe("AskPage", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (request: Request) =>
-        request.method === "POST" ? json(200, RESULT) : json(200, []),
+        request.method === "POST" ? json(200, RESULT) : getBody(request),
       ),
     );
     renderAt(<AskPage />);
@@ -150,7 +161,7 @@ describe("AskPage", () => {
       vi.fn(async (request: Request) =>
         request.method === "POST"
           ? json(503, { detail: "Chưa cấu hình AI", code: "ai_not_configured" })
-          : json(200, []),
+          : getBody(request),
       ),
     );
     renderAt(<AskPage />);
@@ -158,5 +169,51 @@ describe("AskPage", () => {
     await user.type(screen.getByLabelText("Câu hỏi"), "x");
     await user.click(screen.getByRole("button", { name: "Hỏi" }));
     expect(await screen.findByText("Chưa cấu hình AI")).toBeInTheDocument();
+  });
+
+  it("gửi project_id khi chọn dự án, không gửi khi chọn Tất cả dự án", async () => {
+    const posts: Request[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        if (request.method === "POST") {
+          posts.push(request.clone());
+          return json(200, RESULT);
+        }
+        return getBody(request);
+      }),
+    );
+    renderAt(<AskPage />);
+    const user = userEvent.setup();
+    const select = screen.getByLabelText("Dự án");
+    expect(screen.getByRole("option", { name: "Tất cả dự án" })).toBeInTheDocument();
+    await user.type(screen.getByLabelText("Câu hỏi"), "x");
+    await user.click(screen.getByRole("button", { name: "Hỏi" }));
+    expect(await screen.findByText("Mail nguồn (2)")).toBeInTheDocument();
+    expect(await posts[0].json()).toEqual({ question: "x" });
+
+    await screen.findByRole("option", { name: "Dự án A" });
+    await user.selectOptions(select, "7");
+    await user.click(screen.getByRole("button", { name: "Hỏi" }));
+    await vi.waitFor(() => expect(posts).toHaveLength(2));
+    expect(await posts[1].json()).toEqual({ question: "x", project_id: 7 });
+  });
+
+  it("hiện lỗi project_not_found", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) =>
+        request.method === "POST"
+          ? json(404, { detail: "Không tìm thấy dự án", code: "project_not_found" })
+          : getBody(request),
+      ),
+    );
+    renderAt(<AskPage />);
+    const user = userEvent.setup();
+    await screen.findByRole("option", { name: "Dự án B" });
+    await user.selectOptions(screen.getByLabelText("Dự án"), "8");
+    await user.type(screen.getByLabelText("Câu hỏi"), "x");
+    await user.click(screen.getByRole("button", { name: "Hỏi" }));
+    expect(await screen.findByText("Không tìm thấy dự án")).toBeInTheDocument();
   });
 });

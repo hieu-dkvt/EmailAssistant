@@ -130,6 +130,13 @@ def add_project(conn: Connection, user_id: int, name: str, **cols: Any) -> int:
     )
 
 
+def add_message_project(conn: Connection, user_id: int, message_id: int, project_id: int) -> None:
+    conn.execute(
+        text("insert into message_projects (user_id, message_id, project_id) values (:u, :m, :p)"),
+        {"u": user_id, "m": message_id, "p": project_id},
+    )
+
+
 def add_glossary(
     conn: Connection,
     user_id: int,

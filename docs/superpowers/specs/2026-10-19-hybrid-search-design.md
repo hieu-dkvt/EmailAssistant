@@ -8,7 +8,7 @@ Tìm mail theo ý nghĩa, không cần gõ đúng từ trong mail: câu hỏi ti
 
 ## 2. Không làm
 
-- Reranker: không có (spec 17 mục 2).
+- Reranker: `/search` không dùng. Spec 17 mục 2 ban đầu không làm; từ spec 27 có `/rerank` (mặc định tắt) nhưng chỉ cho `/ask`.
 - Gộp kết quả theo thread: vẫn trả từng mail như search từ khóa.
 - Sắp theo ngày ở chế độ hybrid: luôn theo độ liên quan.
 

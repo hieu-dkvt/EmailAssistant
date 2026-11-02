@@ -69,9 +69,14 @@ def split_chunks(
 MAX_SUBJECT_CHARS = 300  # subject nhận tới 10.000 ký tự: cắt để text luôn dưới giới hạn ml-service
 
 
+def embed_text(subject: str | None, piece: str) -> str:
+    """Dạng chung của text embed và text rerank: 300 ký tự đầu subject, xuống dòng, đoạn."""
+    return f"{(subject or '')[:MAX_SUBJECT_CHARS]}\n{piece}".strip()
+
+
 def embed_input(subject: str | None, body: str, chunk: Chunk) -> str:
     """Text gửi đi embed: subject giúp đoạn ngắn có ngữ cảnh."""
-    return f"{(subject or '')[:MAX_SUBJECT_CHARS]}\n{body[chunk.start : chunk.end]}".strip()
+    return embed_text(subject, body[chunk.start : chunk.end])
 
 
 # Mail cần embed: đã làm sạch, chưa có đoạn 0 đúng model / cách cắt / bản body_clean hiện hành.

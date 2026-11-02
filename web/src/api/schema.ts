@@ -2164,6 +2164,8 @@ export interface operations {
           question: string;
           /** Folder Id */
           folder_id?: number | null;
+          /** Project Id */
+          project_id?: number | null;
           /** Sent After */
           sent_after?: string | null;
           /** Sent Before */
@@ -2192,6 +2194,15 @@ export interface operations {
       };
       /** @description Thiếu header X-PMM-Request */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ErrorBody"];
+        };
+      };
+      /** @description project_not_found */
+      404: {
         headers: {
           [name: string]: unknown;
         };

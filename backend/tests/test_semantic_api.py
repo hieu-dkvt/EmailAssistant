@@ -5,22 +5,62 @@ Hai người dùng A, B có mail cùng chủ đề: kết quả của A không b
 
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import Engine, text
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app import embedding
-from app.db.session import create_api_engine
+from app.config import embed_model
+from app.db.session import create_api_engine, user_session
 from app.main import create_app
 from app.processing import process_user
+from app.search import semantic
+from app.search.keyword import MessageFilters
 from app.search.query import parse_query
-from app.search.semantic import NEAREST_CHUNKS, rrf
-from tests.dbutil import add_source, as_user, url_for_test_db
+from app.search.semantic import (
+    NEAREST_CHUNKS,
+    exact_chunks_sql,
+    rrf,
+    scope_is_small,
+    vector_chunks,
+)
+from tests.dbutil import (
+    add_message_project,
+    add_project,
+    add_source,
+    as_user,
+    run_alembic,
+    url_for_test_db,
+)
 from tests.mlfake import FakeMl, concept_vector
 from tests.test_web_api import put_mail
 from tests.webutil import add_web_user, login
+
+
+def hnsw_indexdef(engine: Engine) -> str:
+    with engine.connect() as conn:
+        return conn.execute(
+            text("select indexdef from pg_indexes where indexname = 'ix_message_chunks_embedding'")
+        ).scalar_one()
+
+
+def test_hnsw_index_params(owner_engine: Engine, migrated: None) -> None:
+    indexdef = hnsw_indexdef(owner_engine)
+    assert "m='16'" in indexdef and "ef_construction='128'" in indexdef
+
+
+def test_hnsw_migration_downgrades(owner_engine: Engine, clean: None) -> None:
+    run_alembic("downgrade", "0019")
+    try:
+        indexdef = hnsw_indexdef(owner_engine)
+        assert "hnsw" in indexdef and "ef_construction" not in indexdef
+    finally:
+        run_alembic("upgrade", "head")
+    assert "ef_construction='128'" in hnsw_indexdef(owner_engine)
+
 
 # --- hàm thuần ---
 
@@ -251,3 +291,148 @@ async def test_similar_pending_without_embeddings(
         t = conn.scalar(text("select thread_id from messages where id = :m"), {"m": world.other})
     r = await client.get(f"/api/v1/threads/{t}/similar")
     assert r.json() == {"items": [], "pending": True}
+
+
+# --- quét chính xác khi phạm vi nhỏ (spec 27 mục 4) ---
+
+QV = concept_vector("見積")
+EST_BODY = "見積の金額は100円です。"
+
+
+@pytest.fixture
+async def scope_world(owner_engine: Engine, worker: AsyncEngine, clean: None) -> SimpleNamespace:
+    a = add_web_user(owner_engine, "a@example.com")
+    b = add_web_user(owner_engine, "b@example.com")
+    with owner_engine.begin() as conn:
+        fa = add_source(conn, a, "ImapMail/imap.example.com/INBOX")
+        fa2 = add_source(conn, a, "ImapMail/imap.example.com/INBOX.sbd/ProjectA")
+        fb = add_source(conn, b, "ImapMail/imap.example.com/INBOX")
+        crowd = [
+            put_mail(conn, a, f"c{i}@a.example.jp", [fa], subject=f"見積{i}", body=EST_BODY)
+            for i in range(30)
+        ]
+        far = put_mail(conn, a, "far@a.example.jp", [fa2], subject="別件", body="無関係な内容")
+        near = put_mail(conn, a, "near@a.example.jp", [fa], subject="見積近", body=EST_BODY)
+        stale = put_mail(conn, a, "stale@a.example.jp", [fa], subject="見積古", body=EST_BODY)
+        wrong = put_mail(conn, a, "wrong@a.example.jp", [fa], subject="見積別", body=EST_BODY)
+        b_est = put_mail(conn, b, "b@b.example.jp", [fb], subject="見積", body=EST_BODY)
+    for u in (a, b):
+        await process_user(worker, u)
+        await embedding.embed_user(worker, FakeMl(), u)
+    # Link dự án sau mọi process_user: bước gán của worker xóa link tay (spec 25).
+    with owner_engine.begin() as conn:
+        small = add_project(conn, a, "Small")
+        for m in (far, near, stale, wrong):
+            add_message_project(conn, a, m, small)
+        conn.execute(
+            text("update messages set cleaner_version = cleaner_version + 1 where id = :m"),
+            {"m": stale},
+        )
+        conn.execute(
+            text("update message_chunks set model = 'old/model' where message_id = :m"),
+            {"m": wrong},
+        )
+    return SimpleNamespace(
+        a=a, b=b, crowd=crowd, far=far, near=near, stale=stale, wrong=wrong, b_est=b_est,
+        fa2=fa2, small=small,
+    )  # fmt: skip
+
+
+@pytest.fixture
+async def api_session(
+    api: AsyncEngine, scope_world: SimpleNamespace
+) -> AsyncIterator[AsyncSession]:
+    async with user_session(api, scope_world.a) as s:
+        yield s
+
+
+async def hit_ids(s: AsyncSession, f: MessageFilters, **kw: Any) -> set[int]:
+    return {h.message_id for h in await vector_chunks(s, QV, f, limit=5, **kw)}
+
+
+async def test_exact_scan_finds_what_hnsw_misses(
+    api_session: AsyncSession, scope_world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(semantic, "MAX_CANDIDATES", 5)
+    f = MessageFilters(project_id=scope_world.small)
+    assert await scope_is_small(api_session, f) is True
+    assert scope_world.far in await hit_ids(api_session, f)
+    monkeypatch.setattr(semantic, "EXACT_SCAN_MAX_CHUNKS", 0)
+    assert await scope_is_small(api_session, f) is False
+    assert scope_world.far not in await hit_ids(api_session, f)
+
+
+async def test_no_filter_does_not_count(
+    api_session: AsyncSession, scope_world: SimpleNamespace
+) -> None:
+    assert await scope_is_small(api_session, MessageFilters()) is False
+
+
+async def test_exact_scan_respects_stale_and_rls(
+    api_session: AsyncSession, scope_world: SimpleNamespace
+) -> None:
+    w = scope_world
+    got = {
+        h.message_id
+        for h in await vector_chunks(
+            api_session, QV, MessageFilters(has_attachments=False), limit=500, exact=True
+        )
+    }
+    assert {w.near, w.far, *w.crowd} <= got
+    assert not ({w.stale, w.wrong, w.b_est} & got)
+    in_project = {
+        h.message_id
+        for h in await vector_chunks(
+            api_session, QV, MessageFilters(project_id=w.small), limit=500, exact=True
+        )
+    }
+    assert in_project == {w.near, w.far}
+
+
+async def test_exact_scan_excludes_thread(
+    api_session: AsyncSession, scope_world: SimpleNamespace
+) -> None:
+    f = MessageFilters(project_id=scope_world.small)
+    thread = await api_session.scalar(
+        text("select thread_id from messages where id = :m"), {"m": scope_world.near}
+    )
+    got = {
+        h.message_id
+        for h in await vector_chunks(
+            api_session, QV, f, limit=50, exact=True, exclude_thread_id=thread
+        )
+    }
+    assert got == {scope_world.far}
+
+
+async def test_project_and_folder_intersect_on_both_paths(
+    api_session: AsyncSession, scope_world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    f = MessageFilters(project_id=scope_world.small, folder_id=scope_world.fa2)
+    results = []
+    for cap in (semantic.EXACT_SCAN_MAX_CHUNKS, 0):
+        monkeypatch.setattr(semantic, "EXACT_SCAN_MAX_CHUNKS", cap)
+        hits = await vector_chunks(api_session, QV, f, limit=50)
+        results.append({h.message_id for h in hits})
+    assert results == [{scope_world.far}, {scope_world.far}]
+
+
+def test_exact_query_does_not_use_hnsw(api_engine: Engine, scope_world: SimpleNamespace) -> None:
+    vec = "[" + ",".join(str(x) for x in QV) + "]"
+    params = {"qv": vec, "model": embed_model(), "k": 10}
+    with api_engine.begin() as conn:
+        as_user(conn, scope_world.a)
+        # Cùng cài đặt với test HNSW ở trên: bảng nhỏ nên phải tắt seq scan và sort thì planner
+        # mới chịu dùng index. Đối chứng: câu HNSW dùng index, câu quét chính xác thì không.
+        conn.execute(text("set local enable_seqscan = off"))
+        conn.execute(text("set local enable_sort = off"))
+        conn.execute(text("set local hnsw.iterative_scan = relaxed_order"))
+        control = "\n".join(conn.scalars(text("explain " + str(NEAREST_CHUNKS)), params))
+        plan = "\n".join(
+            conn.scalars(
+                text("explain " + str(exact_chunks_sql(["m.has_attachments = :ha"]))),
+                {**params, "ha": False},
+            )
+        )
+    assert "ix_message_chunks_embedding" in control
+    assert "ix_message_chunks_embedding" not in plan

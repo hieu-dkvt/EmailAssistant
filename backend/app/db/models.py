@@ -482,6 +482,7 @@ class MessageChunk(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_ops={"embedding": "halfvec_cosine_ops"},
+            postgresql_with={"m": 16, "ef_construction": 128},
         ),
     )
 

@@ -25,4 +25,7 @@ class Settings:
     batch_size: int = field(default_factory=lambda: _int("ML_BATCH_SIZE", 8))
     # Số luồng CPU cho PyTorch; 0 = để PyTorch tự chọn.
     torch_threads: int = field(default_factory=lambda: _int("ML_TORCH_THREADS", 0))
+    # Rỗng = tắt reranker (không nạp model, /rerank trả 503).
+    rerank_model: str = field(default_factory=lambda: os.environ.get("ML_RERANK_MODEL", ""))
+    rerank_max_length: int = field(default_factory=lambda: _int("ML_RERANK_MAX_LENGTH", 512))
     allowed_hosts: list[str] = field(default_factory=_hosts)

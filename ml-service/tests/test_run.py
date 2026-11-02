@@ -4,7 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from app.run import model_in_cache
+from app.config import Settings
+from app.run import can_go_offline, model_in_cache
 
 
 def test_model_in_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -16,3 +17,19 @@ def test_model_in_cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None
     (snap / "config.json").write_text("{}", encoding="utf-8")
     assert model_in_cache("BAAI/bge-m3")
     assert not model_in_cache("other/model")
+
+
+def _cache(root: Path, repo: str) -> None:
+    snap = root / "hub" / ("models--" + repo.replace("/", "--")) / "snapshots" / "abc"
+    snap.mkdir(parents=True)
+    (snap / "config.json").write_text("{}", encoding="utf-8")
+
+
+def test_offline_needs_both_models_cached(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HF_HOME", str(tmp_path))
+    monkeypatch.delenv("HF_HUB_CACHE", raising=False)
+    _cache(tmp_path, "BAAI/bge-m3")
+    assert can_go_offline(Settings(embed_model="BAAI/bge-m3", rerank_model=""))
+    assert not can_go_offline(Settings(embed_model="BAAI/bge-m3", rerank_model="x/rerank"))
+    _cache(tmp_path, "x/rerank")
+    assert can_go_offline(Settings(embed_model="BAAI/bge-m3", rerank_model="x/rerank"))

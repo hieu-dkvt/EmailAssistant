@@ -1421,6 +1421,19 @@
                     ],
                     "title": "Folder Id"
                   },
+                  "project_id": {
+                    "anyOf": [
+                      {
+                        "type": "integer",
+                        "maximum": 9.223372036854776e+18,
+                        "exclusiveMinimum": 0.0
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "title": "Project Id"
+                  },
                   "sent_after": {
                     "anyOf": [
                       {
@@ -1480,6 +1493,16 @@
           },
           "403": {
             "description": "Thiếu header X-PMM-Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "project_not_found",
             "content": {
               "application/json": {
                 "schema": {

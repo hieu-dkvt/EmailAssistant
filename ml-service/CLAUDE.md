@@ -1,6 +1,6 @@
 # ML service (Python)
 
-Service nội bộ chạy model trên máy mình, phục vụ backend (api và worker): embedding (`bge-m3`) cho tìm kiếm ngữ nghĩa, embed nền và embed câu hỏi của hỏi đáp. Không lưu dữ liệu, không gửi dữ liệu ra ngoài. Spec: `docs/superpowers/specs/2026-10-19-ml-service-design.md` (spec 17).
+Service nội bộ chạy model trên máy mình, phục vụ backend (api và worker): embedding (`bge-m3`) cho tìm kiếm ngữ nghĩa, embed nền và embed câu hỏi của hỏi đáp; rerank (tùy chọn, mặc định tắt) cho hỏi đáp. Không lưu dữ liệu, không gửi dữ liệu ra ngoài. Spec: `docs/superpowers/specs/2026-10-19-ml-service-design.md` (spec 17); `/rerank`: spec 27.
 
 Từ spec 28 (2026-11-02) service không còn nhận dạng tên riêng (NER): AI chạy trên model nội bộ nên mail gửi đi không che (quyết định của người dùng 2026-11-01). Dịch mail không gọi ml-service nữa.
 
@@ -11,18 +11,21 @@ Python 3.12, uv, FastAPI, PyTorch 2.14 (bản CPU của PyPI trên Windows), sen
 ## Cấu trúc
 
 ```
-app/config.py    # Settings từ biến môi trường ML_* (model, max_seq_length, batch, số luồng, Host)
+app/config.py    # Settings từ biến môi trường ML_* (model, max_seq_length, batch, số luồng, Host,
+                 #   rerank_model, rerank_max_length)
 app/embedder.py  # SentenceTransformerEmbedder: vector chuẩn hóa, khóa một lần suy luận
-app/main.py      # create_app(load_embedder): /health, /embed; Host, giới hạn body,
-                 #   lỗi 422/500 không trả lại text
+app/reranker.py  # CrossEncoderReranker (sentence_transformers.CrossEncoder, CPU), khóa riêng, import trễ
+app/main.py      # create_app(load_embedder, settings, load_reranker): /health, /embed, /rerank;
+                 #   Host, giới hạn body, lỗi 422/500 không trả lại text
 app/run.py       # python -m app.run [--port 8001]: uvicorn 127.0.0.1, tắt telemetry Hugging Face
-tests/           # test_api.py (model giả; /ner trả 404; app không import spaCy), test_run.py
+tests/           # test_api.py (model giả; /ner trả 404; app không import spaCy; /rerank), test_run.py
 ```
 
 ## API
 
 - `POST /embed` `{texts}` (1–64 text, ≤ 10.000 ký tự) → `{model, dim, vectors}` (vector chuẩn hóa, cosine).
-- `GET /health` → tên model, số chiều, `max_seq_length`.
+- `POST /rerank` `{query, texts}` (query 1–2.000 ký tự, 1–64 text, mỗi text ≤ 10.000 ký tự) → `{model, scores}`, `scores` cùng thứ tự `texts` (điểm cao hơn là liên quan hơn). `ML_RERANK_MODEL` rỗng (mặc định) thì không nạp model và trả 503 `{"detail": "rerank_disabled"}`. Chỉ backend gọi, khi `PMM_RERANK=1` (spec 27 mục 7).
+- `GET /health` → tên model, số chiều, `max_seq_length`, `rerank_model` (null khi tắt).
 - `POST /ner` đã bỏ (404).
 
 ## Quy tắc
@@ -32,7 +35,8 @@ tests/           # test_api.py (model giả; /ner trả 404; app không import s
 - Không ghi text đầu vào vào log; log chỉ số lượng và thời gian. Lỗi 422 của FastAPI mặc định trả lại input: đã thay bằng handler chỉ trả `loc`, `type`.
 - Chỉ lắng nghe `127.0.0.1`, chỉ nhận Host trong `ML_ALLOWED_HOSTS`; không có CORS. Telemetry OpenTelemetry bật sẵn của FastAPI phải tắt (`create_app` truyền `telemetry={...False}`).
 - Lỗi khi suy luận bắt ngay trong endpoint (`failed()`), không để lan tới handler `Exception`: uvicorn sẽ log traceback, mà thông điệp lỗi của tokenizer có thể chứa text.
-- Model đã có trong cache thì `app.run` tự đặt `HF_HUB_OFFLINE=1`.
+- Model đã có trong cache thì `app.run` tự đặt `HF_HUB_OFFLINE=1`. Khi cấu hình `ML_RERANK_MODEL`, chỉ đặt offline khi **cả hai** model (embedding và rerank) đã có trong cache; nếu không, lần đầu bật reranker sẽ không tải được model (`can_go_offline` trong `app/run.py`).
+- Reranker mặc định tắt. Bật: `$env:ML_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"` (khoảng 1,1 GB, tải ở lần chạy đầu), tùy chọn `ML_RERANK_MAX_LENGTH` (mặc định 512). Chưa đo thời gian và bộ nhớ với model thật (spec 27 mục 12). `/rerank` dùng chung quy tắc không log text và lỗi qua `failed()` như `/embed`.
 
 ## Lệnh
 

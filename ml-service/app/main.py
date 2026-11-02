@@ -19,12 +19,14 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.config import Settings
 from app.embedder import Embedder
+from app.reranker import Reranker
 
 log = logging.getLogger("ml")
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_TEXTS = 64
 MAX_EMBED_CHARS = 10_000
+MAX_RERANK_QUERY_CHARS = 2_000
 
 EmbedText = Annotated[str, StringConstraints(max_length=MAX_EMBED_CHARS)]
 
@@ -39,16 +41,31 @@ class EmbedResponse(BaseModel):
     vectors: list[list[float]]
 
 
+RerankQuery = Annotated[str, StringConstraints(min_length=1, max_length=MAX_RERANK_QUERY_CHARS)]
+
+
+class RerankRequest(BaseModel):
+    query: RerankQuery
+    texts: list[EmbedText] = Field(min_length=1, max_length=MAX_TEXTS)
+
+
+class RerankResponse(BaseModel):
+    model: str
+    scores: list[float]
+
+
 class Health(BaseModel):
     status: str
     embed_model: str
     dim: int
     max_seq_length: int
+    rerank_model: str | None = None
 
 
 def create_app(
     load_embedder: Callable[[], Embedder],
     settings: Settings | None = None,
+    load_reranker: Callable[[], Reranker] | None = None,
 ) -> FastAPI:
     settings = settings or Settings()
     models: dict[str, object] = {}
@@ -57,6 +74,8 @@ def create_app(
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         started = time.monotonic()
         models["embedder"] = await run_in_threadpool(load_embedder)
+        if load_reranker is not None:
+            models["reranker"] = await run_in_threadpool(load_reranker)
         log.info("models loaded ms=%d", (time.monotonic() - started) * 1000)
         yield
 
@@ -86,6 +105,9 @@ def create_app(
     def embedder() -> Embedder:
         return models["embedder"]  # type: ignore[return-value]
 
+    def reranker() -> Reranker | None:
+        return models.get("reranker")  # type: ignore[return-value]
+
     @app.get("/health", response_model=Health)
     def health() -> Health:
         e = embedder()
@@ -94,6 +116,7 @@ def create_app(
             embed_model=e.model_name,
             dim=e.dim,
             max_seq_length=e.max_seq_length,
+            rerank_model=r.model_name if (r := reranker()) else None,
         )
 
     def failed(what: str, exc: Exception) -> JSONResponse:
@@ -113,6 +136,19 @@ def create_app(
             return failed("embed", exc)
         log.info("embed n=%d ms=%d", len(req.texts), (time.monotonic() - started) * 1000)
         return EmbedResponse(model=e.model_name, dim=e.dim, vectors=vectors)
+
+    @app.post("/rerank", response_model=RerankResponse)
+    def rerank(req: RerankRequest) -> RerankResponse | JSONResponse:
+        started = time.monotonic()
+        r = reranker()
+        if r is None:
+            return JSONResponse(status_code=503, content={"detail": "rerank_disabled"})
+        try:
+            scores = r.score(req.query, req.texts)
+        except Exception as exc:
+            return failed("rerank", exc)
+        log.info("rerank n=%d ms=%d", len(req.texts), (time.monotonic() - started) * 1000)
+        return RerankResponse(model=r.model_name, scores=scores)
 
     @app.exception_handler(RequestValidationError)
     async def invalid(_: Request, exc: RequestValidationError) -> Response:

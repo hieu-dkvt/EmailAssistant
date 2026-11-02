@@ -222,6 +222,7 @@ class SimilarThreads(BaseModel):
 class AskRequest(StrictModel):
     question: str = Field(min_length=1, max_length=1000)
     folder_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
+    project_id: int | None = Field(default=None, gt=0, le=MAX_BIGINT)
     sent_after: datetime | None = None
     sent_before: datetime | None = None
 

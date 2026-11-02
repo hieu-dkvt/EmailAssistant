@@ -10,6 +10,8 @@ import os
 import sys
 from pathlib import Path
 
+from app.config import Settings
+
 # Tắt telemetry của Hugging Face trước khi import thư viện (chỉ gửi thông tin tải model, nhưng
 # không cần).
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
@@ -24,6 +26,14 @@ def model_in_cache(repo_id: str) -> bool:
     return any(snapshots.glob("*/config.json"))
 
 
+def can_go_offline(settings: Settings) -> bool:
+    """Chỉ chạy offline khi mọi model đã cấu hình (embedding và rerank nếu có) nằm trong cache."""
+    models = [settings.embed_model]
+    if settings.rerank_model:
+        models.append(settings.rerank_model)
+    return all(model_in_cache(m) for m in models)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="python -m app.run")
     parser.add_argument("--port", type=int, default=8001)
@@ -32,15 +42,15 @@ def main() -> int:
 
     import uvicorn
 
-    from app.config import Settings
     from app.embedder import SentenceTransformerEmbedder
     from app.main import create_app
+    from app.reranker import CrossEncoderReranker
 
     settings = Settings()
     # Model đã có trong cache cục bộ thì không hỏi Hugging Face nữa (chỉ lần đầu mới tải).
     # Kiểm bằng đường dẫn file, không import huggingface_hub: thư viện đọc HF_HUB_OFFLINE một lần
     # lúc import, đặt biến sau đó không còn tác dụng.
-    if "HF_HUB_OFFLINE" not in os.environ and model_in_cache(settings.embed_model):
+    if "HF_HUB_OFFLINE" not in os.environ and can_go_offline(settings):
         os.environ["HF_HUB_OFFLINE"] = "1"
         logging.getLogger("ml").info("model trong cache: HF_HUB_OFFLINE=1")
     app = create_app(
@@ -51,6 +61,16 @@ def main() -> int:
             torch_threads=settings.torch_threads,
         ),
         settings,
+        load_reranker=(
+            lambda: CrossEncoderReranker(
+                settings.rerank_model,
+                max_length=settings.rerank_max_length,
+                batch_size=settings.batch_size,
+                torch_threads=settings.torch_threads,
+            )
+        )
+        if settings.rerank_model
+        else None,
     )
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="info")
     return 0

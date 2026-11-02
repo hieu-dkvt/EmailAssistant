@@ -11,25 +11,26 @@ Trợ lý email dùng AI cho PM dự án outsource Nhật: trích xuất mail t�
 |---|---|---|
 | 1–3 | Collector đọc mbox, đồng bộ tăng dần, ingest, xóa mail của folder; worker tự làm sạch và gom thread | 1–11 |
 | 4 | Web: đăng nhập, danh sách thread, search từ khóa, toàn văn, tách/gộp tay | 13–16 |
-| 5 | ml-service, embed nền, search ngữ nghĩa, thread liên quan, hỏi đáp AI, Cài đặt AI, nhà cung cấp riêng, chuyển sang model nội bộ | 17–24, 28 |
+| 5 | ml-service, embed nền, search ngữ nghĩa, thread liên quan, hỏi đáp AI, Cài đặt AI, nhà cung cấp riêng, chuyển sang model nội bộ, cải thiện truy xuất hỏi đáp | 17–24, 27, 28 |
 | 5b | Cấu hình dự án, gán mail theo bộ lọc, nhãn dự án trên danh sách thread | 25 |
 | 6 (một phần) | Dịch mail tự động và dịch tay, glossary, chuyển mail sang folder dự án (chỉ trên web) | 26 |
 
 - Đã có (spec 25, 2026-10-31): màn hình cấu hình dự án và worker gán mail theo bộ lọc, nhãn dự án trên danh sách thread.
 - Đã có (spec 26, 2026-11-01): dịch mail khách trong Inbox (job nền trên queue `translate`, hoặc nút Dịch), glossary chung và theo dự án, chuyển mail đã dịch sang folder dự án **chỉ trên web** (Thunderbird vẫn thấy mail ở Inbox; move thật qua IMAP làm spec riêng). Chạy thử đầu cuối trên DB test với AI giả, chưa gọi thử gateway thật.
 - Đã có (spec 28, 2026-11-02): chuyển sang model nội bộ. Chỉ dùng model nội bộ qua gateway kiểu 9router (quyết định của người dùng 2026-11-01), không dùng API ngoài. Đã bỏ `Masker` và che thông tin, bỏ khóa mặc định `ANTHROPIC_API_KEY` và ba cấp model (người dùng nhập URL, key, tên model theo tác vụ ở Cài đặt AI; chưa nhập nhà cung cấp thì `/ask` và dịch trả 503 `ai_not_configured`), bỏ NER khỏi ml-service, dịch mail không còn gọi ml-service. Ô URL nhận mọi địa chỉ, màn hình cảnh báo khi host là địa chỉ công cộng. Chạy thử đầu cuối trên DB test với gateway giả.
-- Tiếp theo: spec 27 (cải thiện truy xuất hỏi đáp, đã có spec và kế hoạch, chưa có code), rồi phần còn lại của giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
-- Đang đợi, chưa đối ứng: xử lý Backlog → Redmine và GitHub review. Chưa làm: lọc theo dự án, mở mail gốc trong Thunderbird. Hỏi đáp và dịch chạy qua nhà cung cấp và model nhập ở Cài đặt AI; chưa gọi thử gateway thật, chất lượng trả lời của model nội bộ chưa đo. Embed trên CPU máy dev chậm (khoảng 0,3 đoạn/giây).
+- Đã có (spec 27, 2026-11-02): cải thiện truy xuất cho hỏi đáp. Hỏi theo dự án (ô chọn dự án trên trang Hỏi đáp, `project_id`); quét vector chính xác khi phạm vi lọc nhỏ (≤ 20.000 đoạn); index HNSW build lại với `m = 16`, `ef_construction = 128` (migration 0020); mỗi mail là một nguồn, mở rộng quanh đoạn khớp kèm mail liền trước, tối đa 24.000 ký tự; `/rerank` ở ml-service và bước rerank trong `/ask` làm sẵn, **mặc định tắt**. Chưa đo: rerank với model thật (chưa tải model 1,1 GB, người dùng quyết định) và recall HNSW trên embedding thật (số đo mới trên vector tổng hợp).
+- Tiếp theo: phần còn lại của giai đoạn 6 (phân loại, theo dõi đối ứng, tóm tắt, nháp reply).
+- Đang đợi, chưa đối ứng: xử lý Backlog → Redmine và GitHub review. Chưa làm: lọc theo dự án trên `/search` và danh sách thread (đã có cho hỏi đáp, spec 27), mở mail gốc trong Thunderbird. Hỏi đáp và dịch chạy qua nhà cung cấp và model nhập ở Cài đặt AI; chưa gọi thử gateway thật, chất lượng trả lời của model nội bộ chưa đo. Embed trên CPU máy dev chậm (khoảng 0,3 đoạn/giây).
 - Khi dựng khung một thành phần, cập nhật mục "Lệnh" trong CLAUDE.md của thành phần đó.
 
 ## Chạy thử toàn bộ
 
 Dưới đây, `<api>` là `uv run --directory backend python -m app.cli`.
 
-1. Bật Docker Desktop, `docker compose up -d`, `uv run --directory backend alembic upgrade head`.
+1. Bật Docker Desktop, `docker compose up -d`, `uv run --directory backend alembic upgrade head` (DB dev cũ cần chạy lại để có migration 0020: build lại index HNSW, lâu theo số đoạn).
 2. `<api> create-user --email <e> --name "<tên>" --role pm` → lấy token; `<api> set-password --email <e>`.
 3. Build web (lần đầu và sau mỗi lần sửa web): `npm --prefix web install`, `npm --prefix web run build`.
-4. Cửa sổ riêng: `uv run --directory ml-service python -m app.run` (`127.0.0.1:8001`). Lần đầu chạy `uv sync --directory ml-service` và tải model khoảng 2,3 GB. Cần cho search ngữ nghĩa, embed nền, hỏi đáp (embed câu hỏi); dịch mail không cần; thiếu thì chức năng khác vẫn chạy.
+4. Cửa sổ riêng: `uv run --directory ml-service python -m app.run` (`127.0.0.1:8001`). Lần đầu chạy `uv sync --directory ml-service` và tải model khoảng 2,3 GB. Cần cho search ngữ nghĩa, embed nền, hỏi đáp (embed câu hỏi); dịch mail không cần; thiếu thì chức năng khác vẫn chạy. Tùy chọn, mặc định tắt: rerank cho hỏi đáp, bật bằng `$env:ML_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"` (tải thêm khoảng 1,1 GB) cho ml-service và `$env:PMM_RERANK = "1"` cho API (spec 27).
 5. `uv run --directory backend python -m app.run` (`http://127.0.0.1:8000`). Hỏi đáp AI cần nhập nhà cung cấp và model ở Cài đặt AI (lưu key cần `$env:PMM_SECRET_KEY`, sinh bằng `<api> gen-secret-key`). Chưa nhập nhà cung cấp thì hỏi đáp và dịch không chạy (503 `ai_not_configured`); backend không đọc `ANTHROPIC_API_KEY` nữa. Không nhập API ngoài với mail thật (quyết định 2026-11-01).
 6. Cửa sổ riêng: `uv run --directory backend python -m app.worker`. Dịch tự động cần `$env:PMM_SECRET_KEY` (cùng khóa với API, để đọc key nhà cung cấp đã lưu); chưa nhập nhà cung cấp hoặc tên model dịch thì job dịch dừng và thử lại phút sau, các việc khác vẫn chạy. Mail chỉ được dịch tự động khi dự án có domain khách (mốc 14 ngày); chọn folder đích ở cấu hình dự án (folder phải đã đồng bộ).
 7. `collector\collector.exe settings` → chọn profile và folder, Lưu → nhập URL server và token, Lưu kết nối → Đồng bộ.

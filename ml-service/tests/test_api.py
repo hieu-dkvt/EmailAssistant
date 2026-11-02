@@ -36,6 +36,7 @@ def test_health(client: TestClient) -> None:
         "embed_model": "fake/model",
         "dim": 3,
         "max_seq_length": 16,
+        "rerank_model": None,
     }
 
 
@@ -107,3 +108,66 @@ def test_model_error_returns_500_without_text(caplog: pytest.LogCaptureFixture) 
         r = c.post("/embed", json={"texts": ["SECRET-田中"]})
     assert r.status_code == 500
     assert "SECRET" not in r.text and "SECRET" not in caplog.text
+
+
+class FakeReranker:
+    model_name = "fake/rerank"
+
+    def score(self, query: str, texts: list[str]) -> list[float]:
+        return [float(query in t) for t in texts]
+
+
+class BrokenReranker(FakeReranker):
+    def score(self, query: str, texts: list[str]) -> list[float]:
+        raise ValueError(f"cannot score: {query} {texts[0]}")
+
+
+@pytest.fixture
+def rerank_client() -> Iterator[TestClient]:
+    app = create_app(
+        FakeEmbedder, Settings(allowed_hosts=["testserver"]), load_reranker=FakeReranker
+    )
+    with TestClient(app) as c:
+        yield c
+
+
+def test_rerank(rerank_client: TestClient) -> None:
+    r = rerank_client.post("/rerank", json={"query": "見積", "texts": ["x", "見積です"]})
+    assert r.status_code == 200
+    assert r.json() == {"model": "fake/rerank", "scores": [0.0, 1.0]}
+
+
+def test_rerank_disabled(client: TestClient) -> None:
+    r = client.post("/rerank", json={"query": "q", "texts": ["t"]})
+    assert r.status_code == 503 and r.json() == {"detail": "rerank_disabled"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"query": "SECRET-田中", "texts": []},
+        {"query": "SECRET-田中", "texts": ["SECRET-田中"] * 65},
+        {"query": "SECRET-田中" * 2_001, "texts": ["t"]},
+        {"query": "", "texts": ["t"]},
+        {"query": "q", "texts": ["SECRET-田中" + "x" * 10_001]},
+    ],
+)
+def test_rerank_limits_do_not_echo_text(rerank_client: TestClient, body: dict[str, object]) -> None:
+    r = rerank_client.post("/rerank", json=body)
+    assert r.status_code == 422
+    assert "SECRET" not in r.text and "田中" not in r.text
+
+
+def test_rerank_error_has_no_text(caplog: pytest.LogCaptureFixture) -> None:
+    app = create_app(
+        FakeEmbedder, Settings(allowed_hosts=["testserver"]), load_reranker=BrokenReranker
+    )
+    with TestClient(app) as c, caplog.at_level("INFO"):
+        r = c.post("/rerank", json={"query": "SECRET-Q", "texts": ["SECRET-田中"]})
+    assert r.status_code == 500
+    assert "SECRET" not in r.text and "SECRET" not in caplog.text
+
+
+def test_health_reports_rerank(client: TestClient, rerank_client: TestClient) -> None:
+    assert client.get("/health").json()["rerank_model"] is None
+    assert rerank_client.get("/health").json()["rerank_model"] == "fake/rerank"

@@ -32,7 +32,7 @@ src/components/            # Layout (đầu trang, ô tìm kiếm, trạng thái
                            #   TagInput (ô nhiều giá trị, `draftRef` giữ phần đang gõ)
 src/components/ui/         # shadcn/ui: button, input, label, badge, card, dialog, alert
 src/pages/                 # LoginPage, ThreadListPage, SearchPage (Từ khóa / Ngữ nghĩa), ThreadPage,
-                           #   OverridesPage, AskPage (/ask), ProjectsPage (/settings/projects: dự án, bộ lọc gán mail, khối "Dịch tự động" gồm domain khách và folder đích, tab Glossary của dự án), GlossaryPage (/settings/glossary: glossary chung hoặc `?project=id`), AiSettingsPage (/settings/ai: nhà cung cấp AI (URL, key, giao thức), tên model theo tác vụ, thống kê token)
+                           #   OverridesPage, AskPage (/ask: ô chọn folder và dự án `project_id`, mặc định "Tất cả dự án", không lưu vào storage; lỗi 404 `project_not_found` hiện qua `errorMessage`), ProjectsPage (/settings/projects: dự án, bộ lọc gán mail, khối "Dịch tự động" gồm domain khách và folder đích, tab Glossary của dự án), GlossaryPage (/settings/glossary: glossary chung hoặc `?project=id`), AiSettingsPage (/settings/ai: nhà cung cấp AI (URL, key, giao thức), tên model theo tác vụ, thống kê token)
 src/**/*.test.ts(x)        # Vitest
 ```
 
