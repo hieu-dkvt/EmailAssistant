@@ -715,6 +715,20 @@ async def test_rerank_success_does_not_log_texts(
     assert ml.reranked and all(t and t not in logged for t in ml.reranked[0])
 
 
+@pytest.mark.parametrize("bad", [False, True])
+async def test_rerank_keeps_rrf_order_after_head(bad: bool) -> None:
+    """Chỉ RERANK_CANDIDATES đoạn đầu được xếp lại; phần sau giữ thứ tự RRF, kể cả khi lỗi."""
+    n = ask_module.RERANK_CANDIDATES
+    candidates = [(i, 0, 800) for i in range(n + 15)]
+    texts = [f"đoạn {i}" for i in range(n)]
+    fake = FakeMl(rerank_scores=lambda q, ts: [float(i) for i in range(len(ts))], rerank_down=bad)
+    out, reranked = await ask_module._rerank_head(fake, "câu hỏi", candidates, texts)
+    head = candidates[:n] if bad else candidates[:n][::-1]
+    assert out == [*head, *candidates[n:]]
+    assert reranked == (0 if bad else n)
+    assert fake.reranked == ([] if bad else [texts])
+
+
 async def test_scope_counted_once_per_candidates_call(
     client: AsyncClient,
     ml: FakeMl,

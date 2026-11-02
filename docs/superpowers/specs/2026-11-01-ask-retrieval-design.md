@@ -196,7 +196,7 @@ Người dùng chọn (2026-11-01): làm sẵn, mặc định tắt.
   3. Áp `MAX_PER_MESSAGE`, `CONTEXT_CHUNKS`, rồi đọc `SOURCES` và mail trước trong `user_session` mới.
 - `MlUnavailable` ở bước rerank: dùng thứ tự RRF, không báo lỗi cho người dùng. Log `ask user=… reranked=0`.
 - Tắt reranker: bước 1 và 2 không có, luồng giữ nguyên, nhưng `SOURCES` và mail trước vẫn đọc trong một `user_session` thứ hai (mở khi có đoạn được chọn), tức `/ask` luôn mở hai phiên đọc.
-- Rerank chạy khi bật, câu hỏi không rỗng và có ít nhất 2 ứng viên. Ứng viên thứ 41 trở đi giữ thứ tự RRF, nối sau phần đã xếp lại.
+- Rerank chạy khi bật, câu hỏi không rỗng và có ít nhất 2 ứng viên. Ứng viên thứ 41 trở đi giữ thứ tự RRF, nối sau phần đã xếp lại (`_rerank_head`).
 - Phía backend cắt câu hỏi còn 2.000 ký tự và mỗi text còn 10.000 ký tự trước khi gửi (đúng giới hạn của ml-service), từ chối 0 hoặc quá 64 text; `check_scores` (dùng chung với `FakeMl`) kiểm số lượng, điểm hữu hạn, không phải bool; số nguyên quá lớn gây `OverflowError` cũng coi là điểm không hợp lệ.
 
 ## 8. API
@@ -243,7 +243,7 @@ Giới hạn của eval: 28 câu trên mail giả, mỗi câu chiếm khoảng 0
 - **Quét chính xác:** ép `MAX_CANDIDATES` nhỏ trong test để đường HNSW bỏ sót, đường quét chính xác vẫn tìm được; quá ngưỡng thì dùng HNSW; không có bộ lọc thì không đếm; đoạn sai `model` hay `cleaner_version` không được chọn; RLS: không thấy đoạn của B.
 - **Mail trước:** ưu tiên `thread_parent_id`; không có thì theo `sent_at`; mail đầu thread không có; đã là nguồn thì không lặp; hai nguồn chung một mail trước; `thread_id` NULL.
 - **Mail trước:** mail của B không bao giờ được chọn làm mail trước (kể cả khi chỉ còn RLS chặn); thẻ `</previous_mail>`, `<SOURCE id=…>` trong mail bị vô hiệu hóa, kể cả khi chèn ký tự vô hình hoặc dùng `＜` toàn khổ. Mail gửi AI ở dạng gốc, không che (spec 28).
-- **Reranker, backend:** thứ tự đổi theo điểm; bằng điểm giữ thứ tự RRF; `/rerank` lỗi, sai số lượng, có NaN → dùng RRF, `/ask` vẫn trả lời, log không có text; `PMM_RERANK` tắt thì không gọi.
+- **Reranker, backend:** thứ tự đổi theo điểm; bằng điểm giữ thứ tự RRF; ứng viên thứ 41 trở đi giữ thứ tự RRF, cả khi rerank thành công lẫn khi lỗi (`test_rerank_keeps_rrf_order_after_head`, gọi thẳng `_rerank_head` với 55 ứng viên); `/rerank` lỗi, sai số lượng, có NaN → dùng RRF, `/ask` vẫn trả lời, log không có text; `PMM_RERANK` tắt thì không gọi.
 - **Reranker, ml-service (model giả):** điểm đúng thứ tự; tắt → 503 `rerank_disabled`; vượt giới hạn → 422 không trả lại text; lỗi suy luận không chứa text; `/health` có `rerank_model`; `run.py` không bật offline khi model rerank chưa có trong cache.
 - **Migration:** 0020 chạy trên DB test, index có `m = 16`, `ef_construction = 128`, tên giữ nguyên; downgrade được.
 - **Web:** `AskPage` gửi `project_id` khi chọn, không gửi khi chọn "Tất cả dự án"; hiện lỗi `project_not_found`.
@@ -319,5 +319,6 @@ Làm theo từng task, mỗi task có review riêng:
 - Reranker (task 8): số nguyên rất lớn làm `math.isfinite` ném `OverflowError` (500); thêm `_finite`, thêm ca test.
 - Security review (`security-reviewer`, 2026-11-02): 0 Critical, 0 Important, 3 Minor, xử lý như dưới. M1: mail trước chọn theo thread, không theo bộ lọc dự án/folder/ngày, ghi là chủ ý ở mục 6 và 9. M2: `_ANSWER_TAG` và `_TRANSLATE_TAG` (`app/ai/prompts.py`) nay dùng lớp khoảng cách `[\s\u200b-\u200f\u2060\ufeff]{0,32}` (trước là `\s{0,8}`) và coi `＜` (U+FF1C) như `<`; vẫn có giới hạn lượng từ, thêm test `<\u200b/source>`, `＜/source＞`, `<` + 20 khoảng trắng, chuỗi dài (tuyến tính) và các ca tương ứng cho tag dịch. M3: bỏ các dòng `learn_rows`/`Masker` của mail trước ở mục 9 và mục "Che thông tin" ở mục 11.
 - Final review (2026-11-02, 0 Critical, 1 Important, 8 Minor): chi phí đếm và quét chính xác với bộ lọc thật chưa đo, mục 13 bỏ "còn dư nhiều lần", mục 12 ghi giới hạn; mục 4 và CHANGELOG bỏ nhận định thread liên quan được lợi; sửa tên `_retrieve` thành `_candidates`; mục 10 mô tả đúng eval (40 mail đầu); bỏ yêu cầu NER/`Masker` còn sót ở mục 6, 9, 11; spec 17 mục 3 thêm `/rerank`.
-- Mã: `embed_text(subject, piece)` trong `app/embedding.py` dùng chung cho `embed_input` và `_rerank_texts` (text gửi embed không đổi); test: đếm phạm vi một lần mỗi lượt `_candidates`, log rerank không chứa text đã gửi `/rerank` (nhánh thành công và lỗi). Chưa làm: test phần đuôi ngoài 40 ứng viên giữ thứ tự RRF (dữ liệu test chỉ có 2 ứng viên, phép ghép là một dòng), bỏ kiểm `isfinite` thừa.
+- Mã: `embed_text(subject, piece)` trong `app/embedding.py` dùng chung cho `embed_input` và `_rerank_texts` (text gửi embed không đổi); test: đếm phạm vi một lần mỗi lượt `_candidates`, log rerank không chứa text đã gửi `/rerank` (nhánh thành công và lỗi). Chưa làm: bỏ kiểm `isfinite` thừa.
+- Sửa thêm (2026-11-03): phép ghép đầu/đuôi tách khỏi `ask()` thành `_rerank_head` (không đổi hành vi) để có test phần đuôi ngoài 40 ứng viên giữ thứ tự RRF.
 - Dọn tài liệu: bỏ `full_text` và che 7 giá trị khỏi mục 6, ghi giới hạn header thật; bỏ chữ "tạm" của ngưỡng quét; bỏ hằng `NL` thừa trong test; sửa chữ "ngẫu nhiên" thành "tổng hợp có cụm" ở `eval/vector_bench.py`.

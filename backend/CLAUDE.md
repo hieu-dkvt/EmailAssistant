@@ -68,7 +68,7 @@ seed/glossary-it-ja-vi.csv # 151 thuật ngữ IT/outsource công khai, nạp b�
 seed/glossary-programming-ja-vi.csv # 153 thuật ngữ lập trình, không trùng file trên (test_seed_files_do_not_overlap)
 app/ai/client.py         # AnthropicLlm (structured output, cho giao thức anthropic), call_task ghi ai_calls, LlmError,
                          #   served_model, no_retry_on_read_timeout (middleware SDK)
-app/ai/ask.py            # RAG: phân tích → tìm cục bộ (_candidates → rerank tùy chọn → pick) → đọc nguồn và mail trước
+app/ai/ask.py            # RAG: phân tích → tìm cục bộ (_candidates → rerank tùy chọn `_rerank_head` → pick) → đọc nguồn và mail trước
                          #   (_fetch_context, user_session thứ hai) → trả lời (text gốc, không che); AskGuard
 app/ai/context.py        # hàm thuần dựng ngữ cảnh gửi AI (spec 27 mục 6): gộp đoạn theo mail (group_sources), mở rộng
                          #   (expand_spans), chia ngân sách (plan_context), CONTEXT_MAX_CHARS 24.000,

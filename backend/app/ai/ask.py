@@ -230,6 +230,14 @@ async def _rerank(
     return [keys[i] for i in order], len(keys)
 
 
+async def _rerank_head(
+    ml: MlClient, question: str, candidates: list[ChunkKey], texts: list[str]
+) -> tuple[list[ChunkKey], int]:
+    """Xếp lại RERANK_CANDIDATES đoạn đầu (texts là text của chúng); phần sau giữ thứ tự RRF."""
+    head, reranked = await _rerank(ml, question, candidates[:RERANK_CANDIDATES], texts)
+    return [*head, *candidates[RERANK_CANDIDATES:]], reranked
+
+
 SOURCES = text(
     """
     SELECT p.ord, m.id, m.thread_id, m.subject, m.from_name, m.from_addr, m.to_addrs, m.cc_addrs,
@@ -421,8 +429,7 @@ async def ask(
     # Gọi reranker ngoài transaction (không giữ kết nối DB trong lúc chờ ml-service).
     reranked = 0
     if texts is not None:
-        head, reranked = await _rerank(ml, question, head, texts)
-        candidates = [*head, *candidates[RERANK_CANDIDATES:]]
+        candidates, reranked = await _rerank_head(ml, question, candidates, texts)
     picked = pick(candidates)
     rows: list[Any] = []
     plans: list[SourcePlan] = []
