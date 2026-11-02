@@ -11,6 +11,9 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 - Sửa `eval/retrieval_eval.py`: tên trường `ChunkHit` sai ở bước rerank, nạp profile kèm `mail_sources` và `message_ownership` (cần cho đo có lọc folder), timeout rerank 600 giây riêng cho eval, hai dòng quá dài.
 - Test phần sau 40 ứng viên giữ thứ tự RRF khi rerank (`_rerank_head`), cùng ngày, commit `24a4414`.
 - DB dev `mailassist`, `mailassist_proj` đã lên migration 0020.
+- Hook nhắc tài liệu (`.claude/settings.json`) chưa từng chạy được: lệnh `python` trên máy dev là lối tắt Microsoft Store, nên cả ba hook báo lỗi không chặn ở mọi lần chạy (đếm trong 41 phiên gần nhất: 269 UserPromptSubmit, 251 Stop, 190 PostToolUse). Đổi sang `uv run --no-project python …`; chạy thử với input giả: `track` rồi `check` chặn dừng kèm lời nhắc, sau `reset` thì không chặn, khoảng 250 ms mỗi lần.
+- Mục "Chạy thử toàn bộ" của `CLAUDE.md` gốc rút thành liên kết tới `README.md` (giữ các ràng buộc riêng cho Claude Code); rule tài liệu trỏ thêm tới README.
+- `README.md` (mới): hướng dẫn cài toàn bộ hệ thống trên máy Windows mới (phần mềm, DB, khóa bí mật, tài khoản, build web, chạy dịch vụ, collector, Cài đặt AI, cập nhật, lỗi thường gặp) và cấu hình máy khi tắt và bật reranker, theo số đo cùng ngày. Hướng dẫn cài cùng máy với Thunderbird vì collector chỉ nhận `http://` tới máy cục bộ, chưa có HTTPS.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Đề xuất giữ reranker tắt trên máy CPU hiện tại; cân nhắc lại khi có GPU.

@@ -10,7 +10,7 @@
 | Sửa chức năng đã có spec | Sửa spec cho khớp code: dòng đầu (thành phần, trạng thái), quy tắc xử lý, kiểm thử, giới hạn. Phần sửa sau review ghi vào mục "Sửa sau review (ngày)". Trạng thái trong danh mục spec cũng phải khớp |
 | Thay đổi có tác động tới hành vi hoặc dữ liệu | `docs/CHANGELOG.md`: mục theo ngày, mới nhất ở trên, chia thành "Đã làm", "Quyết định của người dùng", "Quyết định của người viết spec (người dùng có thể đổi)", "Đã xử lý sau review", "Còn để sau" |
 | Thêm hoặc đổi file, lệnh, quy tắc nghiệp vụ, bẫy kỹ thuật của một thành phần | `CLAUDE.md` của thành phần đó: mục "Cấu trúc", "Lệnh" và các mục quy tắc |
-| Xong một chức năng lớn hoặc một giai đoạn, đổi cách chạy thử, đổi nguyên tắc | `CLAUDE.md` gốc: "Trạng thái hiện tại", "Chạy thử toàn bộ", "Nguyên tắc bắt buộc" |
+| Xong một chức năng lớn hoặc một giai đoạn, đổi cách chạy thử, đổi nguyên tắc | `CLAUDE.md` gốc: "Trạng thái hiện tại", "Chạy thử toàn bộ", "Nguyên tắc bắt buộc". Các bước cài và chạy, cấu hình máy: `README.md` |
 | Thêm hoặc đổi rule, skill, agent, quyền trong `.claude/` | Bảng "Cấu hình Claude Code của dự án" trong `CLAUDE.md` gốc. Rule hoặc skill bị thay đổi làm sai thì sửa luôn |
 | Người dùng quyết định làm đổi yêu cầu, mô hình dữ liệu hoặc lộ trình | `email-assistant-plan.md`, cộng với mục "Quyết định của người dùng" trong CHANGELOG. Tiến độ không theo dõi trong file kế hoạch mà ở danh mục spec |
 | Đổi schema API (hợp đồng với collector và web) | Spec và CHANGELOG ghi rõ phần nào bị ảnh hưởng |

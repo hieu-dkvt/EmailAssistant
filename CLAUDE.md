@@ -3,6 +3,7 @@
 Trợ lý email dùng AI cho PM dự án outsource Nhật: trích xuất mail từ Thunderbird (mbox), gom thread, theo dõi đối ứng, tìm kiếm bằng ngôn ngữ tự nhiên (Nhật / Việt / Anh).
 
 - Yêu cầu, lộ trình: [email-assistant-plan.md](email-assistant-plan.md) (bảng công nghệ ở mục 3 đã cũ, dùng "Kiến trúc" bên dưới). Spec: [danh mục](docs/superpowers/specs/README.md). Quyết định theo ngày: [CHANGELOG](docs/CHANGELOG.md).
+- Cài trên máy mới và cấu hình máy (tắt và bật reranker): [README.md](README.md). Đổi lệnh chạy, cổng, biến môi trường hay số đo tài nguyên thì sửa cả README.
 - File này được ưu tiên hơn `d:\App\Management\CLAUDE.md` (file mẫu chung của thư mục cha).
 
 ## Trạng thái hiện tại
@@ -25,16 +26,10 @@ Trợ lý email dùng AI cho PM dự án outsource Nhật: trích xuất mail t�
 
 ## Chạy thử toàn bộ
 
-Dưới đây, `<api>` là `uv run --directory backend python -m app.cli`.
+Các bước cài và chạy (DB, tài khoản, build web, ml-service, API, worker, collector, reranker): [README.md](README.md) mục 4–10. Đổi cách chạy thì sửa README.
 
-1. Bật Docker Desktop, `docker compose up -d`, `uv run --directory backend alembic upgrade head` (DB dev cũ cần chạy lại để có migration 0020: build lại index HNSW, lâu theo số đoạn).
-2. `<api> create-user --email <e> --name "<tên>" --role pm` → lấy token; `<api> set-password --email <e>`.
-3. Build web (lần đầu và sau mỗi lần sửa web): `npm --prefix web install`, `npm --prefix web run build`.
-4. Cửa sổ riêng: `uv run --directory ml-service python -m app.run` (`127.0.0.1:8001`). Lần đầu chạy `uv sync --directory ml-service` và tải model khoảng 2,3 GB. Cần cho search ngữ nghĩa, embed nền, hỏi đáp (embed câu hỏi); dịch mail không cần; thiếu thì chức năng khác vẫn chạy. Tùy chọn, mặc định tắt: rerank cho hỏi đáp, bật bằng `$env:ML_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"` (tải thêm khoảng 2,2 GB, ml-service dùng 5,8 GB RAM, 40 đoạn mất 17–45 giây trên CPU) cho ml-service và `$env:PMM_RERANK = "1"` cho API (spec 27).
-5. `uv run --directory backend python -m app.run` (`http://127.0.0.1:8000`). Hỏi đáp AI cần nhập nhà cung cấp và model ở Cài đặt AI (lưu key cần `$env:PMM_SECRET_KEY`, sinh bằng `<api> gen-secret-key`). Chưa nhập nhà cung cấp thì hỏi đáp và dịch không chạy (503 `ai_not_configured`); backend không đọc `ANTHROPIC_API_KEY` nữa. Không nhập API ngoài với mail thật (quyết định 2026-11-01).
-6. Cửa sổ riêng: `uv run --directory backend python -m app.worker`. Dịch tự động cần `$env:PMM_SECRET_KEY` (cùng khóa với API, để đọc key nhà cung cấp đã lưu); chưa nhập nhà cung cấp hoặc tên model dịch thì job dịch dừng và thử lại phút sau, các việc khác vẫn chạy. Mail chỉ được dịch tự động khi dự án có domain khách (mốc 14 ngày); chọn folder đích ở cấu hình dự án (folder phải đã đồng bộ).
-7. `collector\collector.exe settings` → chọn profile và folder, Lưu → nhập URL server và token, Lưu kết nối → Đồng bộ.
-8. Mở `http://127.0.0.1:8000`. Số liệu: `<api> mail-stats`. Người dùng tự xem thread: `<api> review-threads --email <e>` (file có nội dung mail, Claude Code không đọc).
+- Lệnh CLI backend (`uv run --directory backend python -m app.cli …`): `backend/CLAUDE.md` mục "Lệnh". Số liệu trên dữ liệu thật chỉ dùng `mail-stats`. File của `review-threads` có nội dung mail: Claude Code không đọc.
+- Không nhập API ngoài với mail thật ở Cài đặt AI (quyết định 2026-11-01).
 
 Profile Thunderbird giả: `data/thunderbird-profile`, sinh bằng `/gen-sample-mail` (spec 12). Claude Code chỉ mở web trên DB test với profile giả.
 
@@ -93,7 +88,7 @@ Collector (Go, máy người dùng) ──HTTPS──▶ api (FastAPI) ◀──
 | `.claude/settings.json` | Quyền dùng chung; chặn đọc mail thật, file `review-threads`, `.env`; khai báo hook nhắc tài liệu. Cá nhân, không commit: `settings.local.json`, `CLAUDE.local.md` |
 | `.claude/rules/database.md`, `test-data.md` | RLS, migration, search; dữ liệu test, ẩn danh. Tự nạp theo thư mục đang làm |
 | `.claude/rules/documentation.md` | Quy tắc cập nhật tài liệu, mẫu spec. Luôn nạp |
-| `.claude/hooks/doc_reminder.py` | Lượt có sửa code mà không sửa `.md` thì nhắc một lần. Chỉ đọc đường dẫn file |
+| `.claude/hooks/doc_reminder.py` | Lượt có sửa code mà không sửa `.md` thì nhắc một lần. Chỉ đọc đường dẫn file. Gọi bằng `uv run --no-project python` (chỉ dùng thư viện chuẩn): trên Windows lệnh `python` có thể là lối tắt Microsoft Store, hook lỗi im lặng mỗi lần chạy |
 | `.claude/agents/security-reviewer.md` | Rà soát bảo vệ dữ liệu và phân quyền trước khi commit thay đổi về mail, DB, log, dịch vụ ngoài |
 | `.claude/skills/` | `/survey-profile`: khảo sát profile, chỉ thu số liệu tổng hợp · `/gen-sample-mail`: sinh lại profile giả (spec 12) |
 

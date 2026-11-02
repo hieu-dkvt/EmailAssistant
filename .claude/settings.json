@@ -44,8 +44,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "track"],
+            "command": "uv",
+            "args": ["run", "--no-project", "python", "${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "track"],
             "timeout": 10
           }
         ]
@@ -56,8 +56,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "reset"],
+            "command": "uv",
+            "args": ["run", "--no-project", "python", "${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "reset"],
             "timeout": 10
           }
         ]
@@ -68,8 +68,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python",
-            "args": ["${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "check"],
+            "command": "uv",
+            "args": ["run", "--no-project", "python", "${CLAUDE_PROJECT_DIR}/.claude/hooks/doc_reminder.py", "check"],
             "timeout": 10
           }
         ]
