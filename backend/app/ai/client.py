@@ -3,7 +3,7 @@
 - Output có cấu trúc: structured outputs (output_config.format, schema từ Pydantic) rồi tự kiểm tra
   bằng Pydantic, để luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
 - Lỗi SDK được thay bằng LlmError (mã cho web); log chỉ có tên lớp lỗi, không có thông điệp.
-- Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20).
+- Text gửi đi là text gốc, không che (spec 28): địa chỉ ở Cài đặt AI quyết định mail đi đâu.
 """
 
 import logging

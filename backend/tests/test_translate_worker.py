@@ -19,8 +19,8 @@ from app.ai.client import LlmError
 from app.ai.provider import LlmResolver
 from app.auto_translate import RunStats
 from tests.dbutil import add_mail
-from tests.mlfake import FakeLlm, FakeMl
-from tests.test_ai_api import api, fresh_people_cache, llm, ml  # noqa: F401
+from tests.mlfake import FakeLlm
+from tests.test_ai_api import api, llm  # noqa: F401
 from tests.test_auto_translate import OUT, put, run_count, world  # noqa: F401
 from tests.test_tasks import job_app  # noqa: F401
 
@@ -38,8 +38,9 @@ def jobs(engine: Engine, task: str) -> list[tuple[str, str]]:
         return [(r.queue_name, r.status) for r in rows]
 
 
-def context(worker: AsyncEngine, api: AsyncEngine, ml: FakeMl, llm: FakeLlm) -> dict[str, Any]:
-    return {"engine": worker, "api_engine": api, "ml": ml, "resolver": LlmResolver(llm)}
+def context(worker: AsyncEngine, api: AsyncEngine, llm: FakeLlm) -> dict[str, Any]:
+    """Không có "ml": dịch không cần ml-service (spec 28)."""
+    return {"engine": worker, "api_engine": api, "resolver": LlmResolver(llm)}
 
 
 async def run_queue(app: App, queue: str, ctx: dict[str, Any]) -> None:
@@ -58,12 +59,11 @@ async def wait_for_job(engine: Engine, task: str, status: str) -> None:
 async def test_sweep_defers_user_on_translate_queue(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
 ) -> None:
     await put(world, "m1@x.example")
-    ctx = context(world.worker, api, ml, llm)
+    ctx = context(world.worker, api, llm)
     await job_app.configure_task(tasks.TRANSLATE_SWEEP).defer_async(timestamp=0)
     await run_queue(job_app, "default", ctx)
     # Worker có thể tự đẩy thêm một sweep định kỳ khi khởi động.
@@ -73,20 +73,36 @@ async def test_sweep_defers_user_on_translate_queue(
     assert await tasks.defer_translate(job_app, world.a) == 0
 
 
-async def test_sweep_skips_without_ml(
+async def test_sweep_skips_without_resolver(
     job_app: App, api: AsyncEngine, world: SimpleNamespace
 ) -> None:
     await put(world, "m1@x.example")
-    ctx = {"engine": world.worker, "api_engine": api, "resolver": LlmResolver()}
+    ctx = {"engine": world.worker, "api_engine": api}
     await job_app.configure_task(tasks.TRANSLATE_SWEEP).defer_async(timestamp=0)
     await run_queue(job_app, "default", ctx)
     assert jobs(world.owner, tasks.TRANSLATE_USER) == []
 
 
+async def test_worker_translates_without_ml(
+    job_app: App, api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
+) -> None:
+    """additional_context không có "ml", có "resolver": sweep đẩy job, translate_user vẫn dịch."""
+    await put(world, "m1@x.example")
+    llm.responses = [OUT]
+    ctx = context(world.worker, api, llm)
+    assert "ml" not in ctx
+    await job_app.configure_task(tasks.TRANSLATE_SWEEP).defer_async(timestamp=0)
+    await run_queue(job_app, "default", ctx)
+    assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "todo")]
+    await run_queue(job_app, "translate", ctx)
+    assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "succeeded")]
+    assert len(llm.requests) == 1
+    assert run_count(world.owner) == 1
+
+
 async def test_no_self_defer_after_transient_error(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
 ) -> None:
@@ -95,7 +111,7 @@ async def test_no_self_defer_after_transient_error(
     await put(world, "m2@x.example", day=2)
     llm.responses = [LlmError("ai_unavailable", 503, "")]
     assert await tasks.defer_translate(job_app, world.a) == 1
-    await run_queue(job_app, "translate", context(world.worker, api, ml, llm))
+    await run_queue(job_app, "translate", context(world.worker, api, llm))
     assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "succeeded")]
     assert len(llm.requests) == 1
     assert run_count(world.owner) == 0
@@ -104,7 +120,6 @@ async def test_no_self_defer_after_transient_error(
 async def test_self_defer_when_more(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
 ) -> None:
@@ -112,7 +127,7 @@ async def test_self_defer_when_more(
     await put(world, "m2@x.example", day=2)
     llm.responses = [OUT, OUT]
     await tasks.defer_translate(job_app, world.a)
-    await run_queue(job_app, "translate", context(world.worker, api, ml, llm))
+    await run_queue(job_app, "translate", context(world.worker, api, llm))
     assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "succeeded")] * 2
     assert run_count(world.owner) == 2
 
@@ -120,7 +135,6 @@ async def test_self_defer_when_more(
 async def test_unexpected_error_in_task_is_sanitized(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -131,7 +145,7 @@ async def test_unexpected_error_in_task_is_sanitized(
 
     monkeypatch.setattr(auto_translate, "translate_next", boom)
     await tasks.defer_translate(job_app, world.a)
-    await run_queue(job_app, "translate", context(world.worker, api, ml, llm))
+    await run_queue(job_app, "translate", context(world.worker, api, llm))
     assert jobs(world.owner, tasks.TRANSLATE_USER) == [("translate", "failed")]
     assert "translate_user" in caplog.text
     assert "SECRET" not in caplog.text
@@ -140,7 +154,6 @@ async def test_unexpected_error_in_task_is_sanitized(
 async def test_two_worker_loops_process_their_own_queue(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -168,7 +181,7 @@ async def test_two_worker_loops_process_their_own_queue(
     loops = asyncio.create_task(
         worker_main.run_loops(
             job_app,
-            additional_context=context(world.worker, api, ml, llm),
+            additional_context=context(world.worker, api, llm),
             wait=False,
             listen_notify=False,
         )
@@ -195,7 +208,6 @@ async def wait_until(condition: Callable[[], bool]) -> None:
 async def test_stopping_one_loop_ends_run_loops(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -215,7 +227,7 @@ async def test_stopping_one_loop_ends_run_loops(
     loops = asyncio.create_task(
         worker_main.run_loops(
             job_app,
-            additional_context=context(world.worker, api, ml, llm),
+            additional_context=context(world.worker, api, llm),
             listen_notify=False,
             fetch_job_polling_interval=0.05,
         )
@@ -277,7 +289,6 @@ async def test_cancelling_run_loops_cancels_both() -> None:
 async def test_ctrl_c_waits_for_running_job(
     job_app: App,
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -296,7 +307,7 @@ async def test_ctrl_c_waits_for_running_job(
     loops = asyncio.create_task(
         worker_main.run_loops(
             job_app,
-            additional_context=context(world.worker, api, ml, llm),
+            additional_context=context(world.worker, api, llm),
             listen_notify=False,
             fetch_job_polling_interval=0.05,
         )

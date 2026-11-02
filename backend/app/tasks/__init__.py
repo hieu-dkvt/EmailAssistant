@@ -144,12 +144,13 @@ def _blueprint() -> Blueprint:
             await defer_assign(context.app, user_id)
         return stats.messages
 
-    # Dịch tự động (spec 26 mục 5). translate_user chờ AI tới 120 giây nên chạy ở queue riêng;
-    # translate_sweep chỉ quét và đẩy job, ở queue default để không phải chờ một job dịch dài.
+    # Dịch tự động (spec 26 mục 5; không cần ml-service, spec 28). translate_user chờ AI tới 120
+    # giây nên chạy ở queue riêng; translate_sweep chỉ quét và đẩy job, ở queue default để không
+    # phải chờ một job dịch dài.
     @bp.periodic(cron="* * * * *", periodic_id="translate_sweep")
     @bp.task(name="translate_sweep", pass_context=True, queueing_lock="translate_sweep")
     async def translate_sweep(context: JobContext, timestamp: int) -> int:
-        if _ml(context) is None:
+        if not _can_translate(context):
             return 0
         try:
             users = await auto_translate.pending_translate_users(_engine(context))
@@ -162,12 +163,11 @@ def _blueprint() -> Blueprint:
 
     @bp.task(name="translate_user", pass_context=True, queue=TRANSLATE_QUEUE)
     async def translate_user(context: JobContext, user_id: int) -> bool:
-        ml = _ml(context)
-        if ml is None:
+        if not _can_translate(context):
             return False
         try:
             stats = await auto_translate.translate_next(
-                _api_engine(context), ml, _resolver(context), user_id
+                _api_engine(context), _resolver(context), user_id
             )
         except Exception as e:
             raise sanitized(f"translate_user user={user_id}", e) from None
@@ -198,6 +198,11 @@ def _api_engine(context: JobContext) -> AsyncEngine:
 
 def _resolver(context: JobContext) -> LlmResolver:
     return context.additional_context["resolver"]
+
+
+def _can_translate(context: JobContext) -> bool:
+    """Dịch không cần ml-service (spec 28): chỉ cần bộ chọn nhà cung cấp AI."""
+    return "resolver" in context.additional_context
 
 
 def embed_lock(user_id: int) -> str:

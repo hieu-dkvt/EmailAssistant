@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.ai.glossary import GlossaryEntry, load_entries, match_glossary, normalize_term
+from app.ai.glossary import GlossaryEntry, load_entries, match_glossary, nfkc_map, normalize_term
 from app.db.session import create_api_engine, user_session
 from tests.dbutil import add_glossary, add_message, add_project, add_user, url_for_test_db
 
@@ -65,9 +65,24 @@ def test_word_boundary_sees_combined_letter_in_nfd_text() -> None:
     assert len(match_glossary(unicodedata.normalize("NFD", "é API"), [e("API", "x")])) == 1
 
 
-def test_label_blocks_match_next_to_half_width_text() -> None:
-    assert match_glossary("ﾃﾞｰﾀ[ORG_1]", [e("ORG", "x")]) == []
-    assert len(match_glossary("[ORG_1]ﾃﾞｰﾀ", [e("データ", "x")])) == 1
+def test_glossary_matches_person_name_in_raw_text() -> None:
+    """Thuật ngữ là tên người khớp được (trước đây nhãn che chặn)."""
+    got = match_glossary("担当の小野寺様にご確認ください", [e("小野寺", "Onodera")])
+    assert [m.term for m in got] == ["小野寺"]
+
+
+def test_label_like_text_is_ordinary_text() -> None:
+    """Chuỗi dạng [ORG_1] không còn là nhãn đặc biệt: khớp như mọi đoạn text khác."""
+    assert len(match_glossary("[ORG_1]様", [e("ORG", "x")])) == 1
+    assert len(match_glossary("ﾃﾞｰﾀ[ORG_1]", [e("ORG", "x")])) == 1
+
+
+def test_nfkc_map_positions() -> None:
+    norm, starts, ends = nfkc_map("ｶﾞ㈱Ａ")
+    assert norm == "ガ(株)A"
+    assert starts == [0, 2, 2, 2, 3] and ends == [2, 3, 3, 3, 4]
+    nfd = unicodedata.normalize("NFD", "ế")
+    assert nfkc_map(nfd + "x")[0] == unicodedata.normalize("NFKC", nfd) + "x"
 
 
 def test_term_with_space_matches_text_with_space() -> None:
@@ -89,10 +104,6 @@ def test_two_projects_conflict() -> None:
 def test_same_translation_in_two_projects_is_not_conflict() -> None:
     es = [e("検収", "A", project_id=1), e("検収", "A", project_id=2)]
     assert not match_glossary("検収", es)[0].conflict
-
-
-def test_label_inside_text_never_matches() -> None:
-    assert match_glossary("[ORG_1]様", [e("ORG", "x")]) == []
 
 
 def test_limit_prefers_longer_terms() -> None:

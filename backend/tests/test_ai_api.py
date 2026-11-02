@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import embedding
 from app.ai import ask as ask_module
-from app.ai import people
 from app.ai.client import LlmError, LlmResponse, LlmUsage
 from app.ai.prompts import AnswerOut, QuestionPlan, TranslationOut
 from app.db.session import create_api_engine
@@ -25,24 +24,6 @@ from tests.dbutil import add_source, set_ai_models, url_for_test_db
 from tests.mlfake import FakeLlm, FakeMl
 from tests.test_web_api import put_mail
 from tests.webutil import CSRF, add_web_user, login
-
-# Còn dùng bởi test dịch (test_translate.py...) tới khi bỏ che ở dịch mail.
-SECRETS = (
-    "田中",
-    "健二",
-    "tanaka@",
-    "client-a.example.jp",
-    "サンプルA",
-    "1,250,000",
-    "03-0000-0001",
-    "CT-2026-0042",
-    "高橋",
-)
-
-
-@pytest.fixture(autouse=True)
-def fresh_people_cache() -> None:
-    people.clear_cache()
 
 
 @pytest.fixture
@@ -96,7 +77,7 @@ async def api() -> AsyncIterator[AsyncEngine]:
 
 @pytest.fixture
 def ml() -> FakeMl:
-    return FakeMl(ner_names=("高橋",))
+    return FakeMl()
 
 
 @pytest.fixture

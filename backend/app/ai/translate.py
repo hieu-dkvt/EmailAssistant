@@ -1,8 +1,8 @@
-"""Dịch một mail: che → khớp glossary → gọi AI → kiểm tra → thay ngược (spec 26 mục 6, 10, 11).
+"""Dịch một mail: cắt → khớp glossary → gọi AI → kiểm tra (spec 26 mục 6, 10, 11; spec 28 mục 5).
 
 Dùng chung cho nút dịch tay và job nền: mọi thứ nhận qua tham số, engine phải là role app_api
-(đọc qua user_session, RLS). Không giữ transaction trong lúc chờ AI. Mọi text gửi đi qua một
-Masker, che lỗi thì không gửi. Log chỉ có user, message_id, số lượng, ms.
+(đọc qua user_session, RLS). Text gửi AI là text gốc, không che, và không gọi ml-service. Không giữ
+transaction trong lúc chờ AI. Log chỉ có user, message_id, số lượng, ms.
 """
 
 import asyncio
@@ -19,8 +19,6 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.ai import people as people_mod
-from app.ai.ask import MAX_ADDRESSES
 from app.ai.client import CallLog, LlmClient, LlmError, call_task
 from app.ai.glossary import (
     GlossaryEntry,
@@ -29,9 +27,7 @@ from app.ai.glossary import (
     match_glossary,
     merge_entries,
 )
-from app.ai.masking import LABEL_RE, MAX_MASK_INPUT_CHARS, Masker, cut_masked
 from app.ai.models import TASK_TRANSLATE
-from app.ai.names import companies_in
 from app.ai.prompts import (
     TRANSLATE_PROMPT_VERSION,
     TRANSLATE_SYSTEM,
@@ -39,9 +35,9 @@ from app.ai.prompts import (
     translate_message,
 )
 from app.ai.settings import user_models
+from app.ai.text import cut_text
 from app.db.session import user_session
 from app.embedding import MAX_SUBJECT_CHARS
-from app.ml_client import MlClient
 from app.threads_view import THREAD_MESSAGE_LIMIT
 from app.web_schemas import (
     AutoState,
@@ -56,8 +52,6 @@ log = logging.getLogger("app.ai")
 MAX_BODY_CHARS = 12_000
 MAX_CONTEXT_CHARS = 1_500
 MAX_NOTES = 5
-MAX_FULL_TEXT = 20_000  # toàn văn đọc để học tên công ty, như hỏi đáp
-MAX_MASK_PASSES = 4
 CHOOSE_BY_CONTEXT = "chọn theo ngữ cảnh"
 
 
@@ -87,10 +81,7 @@ class TranslationResult:
     glossary_used: list[dict[str, str]]
 
 
-_MAIL_COLUMNS = (
-    "m.id, m.thread_id, m.subject, m.body_clean, m.sent_at, m.from_name, m.from_addr, "
-    "m.to_addrs, m.cc_addrs, left(m.body_text, :cap) AS full_text"
-)
+_MAIL_COLUMNS = "m.id, m.thread_id, m.subject, m.body_clean, m.sent_at"
 READ_MAIL = text(f"SELECT {_MAIL_COLUMNS} FROM messages m WHERE m.id = :m AND m.user_id = :u")
 PREVIOUS_MAIL = text(
     f"""
@@ -163,7 +154,7 @@ THREAD_STATES = text(
 
 
 def mail_hash(subject: str | None, body: str | None) -> bytes:
-    """SHA-256 của subject + "\\0" + body trước khi che (toàn bộ, không phải phần đã cắt)."""
+    """SHA-256 của subject + "\\0" + body (toàn bộ, không phải phần đã cắt)."""
     return hashlib.sha256(f"{subject or ''}\0{body or ''}".encode()).digest()
 
 
@@ -176,53 +167,8 @@ def _glossary_line(term: str, translations: Sequence[str], note: str, conflict: 
     return line
 
 
-def _participants(rows: Sequence[Any]) -> list[tuple[str | None, str | None]]:
-    out: list[tuple[str | None, str | None]] = []
-    for r in rows:
-        out.append((r.from_name, r.from_addr))
-        for group in (r.to_addrs or [], r.cc_addrs or []):
-            for a in group[:MAX_ADDRESSES]:
-                if isinstance(a, dict):
-                    out.append((a.get("name"), a.get("addr")))
-    return out
-
-
-def learn_rows(masker: Masker, rows: Sequence[Any]) -> None:
-    """Thêm vào từ điển che người gửi/nhận và tên công ty trong toàn văn (kể cả chữ ký đã cắt
-    khỏi phần gửi đi) của các mail. Hàng cần cột from_name, from_addr, to_addrs, cc_addrs,
-    full_text."""
-    masker.add_entities(people_mod.entities_of(_participants(rows)))
-    masker.add_entities(companies_in(r.full_text for r in rows if r.full_text))
-
-
-async def build_masker(
-    session: AsyncSession, ml: MlClient, user_id: int, rows: Sequence[Any]
-) -> Masker:
-    """Masker có từ điển dùng cho dịch mail.
-
-    session phải là user_session của engine role app_api: correspondents dựa vào RLS, không lọc
-    user_id trong câu truy vấn (role worker sẽ đọc lẫn người gửi/nhận của người khác).
-    """
-    masker = Masker(ml.ner)
-    masker.add_entities(await people_mod.correspondents(session, user_id))
-    learn_rows(masker, rows)
-    return masker
-
-
-async def _masked_glossary(masker: Masker, matches: Sequence[GlossaryMatch]) -> str:
-    """Các dòng glossary đã che bằng cùng Masker. Bên gọi tự kiểm tra từ điển có mở rộng không."""
-    values = [v for m in matches for v in (m.term, *m.translations, m.note or "")]
-    masked = iter(await masker.mask(values) if values else [])
-    lines: list[str] = []
-    for m in matches:
-        term = next(masked)
-        translations = [next(masked) for _ in m.translations]
-        lines.append(_glossary_line(term, translations, next(masked), m.conflict))
-    return "\n".join(lines)
-
-
 @dataclass(frozen=True)
-class _MaskedMail:
+class _PreparedMail:
     subject: str
     body: str
     context: str
@@ -231,34 +177,22 @@ class _MaskedMail:
     truncated: bool
 
 
-async def _mask_mail(
-    masker: Masker, subject: str, body: str, context: str, entries: Sequence[GlossaryEntry]
-) -> _MaskedMail:
-    """Che mail, cắt theo giới hạn, khớp glossary trên đúng phần gửi đi, che glossary.
-
-    Che glossary có thể dạy Masker tên mới. Khi đó mail đã che không còn đúng và mục glossary đã
-    khớp có thể chứa chính tên đó: chạy lại cả bước này tới khi từ điển không đổi. Loại một mục
-    lại nhường chỗ cho mục khác trong giới hạn 60, nên phải lặp. Không ổn định thì không gửi gì.
-    """
-    fields = (
-        (subject, MAX_SUBJECT_CHARS),
-        (body, MAX_BODY_CHARS),
-        (context, MAX_CONTEXT_CHARS),
+def _glossary_text(matches: Sequence[GlossaryMatch]) -> str:
+    return "\n".join(
+        _glossary_line(m.term, m.translations, m.note or "", m.conflict) for m in matches
     )
-    inputs = [value[:MAX_MASK_INPUT_CHARS] for value, _ in fields]
-    for _ in range(MAX_MASK_PASSES):
-        masked = await masker.mask(inputs)
-        known = (masker.counts, masker.known_surfaces)
-        (cut_subject, _), (cut_body, truncated), (cut_context, _) = (
-            cut_masked(text_, limit, capped=len(value) > MAX_MASK_INPUT_CHARS)
-            for text_, (value, limit) in zip(masked, fields, strict=True)
-        )
-        matches = await asyncio.to_thread(match_glossary, f"{cut_subject}\n{cut_body}", entries)
-        glossary = await _masked_glossary(masker, matches)
-        if (masker.counts, masker.known_surfaces) == known:
-            return _MaskedMail(cut_subject, cut_body, cut_context, glossary, matches, truncated)
-    raise TranslateError(
-        500, "mask_unstable", "Không che ổn định được mail này, chưa gửi gì cho AI"
+
+
+def _prepare_mail(
+    subject: str, body: str, context: str, entries: Sequence[GlossaryEntry]
+) -> _PreparedMail:
+    """Cắt ba phần theo giới hạn rồi khớp glossary trên đúng phần gửi đi. Hàm thuần."""
+    cut_subject, _ = cut_text(subject, MAX_SUBJECT_CHARS)
+    cut_body, truncated = cut_text(body, MAX_BODY_CHARS)
+    cut_context, _ = cut_text(context, MAX_CONTEXT_CHARS)
+    matches = match_glossary(f"{cut_subject}\n{cut_body}", entries)
+    return _PreparedMail(
+        cut_subject, cut_body, cut_context, _glossary_text(matches), matches, truncated
     )
 
 
@@ -266,34 +200,15 @@ def _fold(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold()
 
 
-def _labels(texts: Iterable[str]) -> set[str]:
-    return {m.group(0) for t in texts for m in LABEL_RE.finditer(t)}
-
-
 def check_translation(
-    masked_inputs: Sequence[str],
-    masked_outputs: Sequence[str],
-    unmasked_body: str,
-    matches: Sequence[GlossaryMatch],
-    *,
-    truncated: bool,
-    other_sent: Sequence[str] = (),
-    masked_notes: Sequence[str] = (),
+    result_text: str, matches: Sequence[GlossaryMatch], *, truncated: bool
 ) -> list[str]:
     """Mã cảnh báo của spec 26 mục 11. Không gọi AI, không tự dịch lại.
 
-    masked_inputs, masked_outputs: subject và body. labels_missing chỉ so hai phần này, không tính
-    notes. labels_unknown: nhãn trong kết quả (kể cả masked_notes) không có trong mọi thứ đã gửi,
-    gồm other_sent (ngữ cảnh, glossary). So nhãn theo tập hợp; mục xung đột chấp nhận bản nào cũng
-    được.
+    result_text: subject và body dịch, nối nhau. Mục xung đột chấp nhận bản nào cũng được.
     """
-    inputs, outputs = _labels(masked_inputs), _labels(masked_outputs)
-    result = _fold(unmasked_body)
+    result = _fold(result_text)
     warnings: list[str] = []
-    if inputs - outputs:
-        warnings.append("labels_missing")
-    if (outputs | _labels(masked_notes)) - (inputs | _labels(other_sent)):
-        warnings.append("labels_unknown")
     if any(not any(_fold(t) in result for t in m.translations) for m in matches):
         warnings.append("glossary_missing")
     if any(m.conflict for m in matches):
@@ -327,9 +242,7 @@ def current_term_keys(entries: Sequence[GlossaryEntry]) -> dict[str, str]:
 
 
 async def read_mail(session: AsyncSession, user_id: int, message_id: int) -> Any:
-    row = (
-        await session.execute(READ_MAIL, {"m": message_id, "u": user_id, "cap": MAX_FULL_TEXT})
-    ).first()
+    row = (await session.execute(READ_MAIL, {"m": message_id, "u": user_id})).first()
     if row is None:
         raise _not_found()
     return row
@@ -345,25 +258,15 @@ def ensure_translatable(mail: Any) -> None:
 async def _previous_mail(session: AsyncSession, user_id: int, mail: Any) -> Any | None:
     if mail.thread_id is None or mail.sent_at is None:
         return None
-    params = {
-        "t": mail.thread_id,
-        "u": user_id,
-        "at": mail.sent_at,
-        "m": mail.id,
-        "cap": MAX_FULL_TEXT,
-    }
+    params = {"t": mail.thread_id, "u": user_id, "at": mail.sent_at, "m": mail.id}
     return (await session.execute(PREVIOUS_MAIL, params)).first()
 
 
 async def produce_translation(
-    engine: AsyncEngine,
-    ml: MlClient,
-    llm: LlmClient,
-    user_id: int,
-    message_id: int,
+    engine: AsyncEngine, llm: LlmClient, user_id: int, message_id: int
 ) -> TranslationResult:
-    """Chạy luồng dịch, chưa lưu. Ném TranslateError, LlmError, MlUnavailable; không gửi gì nếu
-    che lỗi. Không kiểm tra bản đã lưu: bên gọi quyết định có dịch lại không."""
+    """Chạy luồng dịch, chưa lưu. Ném TranslateError, LlmError. Không kiểm tra bản đã lưu: bên gọi
+    quyết định có dịch lại không."""
     started = time.monotonic()
     async with user_session(engine, user_id) as s:
         mail = await read_mail(s, user_id, message_id)
@@ -371,14 +274,14 @@ async def produce_translation(
         previous = await _previous_mail(s, user_id, mail)
         models = await user_models(s)
         entries = await load_entries(s, user_id, message_id)
-        rows = [mail] if previous is None else [mail, previous]
-        masker = await build_masker(s, ml, user_id, rows)
-    # Job không qua kiểm tra của route: tự kiểm tên model trước khi che và gọi AI.
+    # Job không qua kiểm tra của route: tự kiểm tên model trước khi gọi AI.
     if TASK_TRANSLATE not in models:
         raise LlmError("ai_model_missing", 503, "Nhập tên model cho tác vụ dịch mail (Cài đặt AI)")
 
     context = previous.body_clean if previous is not None else ""
-    masked = await _mask_mail(masker, mail.subject or "", mail.body_clean, context, entries)
+    prepared = await asyncio.to_thread(
+        _prepare_mail, mail.subject or "", mail.body_clean, context, entries
+    )
 
     calls = CallLog()
     out = await call_task(
@@ -388,46 +291,42 @@ async def produce_translation(
         TASK_TRANSLATE,
         models[TASK_TRANSLATE],
         system=TRANSLATE_SYSTEM,
-        user=translate_message(masked.context, masked.glossary, masked.subject, masked.body),
+        user=translate_message(
+            prepared.context, prepared.glossary, prepared.subject, prepared.body
+        ),
         output_type=TranslationOut,
         log_to=calls,
     )
     if not (out.body if mail.body_clean.strip() else out.subject).strip():
         raise LlmError("ai_bad_output", 502, "AI trả bản dịch trống")
 
-    def restore(value: str) -> str:
-        return masker.unmask(value).replace("\x00", "")  # PostgreSQL không nhận NUL
+    def clean(value: str) -> str:
+        return value.replace("\x00", "")  # PostgreSQL không nhận NUL
 
-    notes = [n for n in out.notes if n.strip()][:MAX_NOTES]
-    result_subject, result_body = restore(out.subject), restore(out.body)
+    notes = [clean(n) for n in out.notes if n.strip()][:MAX_NOTES]
+    result_subject, result_body = clean(out.subject), clean(out.body)
     warnings = check_translation(
-        [masked.subject, masked.body],
-        [out.subject, out.body],
-        f"{result_subject}\n{result_body}",
-        masked.matches,
-        truncated=masked.truncated,
-        other_sent=[masked.context, masked.glossary],
-        masked_notes=notes,
+        f"{result_subject}\n{result_body}", prepared.matches, truncated=prepared.truncated
     )
     log.info(
         "translate user=%s message_id=%s glossary=%d warnings=%d ms=%d",
         user_id,
         message_id,
-        len(masked.matches),
+        len(prepared.matches),
         len(warnings),
         (time.monotonic() - started) * 1000,
     )
     return TranslationResult(
         subject=result_subject,
         body=result_body,
-        notes=[restore(n) for n in notes],
+        notes=notes,
         warnings=warnings,
         source_hash=mail_hash(mail.subject, mail.body_clean),
         model=calls.calls[-1].model,
         prompt_version=TRANSLATE_PROMPT_VERSION,
         glossary_used=[
             {"term_norm": m.term_norm, "translation": t}
-            for m in masked.matches
+            for m in prepared.matches
             for t in m.translations
         ],
     )

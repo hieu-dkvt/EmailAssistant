@@ -1,8 +1,8 @@
 """Job dịch tự động: chọn mail khách trong Inbox, dịch, ghi kết quả và chuyển folder trên web
 (spec 26 mục 4, 5, 8).
 
-Mọi đọc, ghi dữ liệu mail chạy trong user_session của engine role app_api (RLS): people,
-glossary, call_task không lọc user_id trong câu truy vấn, role worker sẽ đọc lẫn mail người khác.
+Mọi đọc, ghi dữ liệu mail chạy trong user_session của engine role app_api (RLS): glossary,
+call_task không lọc user_id trong câu truy vấn, role worker sẽ đọc lẫn mail người khác.
 Riêng pending_translate_users chạy role app_worker: luôn lọc user_id, chỉ trả về id người dùng.
 Không giữ transaction trong lúc chờ AI. Log chỉ có user, message_id, mã lỗi, ms.
 """
@@ -29,7 +29,6 @@ from app.ai.translate import (
 )
 from app.db.session import user_session
 from app.mail.domains import inbox_path_sql
-from app.ml_client import MlClient, MlUnavailable
 from app.safe_errors import describe
 
 log = logging.getLogger("app.auto_translate")
@@ -38,7 +37,7 @@ MAX_MAIL_ATTEMPTS = 3
 RETRY_WAIT_MINUTES = 10  # chờ attempts × ngần này phút
 MAX_RETRY_WAIT_MINUTES = 60  # trần thời gian chờ
 # Lỗi gắn với mail này: dừng ở mail này, mail sau vẫn chạy.
-PER_MAIL_ERRORS = {"ai_bad_output", "ai_truncated", "ai_refused", "mask_unstable"}
+PER_MAIL_ERRORS = {"ai_bad_output", "ai_truncated", "ai_refused"}
 # Có thể do một mail (quá dài) hoặc do cấu hình (sai tên model): mail chờ, mail sau vẫn chạy, nhưng
 # không thành failed, nếu không sai tên model sẽ làm hỏng vĩnh viễn mọi mail đang chờ.
 UNBOUNDED_RETRY_ERRORS = {"ai_bad_request"}
@@ -46,7 +45,7 @@ UNBOUNDED_RETRY_ERRORS = {"ai_bad_request"}
 RECORDED_ERRORS = PER_MAIL_ERRORS | UNBOUNDED_RETRY_ERRORS
 NOTHING_TO_TRANSLATE = "nothing_to_translate"
 MESSAGE_NOT_FOUND = "message_not_found"
-# Lỗi không lường trước trong lúc xử lý một mail (Masker, kiểm tra kết quả): cùng mã với API.
+# Lỗi không lường trước trong lúc xử lý một mail (cắt, kiểm tra kết quả): cùng mã với API.
 UNEXPECTED_ERROR = "translate_failed"
 # Hạ tầng hỏng không phải lỗi của mail: không tính lượt thử. Job báo lỗi, lần quét sau làm lại.
 INFRASTRUCTURE_ERRORS = (
@@ -300,11 +299,11 @@ async def _record_failure(
 
 
 async def _produce(
-    engine: AsyncEngine, ml: MlClient, llm: LlmClient, user_id: int, message_id: int
+    engine: AsyncEngine, llm: LlmClient, user_id: int, message_id: int
 ) -> tuple[TranslationResult | None, str | None]:
     """(bản dịch, error_code). Mail rỗng không gọi AI, vẫn đi tiếp để ghi done và chuyển folder."""
     try:
-        result = await produce_translation(engine, ml, llm, user_id, message_id)
+        result = await produce_translation(engine, llm, user_id, message_id)
     except TranslateError as e:
         if e.code != NOTHING_TO_TRANSLATE:
             raise
@@ -312,9 +311,7 @@ async def _produce(
     return result, None
 
 
-async def translate_next(
-    api_engine: AsyncEngine, ml: MlClient, resolver: LlmResolver, user_id: int
-) -> RunStats:
+async def translate_next(api_engine: AsyncEngine, resolver: LlmResolver, user_id: int) -> RunStats:
     """Xử lý đúng một mail, cũ nhất trước. Lỗi tạm: dừng người dùng này, không ghi gì, chờ quét."""
     started = time.monotonic()
     stop = RunStats(handled=False, more=False)
@@ -337,7 +334,7 @@ async def translate_next(
     code: str
     try:
         result, error_code = (
-            (None, None) if translated else await _produce(api_engine, ml, llm, user_id, message_id)
+            (None, None) if translated else await _produce(api_engine, llm, user_id, message_id)
         )
         stats = await _finish(api_engine, user_id, message_id, result, error_code)
     except (TranslateError, LlmError) as e:
@@ -349,13 +346,10 @@ async def translate_next(
             )
             return stop
         code = e.code
-    except MlUnavailable:
-        log.info("auto_translate user=%s stopped code=ml_unavailable", user_id)
-        return stop
     except INFRASTRUCTURE_ERRORS:
         raise
     except Exception as e:
-        # Lỗi lạ (Masker, thay ngược, ghi kết quả) không được làm job lỗi mãi ở mail cũ nhất, chặn
+        # Lỗi lạ (cắt, kiểm tra, ghi kết quả) không được làm job lỗi mãi ở mail cũ nhất, chặn
         # các mail sau. Có giới hạn lượt thử, người dùng thấy mã lỗi. Thông điệp lỗi có thể chứa
         # nội dung mail: chỉ log describe().
         log.error(

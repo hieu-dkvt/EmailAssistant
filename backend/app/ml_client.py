@@ -1,10 +1,9 @@
-"""Client gọi ml-service (embedding, NER) trên cùng máy (spec 2026-10-19-ml-service-design).
+"""Client gọi ml-service (embedding) trên cùng máy (spec 2026-10-19-ml-service-design).
 
 Text gửi qua 127.0.0.1, không ra ngoài. Lỗi không mang thông điệp gốc (có thể chứa text): chỉ
 MlUnavailable / EmbeddingModelMismatch. Không log text.
 """
 
-from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
@@ -13,9 +12,6 @@ from app.config import embed_model, ml_service_url
 
 EMBED_DIM = 1024
 EMBED_MAX_TEXTS = 32
-NER_MAX_TEXTS = 64
-# Nhãn NER nhận từ ml-service (trùng tên loại che ở app/ai/masking.py); nhãn khác bị bỏ.
-NER_LABELS = frozenset({"PERSON", "ORG", "ADDRESS", "PHONE", "EMAIL", "URL", "MONEY"})
 
 
 class MlUnavailable(Exception):
@@ -31,19 +27,10 @@ class EmbeddingModelMismatch(Exception):
         self.want = want
 
 
-@dataclass(frozen=True)
-class NerEntity:
-    start: int
-    end: int
-    label: str  # một trong NER_LABELS
-
-
 class MlClient(Protocol):
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Vector (đã chuẩn hóa) của model hiện hành; khác model → EmbeddingModelMismatch."""
         ...
-
-    async def ner(self, texts: list[str]) -> list[list[NerEntity]]: ...
 
 
 class HttpMlClient:
@@ -98,38 +85,6 @@ class HttpMlClient:
             ):
                 raise MlUnavailable("ml-service /embed trả vector sai dạng")
             out.extend(vectors)
-        return out
-
-    async def ner(self, texts: list[str]) -> list[list[NerEntity]]:
-        out: list[list[NerEntity]] = []
-        for i in range(0, len(texts), NER_MAX_TEXTS):
-            batch = texts[i : i + NER_MAX_TEXTS]
-            data = await self._post("/ner", {"texts": batch})
-            rows = data.get("entities")
-            models = data.get("models")
-            # Fail closed: NER không chạy model nào / trả sai dạng thì không coi là "không có tên".
-            if (
-                not isinstance(rows, list)
-                or len(rows) != len(batch)
-                or not isinstance(models, list)
-                or not models
-                or any(not isinstance(row, list) for row in rows)
-            ):
-                raise MlUnavailable("ml-service /ner trả kết quả sai dạng")
-            for text, row in zip(batch, rows, strict=True):
-                ents: list[NerEntity] = []
-                for e in row:
-                    if not isinstance(e, dict):
-                        raise MlUnavailable("ml-service /ner trả kết quả sai dạng")
-                    start, end, label = e.get("start"), e.get("end"), e.get("label")
-                    if (
-                        isinstance(start, int)
-                        and isinstance(end, int)
-                        and 0 <= start < end <= len(text)
-                        and label in NER_LABELS
-                    ):
-                        ents.append(NerEntity(start, end, label))
-                out.append(ents)
         return out
 
 

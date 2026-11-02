@@ -6,8 +6,8 @@ Spec 2026-10-25-ai-provider-design.
   (spec 28 mục 3). is_public_host báo địa chỉ công cộng để web cảnh báo.
 - OpenAiLlm: client chat/completions tương thích OpenAI (mục 3).
 - load/save/delete_provider và LlmResolver: cấu hình lưu DB (RLS), key mã hóa (mục 4, 5).
-- Bên gọi chỉ đưa vào đây text ĐÃ CHE (spec 20; bỏ ở spec 28 task 3-4). Log chỉ có
-  host/giao thức, không có key, URL đầy đủ hay body phản hồi.
+- Text gửi đi là text gốc, không che (spec 28). Log chỉ có host/giao thức, không có key, URL đầy
+  đủ hay body phản hồi.
 """
 
 import asyncio

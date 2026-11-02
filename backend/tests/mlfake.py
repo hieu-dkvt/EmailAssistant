@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 from app.ai.client import LlmResponse, LlmUsage
 from app.config import embed_model
-from app.ml_client import EMBED_DIM, EmbeddingModelMismatch, MlUnavailable, NerEntity
+from app.ml_client import EMBED_DIM, EmbeddingModelMismatch, MlUnavailable
 
 CONCEPTS: list[tuple[str, ...]] = [
     ("見積", "báo giá", "quote", "estimate"),
@@ -39,10 +39,7 @@ def concept_vector(text: str) -> list[float]:
 class FakeMl:
     model: str = field(default_factory=embed_model)
     down: bool = False
-    ner_down: bool = False
-    ner_names: tuple[str, ...] = ()  # chuỗi NER "nhận ra" là PERSON
     embedded: list[str] = field(default_factory=list)
-    ner_inputs: list[str] = field(default_factory=list)
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
         if self.down:
@@ -52,25 +49,10 @@ class FakeMl:
         self.embedded += texts
         return [concept_vector(t) for t in texts]
 
-    async def ner(self, texts: list[str]) -> list[list[NerEntity]]:
-        if self.ner_down:
-            raise MlUnavailable("down")
-        self.ner_inputs += texts
-        out: list[list[NerEntity]] = []
-        for t in texts:
-            ents: list[NerEntity] = []
-            for name in self.ner_names:
-                start = t.find(name)
-                while start != -1:
-                    ents.append(NerEntity(start, start + len(name), "PERSON"))
-                    start = t.find(name, start + len(name))
-            out.append(ents)
-        return out
-
 
 @dataclass
 class FakeLlm:
-    """Trả lời theo hàng đợi responses; ghi lại mọi request (để kiểm tra nội dung đã che)."""
+    """Trả lời theo hàng đợi responses; ghi lại mọi request (để kiểm tra nội dung đã gửi)."""
 
     responses: list[Any] = field(default_factory=list)
     requests: list[dict[str, Any]] = field(default_factory=list)

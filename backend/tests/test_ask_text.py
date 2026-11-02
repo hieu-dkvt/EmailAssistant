@@ -61,14 +61,6 @@ async def test_sends_original_text(
     assert [s["content"] for s in data["sent"]] == [req["user"] for req in llm.requests]
 
 
-async def test_no_ner_call(
-    client: AsyncClient, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
-) -> None:
-    llm.responses = [plan(), ANSWER]
-    assert (await ask(client)).status_code == 200
-    assert ml.ner_inputs == []
-
-
 def test_prompts_do_not_mention_placeholders() -> None:
     assert "placeholder" not in (ANALYSIS_SYSTEM + ANSWER_SYSTEM).lower()
     assert "[PERSON_1]" not in ANALYSIS_SYSTEM + ANSWER_SYSTEM

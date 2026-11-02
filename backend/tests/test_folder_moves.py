@@ -26,7 +26,6 @@ from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
     api,
     ask,
     client,
-    fresh_people_cache,
     llm,
     ml,
     plan,

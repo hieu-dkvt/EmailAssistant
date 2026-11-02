@@ -19,7 +19,6 @@ from tests.mlfake import FakeLlm, FakeMl
 from tests.test_ai_api import (  # noqa: F401  (fixture dùng chung)
     api,
     client,
-    fresh_people_cache,
     llm,
     ml,
     world,
@@ -28,7 +27,7 @@ from tests.test_ai_api import app as app  # noqa: F401
 from tests.test_web_api import put_mail
 from tests.webutil import CSRF, login
 
-GOOD = TranslationOut(subject="[ORG_1] báo giá", body="Số tiền [MONEY_1].", notes=[])
+GOOD = TranslationOut(subject="サンプルA báo giá", body="Số tiền 1,250,000円.", notes=[])
 
 
 async def translate(client: AsyncClient, mid: int, **body: Any):
@@ -136,13 +135,15 @@ async def test_ai_error_saves_nothing(
     assert translation_count(owner_engine) == 0
 
 
-async def test_ner_failure_is_503_no_ai_call(
+async def test_translate_route_works_when_ml_down(
     client: AsyncClient, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    ml.ner_down = True
-    r = await translate(client, world.est)
-    assert (r.status_code, r.json()["code"]) == (503, "ml_unavailable")
-    assert llm.requests == []
+    """Dịch không còn gọi ml-service (spec 28)."""
+    ml.down = True
+    llm.responses = [GOOD]
+    assert (await translate(client, world.est)).status_code == 200
+    assert len(llm.requests) == 1
+    assert ml.embedded == []
 
 
 async def test_unexpected_error_hides_message(
@@ -376,7 +377,6 @@ async def test_logs_have_no_mail_text(
         assert (await translate(client, world.est)).status_code == 200
     for secret in ("田中", "見積", "サンプルA", "1,250,000", "bản-dịch-riêng", "ghi-chú-riêng"):
         assert secret not in caplog.text, secret
-    assert "[PERSON_" not in caplog.text
     assert "translate user=" in caplog.text
 
 

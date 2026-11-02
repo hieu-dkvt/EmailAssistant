@@ -1,5 +1,5 @@
 # ruff: noqa: F811
-"""Job dịch tự động (spec 26 mục 4, 5, 8) với AI giả và ml-service giả. Dữ liệu giả.
+"""Job dịch tự động (spec 26 mục 4, 5, 8; spec 28: không che). AI giả, dữ liệu giả.
 
 `api` là engine app_api (RLS), `worker` là engine app_worker. Mọi đọc, ghi dữ liệu mail của job đi
 qua `api`: test_uses_rls_dictionary chứng minh vì sao.
@@ -19,15 +19,13 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import auto_translate
-from app.ai import people
 from app.ai.client import LlmClient, LlmError, LlmResponse
 from app.ai.prompts import TranslationOut
 from app.ai.provider import LlmResolver
-from app.ai.translate import TranslateError, build_masker
+from app.ai.translate import TranslateError, mail_hash, saved_translations
 from app.auto_translate import (
     ELIGIBLE_SQL,
     MAX_RETRY_WAIT_MINUTES,
-    PER_MAIL_ERRORS,
     RunStats,
     choose_target,
     next_message,
@@ -36,7 +34,6 @@ from app.auto_translate import (
 )
 from app.db.session import user_session
 from app.mail.domains import domain_matches, is_inbox_path
-from app.ml_client import NerEntity
 from app.processing import process_user
 from app.projects import update_project
 from app.web_schemas import ProjectInput
@@ -49,8 +46,8 @@ from tests.dbutil import (
     add_user,
     set_ai_models,
 )
-from tests.mlfake import FakeLlm, FakeMl
-from tests.test_ai_api import api, fresh_people_cache, llm, ml  # noqa: F401
+from tests.mlfake import FakeLlm
+from tests.test_ai_api import api, llm  # noqa: F401
 from tests.test_web_api import put_mail
 
 INBOX_PATH = "ImapMail/imap.example.com/INBOX"
@@ -69,13 +66,6 @@ class HookLlm(FakeLlm):
     async def create(self, **kwargs: Any) -> LlmResponse:
         self.hook()
         return await super().create(**kwargs)
-
-
-class WrongCountNer(FakeMl):
-    """NER trả sai số phần tử: Masker ném ValueError, không phải MlUnavailable."""
-
-    async def ner(self, texts: list[str]) -> list[list[NerEntity]]:
-        return []
 
 
 @pytest.fixture
@@ -170,8 +160,8 @@ def translation_of(owner: Engine, user: int, message: int) -> Any:
         ).first()
 
 
-async def next_run(api: AsyncEngine, ml: FakeMl, llm: LlmClient, user: int) -> RunStats:
-    return await translate_next(api, ml, LlmResolver(llm), user)
+async def next_run(api: AsyncEngine, llm: LlmClient, user: int) -> RunStats:
+    return await translate_next(api, LlmResolver(llm), user)
 
 
 # --- tiêu chí (spec mục 4) ---
@@ -335,11 +325,11 @@ async def test_rls_next_message_sees_only_own_mail(
 
 
 async def test_translates_saves_and_moves(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     llm.responses = [OUT]
-    stats = await next_run(api, ml, llm, world.a)
+    stats = await next_run(api, llm, world.a)
     assert stats.handled
     saved = translation_of(world.owner, world.a, m)
     assert saved.translated_body == "Nội dung dịch"
@@ -362,13 +352,11 @@ async def test_translates_saves_and_moves(
     assert await picked(api, world.a) is None
 
 
-async def test_no_folder_note(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
-) -> None:
+async def test_no_folder_note(api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace) -> None:
     execute(world.owner, "update projects set processed_source_id = null")
     m = await put(world, "m1@x.example")
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.target_source_id, row.move_note) == ("done", None, "no_folder")
     assert translation_of(world.owner, world.a, m) is not None
@@ -382,12 +370,12 @@ async def save_folder(api: AsyncEngine, user: int, project: int, folder: int | N
 
 
 @pytest.fixture
-async def no_folder_mail(api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace) -> int:
+async def no_folder_mail(api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace) -> int:
     """Đúng thứ tự tự nhiên: lưu domain, job chạy khi chưa chọn folder, mail thành no_folder."""
     execute(world.owner, "update projects set processed_source_id = null")
     m = await put(world, "m1@x.example")
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     assert run_row(world.owner, world.a, m).move_note == "no_folder"
     return m
 
@@ -459,7 +447,7 @@ async def test_folder_change_only_retargets_no_folder_rows_of_that_project(
 
 
 async def test_two_folders_ambiguous_stays(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     with world.owner.begin() as conn:
         other_folder = add_source(conn, world.a, f"{INBOX_PATH}.sbd/ProjectB")
@@ -476,13 +464,13 @@ async def test_two_folders_ambiguous_stays(
     async with user_session(api, world.a) as s:
         assert await choose_target(s, world.a, m) == (None, "ambiguous")
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.target_source_id, row.move_note) == ("done", None, "ambiguous")
 
 
 async def test_two_projects_same_folder_moves(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     with world.owner.begin() as conn:
         other = add_project(
@@ -496,12 +484,12 @@ async def test_two_projects_same_folder_moves(
     m = await put(world, "m1@x.example")
     link(world.owner, world.a, m, other)
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     assert run_row(world.owner, world.a, m).target_source_id == world.folder
 
 
 async def test_project_without_matching_domain_has_no_say_in_folder(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     """Chọn folder chỉ xét dự án có domain khớp (spec mục 8)."""
     with world.owner.begin() as conn:
@@ -516,12 +504,12 @@ async def test_project_without_matching_domain_has_no_say_in_folder(
 
 
 async def test_existing_translation_no_ai_call(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     with world.owner.begin() as conn:
         add_translation(conn, world.a, m, translated_body="Bản dịch tay")
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     assert llm.requests == []
     assert translation_of(world.owner, world.a, m).translated_body == "Bản dịch tay"
     row = run_row(world.owner, world.a, m)
@@ -529,28 +517,28 @@ async def test_existing_translation_no_ai_call(
 
 
 async def test_only_one_mail_per_call_and_more_flag(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     newer = await put(world, "new@x.example", day=2)
     older = await put(world, "old@x.example", day=1)
     llm.responses = [OUT, OUT]
-    assert await next_run(api, ml, llm, world.a) == RunStats(handled=True, more=True)
+    assert await next_run(api, llm, world.a) == RunStats(handled=True, more=True)
     assert len(llm.requests) == 1
     assert run_row(world.owner, world.a, older) is not None  # mail cũ nhất trước
     assert run_row(world.owner, world.a, newer) is None
-    assert await next_run(api, ml, llm, world.a) == RunStats(handled=True, more=False)
-    assert await next_run(api, ml, llm, world.a) == RunStats(handled=False, more=False)
+    assert await next_run(api, llm, world.a) == RunStats(handled=True, more=False)
+    assert await next_run(api, llm, world.a) == RunStats(handled=False, more=False)
     assert len(llm.requests) == 2
 
 
 async def test_needs_translate_model_only(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     execute(world.owner, "delete from user_ai_settings where task <> 'translate'")
     execute(world.owner, "update user_ai_settings set model = 'gw/model-x'")
     llm.responses = [OUT]
-    stats = await translate_next(api, ml, LlmResolver(llm), world.a)
+    stats = await translate_next(api, LlmResolver(llm), world.a)
     assert stats.handled
     assert llm.requests[0]["model"] == "gw/model-x"
     assert run_row(world.owner, world.a, m).status == "done"
@@ -559,16 +547,14 @@ async def test_needs_translate_model_only(
 # --- lỗi ---
 
 
-@pytest.mark.parametrize("case", ["ai_unavailable", "ner_down", "no_ai", "no_model", "bad_key"])
+@pytest.mark.parametrize("case", ["ai_unavailable", "no_ai", "no_model", "bad_key"])
 async def test_transient_errors_stop_without_row(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace, case: str
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace, case: str
 ) -> None:
     m = await put(world, "m1@x.example")
     resolver: LlmResolver = LlmResolver(llm)
     if case == "ai_unavailable":
         llm.responses = [LlmError("ai_unavailable", 503, "")]
-    elif case == "ner_down":
-        ml.ner_down = True
     elif case == "no_ai":
         resolver = LlmResolver()
     elif case == "no_model":
@@ -580,23 +566,23 @@ async def test_transient_errors_stop_without_row(
                 raise LlmError("ai_auth_failed", 503, "")
 
         resolver = BadKey()
-    assert await translate_next(api, ml, resolver, world.a) == RunStats(False, False)
+    assert await translate_next(api, resolver, world.a) == RunStats(False, False)
     assert run_row(world.owner, world.a, m) is None
     assert translation_of(world.owner, world.a, m) is None
     assert (await picked(api, world.a)) == (m, world.inbox)  # lần quét sau làm lại
 
 
 async def test_other_llm_errors_are_transient(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     llm.responses = [LlmError("ai_auth_failed", 503, "")]
-    assert await next_run(api, ml, llm, world.a) == RunStats(False, False)
+    assert await next_run(api, llm, world.a) == RunStats(False, False)
     assert run_row(world.owner, world.a, m) is None
 
 
 async def test_bad_request_never_fails_and_does_not_block_next_mail(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     """ai_bad_request có thể do một mail (quá dài) hoặc do cấu hình (sai tên model): mail chờ, mail
     sau vẫn chạy, và không bao giờ thành failed để sửa cấu hình xong là mail chạy lại được."""
@@ -604,20 +590,20 @@ async def test_bad_request_never_fails_and_does_not_block_next_mail(
     after = await put(world, "new@x.example", day=2)
     llm.responses = [LlmError("ai_bad_request", 502, ""), OUT]
     before = datetime.now(UTC)
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     row = run_row(world.owner, world.a, blocked)
     assert (row.status, row.attempts, row.error_code) == ("retry", 1, "ai_bad_request")
     assert timedelta(minutes=10) <= row.next_attempt_at - before < timedelta(minutes=11)
 
     assert await picked(api, world.a) == (after, world.inbox)
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     assert run_row(world.owner, world.a, after).status == "done"
 
     for attempt in range(2, 12):
         execute(world.owner, "update message_auto_runs set next_attempt_at = now()")
         llm.responses = [LlmError("ai_bad_request", 502, "")]
         before = datetime.now(UTC)
-        assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+        assert await next_run(api, llm, world.a) == RunStats(True, True)
         row = run_row(world.owner, world.a, blocked)
         assert (row.status, row.attempts, row.error_code) == ("retry", attempt, "ai_bad_request")
         minutes = min(attempt * 10, MAX_RETRY_WAIT_MINUTES)
@@ -627,13 +613,13 @@ async def test_bad_request_never_fails_and_does_not_block_next_mail(
 
     execute(world.owner, "update message_auto_runs set next_attempt_at = now()")
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, blocked)
     assert (row.status, row.error_code, row.target_source_id) == ("done", None, world.folder)
 
 
 async def test_bad_request_from_resolver_stops_without_row(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     """Địa chỉ nhà cung cấp bị chặn: lỗi cấu hình, chưa chọn mail nào nên không có gì để ghi."""
     m = await put(world, "m1@x.example")
@@ -642,18 +628,18 @@ async def test_bad_request_from_resolver_stops_without_row(
         async def for_user(self, engine: AsyncEngine, user_id: int) -> LlmClient | None:
             raise LlmError("ai_bad_request", 502, "")
 
-    assert await translate_next(api, ml, BlockedHost(), world.a) == RunStats(False, False)
+    assert await translate_next(api, BlockedHost(), world.a) == RunStats(False, False)
     assert run_row(world.owner, world.a, m) is None
 
 
 async def test_per_mail_error_retries_then_failed(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     llm.responses = [LlmError("ai_bad_output", 502, "")] * 3
     for attempt, minutes in ((1, 10), (2, 20)):
         before = datetime.now(UTC)
-        assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+        assert await next_run(api, llm, world.a) == RunStats(True, True)
         row = run_row(world.owner, world.a, m)
         assert (row.status, row.attempts, row.error_code) == ("retry", attempt, "ai_bad_output")
         assert row.from_source_id == world.inbox
@@ -661,9 +647,9 @@ async def test_per_mail_error_retries_then_failed(
         wait = row.next_attempt_at - before
         assert timedelta(minutes=minutes) <= wait < timedelta(minutes=minutes, seconds=30)
         # Còn trong thời gian chờ thì không chọn lại.
-        assert await next_run(api, ml, llm, world.a) == RunStats(False, False)
+        assert await next_run(api, llm, world.a) == RunStats(False, False)
         execute(world.owner, "update message_auto_runs set next_attempt_at = now()")
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.attempts, row.next_attempt_at) == ("failed", 3, None)
     assert row.target_source_id is None  # mail ở lại Inbox
@@ -672,13 +658,13 @@ async def test_per_mail_error_retries_then_failed(
 
 
 async def test_retry_then_success_clears_error(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     m = await put(world, "m1@x.example")
     llm.responses = [LlmError("ai_truncated", 502, ""), OUT]
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     execute(world.owner, "update message_auto_runs set next_attempt_at = now()")
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.attempts, row.error_code, row.next_attempt_at) == (
         "done",
@@ -689,47 +675,46 @@ async def test_retry_then_success_clears_error(
     assert row.target_source_id == world.folder
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        TranslateError(500, "mask_unstable", "x"),
-        LlmError("mask_unstable", 500, "x"),
-    ],
-    ids=["translate_error", "llm_error"],
-)
-async def test_mask_unstable_is_per_mail(
-    api: AsyncEngine,
-    ml: FakeMl,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    monkeypatch: pytest.MonkeyPatch,
-    error: Exception,
+async def test_retry_row_with_mask_unstable_runs_again(
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    assert "mask_unstable" in PER_MAIL_ERRORS
+    """Dòng retry cũ của lỗi mask_unstable (đã hết giờ chờ) được chạy lại và xong như mọi mail."""
     m = await put(world, "m1@x.example")
-
-    async def unstable(*args: Any, **kwargs: Any) -> Any:
-        raise error
-
-    monkeypatch.setattr(auto_translate, "produce_translation", unstable)
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    with world.owner.begin() as conn:
+        add_auto_run(
+            conn,
+            world.a,
+            m,
+            "retry",
+            error_code="mask_unstable",
+            next_attempt_at=datetime.now(UTC) - timedelta(seconds=1),
+        )
+    llm.responses = [OUT]
+    assert await next_run(api, llm, world.a) == RunStats(True, False)
     row = run_row(world.owner, world.a, m)
-    assert (row.status, row.attempts, row.error_code) == ("retry", 1, "mask_unstable")
+    assert (row.status, row.attempts, row.error_code) == ("done", 2, None)
+    assert row.target_source_id == world.folder
+    assert translation_of(world.owner, world.a, m).translated_body == "Nội dung dịch"
 
 
-async def test_masker_failure_does_not_block_queue(
+async def test_unexpected_error_does_not_block_queue(
     api: AsyncEngine,
     llm: FakeLlm,
     world: SimpleNamespace,
     caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Lỗi lạ của Masker (không phải MlUnavailable): không gửi gì cho AI, ghi lỗi theo mail, mail
-    sau vẫn chạy. Không phân loại thì mail cũ nhất làm job lỗi mãi và chặn cả hàng đợi."""
+    """Lỗi lạ khi xử lý một mail: ghi lỗi theo mail, mail sau vẫn chạy. Không phân loại thì mail cũ
+    nhất làm job lỗi mãi và chặn cả hàng đợi."""
     stuck = await put(world, "stuck@x.example", day=1, subject="SECRET-SUBJECT")
     after = await put(world, "after@x.example", day=2)
-    ml = WrongCountNer()
+
+    async def boom(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("SECRET-SUBJECT")
+
+    monkeypatch.setattr(auto_translate, "produce_translation", boom)
     with caplog.at_level(logging.INFO):
-        assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+        assert await next_run(api, llm, world.a) == RunStats(True, True)
     row = run_row(world.owner, world.a, stuck)
     assert (row.status, row.attempts, row.error_code) == ("retry", 1, "translate_failed")
     assert llm.requests == []
@@ -737,6 +722,30 @@ async def test_masker_failure_does_not_block_queue(
     assert "SECRET" not in caplog.text
 
     assert await picked(api, world.a) == (after, world.inbox)
+
+
+async def test_old_prompt_version_marks_stale_but_not_rerun(
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
+) -> None:
+    """TRANSLATE_PROMPT_VERSION lên 2: bản dịch version 1 hiện "cũ", job không gọi AI lại."""
+    m = await put(world, "m1@x.example", subject="件名", body="本文です。")
+    with world.owner.begin() as conn:
+        add_translation(
+            conn,
+            world.a,
+            m,
+            translated_body="Bản dịch cũ",
+            source_hash=mail_hash("件名", "本文です。"),
+            prompt_version=1,
+        )
+    async with user_session(api, world.a) as s:
+        assert (await saved_translations(s, world.a, [m]))[m].stale is True
+    assert (await next_run(api, llm, world.a)).handled
+    assert llm.requests == []
+    assert translation_of(world.owner, world.a, m).translated_body == "Bản dịch cũ"
+    assert run_row(world.owner, world.a, m).status == "done"
+    async with user_session(api, world.a) as s:
+        assert (await saved_translations(s, world.a, [m]))[m].stale is True
 
 
 @pytest.mark.parametrize(
@@ -751,7 +760,6 @@ async def test_masker_failure_does_not_block_queue(
 )
 async def test_infrastructure_error_propagates_without_row(
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -765,16 +773,16 @@ async def test_infrastructure_error_propagates_without_row(
 
     monkeypatch.setattr(auto_translate, "produce_translation", down)
     with pytest.raises(type(exc)):
-        await next_run(api, ml, llm, world.a)
+        await next_run(api, llm, world.a)
     assert run_row(world.owner, world.a, m) is None
 
 
 async def test_empty_mail_done_and_moved(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
     """Review Focus 1: chỉ có file đính kèm, không gọi AI, không lặp mãi."""
     m = await put(world, "m1@x.example", subject="", body="")
-    assert (await next_run(api, ml, llm, world.a)).handled
+    assert (await next_run(api, llm, world.a)).handled
     assert llm.requests == []
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.error_code, row.target_source_id) == (
@@ -786,9 +794,7 @@ async def test_empty_mail_done_and_moved(
     assert await picked(api, world.a) is None
 
 
-async def test_message_deleted_during_ai_call(
-    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
-) -> None:
+async def test_message_deleted_during_ai_call(api: AsyncEngine, world: SimpleNamespace) -> None:
     """Review Focus 2: xóa mail trong lúc chờ AI thì không lỗi, không ghi gì."""
     m = await put(world, "m1@x.example")
     other = await put(world, "m2@x.example", day=2)
@@ -796,7 +802,7 @@ async def test_message_deleted_during_ai_call(
         responses=[OUT, OUT],
         hook=lambda: execute(world.owner, "delete from messages where id = :m", m=m),
     )
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     assert run_count(world.owner) == 0
     assert translation_of(world.owner, world.a, m) is None
     assert await picked(api, world.a) == (other, world.inbox)
@@ -804,7 +810,6 @@ async def test_message_deleted_during_ai_call(
 
 async def test_message_deleted_before_read_goes_on(
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -815,13 +820,12 @@ async def test_message_deleted_before_read_goes_on(
         raise TranslateError(404, "message_not_found", "x")
 
     monkeypatch.setattr(auto_translate, "produce_translation", gone)
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     assert run_count(world.owner) == 0
 
 
 async def test_message_deleted_after_recheck_no_fk_error(
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -838,24 +842,20 @@ async def test_message_deleted_after_recheck_no_fk_error(
         return result
 
     monkeypatch.setattr(auto_translate, "choose_target", deleting)
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     assert run_count(world.owner) == 0
 
 
-async def test_criteria_rechecked_before_write(
-    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
-) -> None:
+async def test_criteria_rechecked_before_write(api: AsyncEngine, world: SimpleNamespace) -> None:
     """Review Focus 2: dự án bị xóa trong lúc gọi AI thì không chuyển folder, không ghi gì."""
     m = await put(world, "m1@x.example")
     llm = HookLlm(responses=[OUT], hook=lambda: execute(world.owner, "delete from projects"))
-    assert await next_run(api, ml, llm, world.a) == RunStats(True, True)
+    assert await next_run(api, llm, world.a) == RunStats(True, True)
     assert run_row(world.owner, world.a, m) is None
     assert translation_of(world.owner, world.a, m) is None
 
 
-async def test_race_with_manual_translate(
-    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
-) -> None:
+async def test_race_with_manual_translate(api: AsyncEngine, world: SimpleNamespace) -> None:
     """Review Focus 4: bấm Dịch đúng lúc job đang dịch cùng mail."""
     m = await put(world, "m1@x.example")
 
@@ -864,7 +864,7 @@ async def test_race_with_manual_translate(
             add_translation(conn, world.a, m)
 
     llm = HookLlm(responses=[OUT], hook=manual)
-    assert (await next_run(api, ml, llm, world.a)).handled
+    assert (await next_run(api, llm, world.a)).handled
     with world.owner.connect() as conn:
         rows = conn.execute(text("select status, target_source_id from message_auto_runs")).all()
         saved = conn.scalar(text("select count(*) from message_translations"))
@@ -875,7 +875,6 @@ async def test_race_with_manual_translate(
 
 async def test_done_row_is_never_overwritten(
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
@@ -893,15 +892,15 @@ async def test_done_row_is_never_overwritten(
         return result
 
     monkeypatch.setattr(auto_translate, "choose_target", finished_by_other_job)
-    await next_run(api, ml, llm, world.a)
+    await next_run(api, llm, world.a)
     row = run_row(world.owner, world.a, m)
     assert (row.status, row.attempts, row.target_source_id) == ("done", 1, None)
 
 
-async def test_uses_rls_dictionary(
-    api: AsyncEngine, ml: FakeMl, llm: FakeLlm, world: SimpleNamespace
+async def test_request_has_only_own_mail(
+    api: AsyncEngine, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    """Từ điển che của A không được lẫn người gửi của B (role worker sẽ đọc lẫn)."""
+    """Job đọc qua RLS: người gửi và nội dung mail của B không vào request của A."""
     with world.owner.begin() as conn:
         s_b = add_source(conn, world.b, INBOX_PATH)
         put_mail(
@@ -909,8 +908,8 @@ async def test_uses_rls_dictionary(
             world.b,
             "b1@x.example",
             [s_b],
-            subject="s",
-            body="b",
+            subject="SECRET-OF-B",
+            body="SECRET-OF-B",
             frm="kuroda@b.example.jp",
             from_name="Kuroda Zenji",
             day=1,
@@ -918,20 +917,14 @@ async def test_uses_rls_dictionary(
     await process_user(world.worker, world.b)
     await put(world, "m1@x.example", body="Liên hệ Kuroda Zenji nhé.")
     llm.responses = [OUT]
-    await next_run(api, ml, llm, world.a)
-    assert "Kuroda Zenji" in llm.requests[0]["user"]
-
-    # Đối chứng: cùng hàm chạy bằng role worker thì đọc lẫn, chứng tỏ test trên phân biệt được.
-    people.clear_cache()
-    async with user_session(world.worker, world.a) as s:
-        masker = await build_masker(s, ml, world.a, [])
-    people.clear_cache()
-    assert "Kuroda" not in (await masker.mask(["Liên hệ Kuroda Zenji nhé."]))[0]
+    await next_run(api, llm, world.a)
+    sent = llm.requests[0]["user"]
+    assert "Kuroda Zenji" in sent  # tên trong chính mail của A đi nguyên văn
+    assert "SECRET-OF-B" not in sent and "kuroda@b.example.jp" not in sent
 
 
 async def test_log_has_no_mail_content(
     api: AsyncEngine,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     caplog: pytest.LogCaptureFixture,
@@ -939,7 +932,7 @@ async def test_log_has_no_mail_content(
     await put(world, "m1@x.example", subject="SECRET-SUBJECT", body="SECRET-BODY")
     llm.responses = [TranslationOut(subject="SECRET-OUT", body="SECRET-OUT", notes=[])]
     with caplog.at_level(logging.DEBUG):
-        await next_run(api, ml, llm, world.a)
+        await next_run(api, llm, world.a)
     assert "SECRET" not in caplog.text
     assert DOMAIN not in caplog.text
     assert "auto_translate user=" in caplog.text

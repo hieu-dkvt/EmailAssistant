@@ -1,4 +1,4 @@
-"""Client ml-service (spec 17, 18) với transport giả của httpx."""
+"""Client ml-service (spec 17, 18, 28) với transport giả của httpx."""
 
 import json
 
@@ -11,7 +11,6 @@ from app.ml_client import (
     EmbeddingModelMismatch,
     HttpMlClient,
     MlUnavailable,
-    NerEntity,
     vector_literal,
 )
 
@@ -69,40 +68,13 @@ async def test_connection_error_has_no_text() -> None:
     assert "SECRET" not in str(exc.value)
 
 
-async def test_ner_keeps_only_valid_entities() -> None:
-    def handle(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "models": ["x"],
-                "entities": [
-                    [
-                        {"start": 0, "end": 2, "label": "PERSON"},
-                        {"start": 1, "end": 99, "label": "PERSON"},  # vượt độ dài text
-                        {"start": 0, "end": 1, "label": "DATE"},  # nhãn lạ
-                        {"start": 2, "end": 2, "label": "ORG"},  # rỗng
-                    ]
-                ],
-            },
-        )
-
-    assert await client(handle).ner(["田中様"]) == [[NerEntity(0, 2, "PERSON")]]
-
-
 def test_vector_literal() -> None:
     assert vector_literal([0.5, -0.25, 1e-9]) == "[0.5,-0.25,1e-09]"
 
 
-async def test_ner_fails_closed_on_bad_shape() -> None:
-    def no_models(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"models": [], "entities": [[]]})
-
-    def bad_row(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"models": ["x"], "entities": ["oops"]})
-
-    for handler in (no_models, bad_row):
-        with pytest.raises(MlUnavailable):
-            await client(handler).ner(["田中様"])
+def test_client_no_longer_has_ner() -> None:
+    """Spec 28: dịch và hỏi đáp không che nên không còn gọi /ner."""
+    assert not hasattr(HttpMlClient, "ner")
 
 
 @pytest.mark.parametrize(

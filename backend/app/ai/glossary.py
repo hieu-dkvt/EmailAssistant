@@ -1,4 +1,4 @@
-"""Glossary: so khớp thuật ngữ trong text đã che và nạp mục theo mail (spec 26 mục 9).
+"""Glossary: so khớp thuật ngữ trong text gốc và nạp mục theo mail (spec 26 mục 9, spec 28 mục 5).
 
 `match_glossary` là hàm thuần: NFKC theo cụm bằng `nfkc_map` (katakana nửa độ rộng, dạng NFD cần
 gộp ký tự với dấu theo sau), rồi casefold, bỏ khoảng trắng, vẫn giữ được vị trí; tìm bằng
@@ -12,11 +12,10 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.masking import LABEL_RE, nfkc_map
-
 MAX_GLOSSARY_IN_PROMPT = 60
 MAX_TERMS_PER_SCOPE = 5_000
 MAX_OCCURRENCES_PER_TERM = 100  # chặn thuật ngữ ngắn lặp dày trên text dài
+_SEMI_VOICED = "ﾞﾟ"  # ﾞ ﾟ của katakana half-width (NFKC thành dấu tổ hợp)
 _LATIN_EXTRA = "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúýĂăĐđĨĩŨũƠơƯư" + "".join(
     chr(c) for c in range(0x1EA0, 0x1EFA)
 )
@@ -25,6 +24,29 @@ _LATIN_EXTRA = "ÀÁÂÃÈÉÊÌÍÒÓÔÕÙÚÝàáâãèéêìíòóôõùúý
 def normalize_term(value: str) -> str:
     """NFKC, casefold, bỏ mọi khoảng trắng."""
     return "".join(unicodedata.normalize("NFKC", value).casefold().split())
+
+
+def nfkc_map(text: str) -> tuple[str, list[int], list[int]]:
+    """Bản NFKC của text và vị trí gốc [starts[i], ends[i]) của từng ký tự trong bản NFKC.
+
+    Chuẩn hóa theo cụm: một ký tự gốc cùng các dấu tổ hợp theo sau (chữ Việt dạng NFD "ế" =
+    e + ◌̂ + ◌́; ｶﾞ) thành một cụm, NFKC cả cụm (㈱ → (株), ０ → 0, ＠ → @, ｶﾞ → ガ), mọi ký tự
+    sinh ra từ cụm đều trỏ về [đầu cụm, cuối cụm).
+    """
+    chars: list[str] = []
+    starts: list[int] = []
+    ends: list[int] = []
+    i, n = 0, len(text)
+    while i < n:
+        j = i + 1
+        while j < n and (unicodedata.combining(text[j]) or text[j] in _SEMI_VOICED):
+            j += 1
+        for c in unicodedata.normalize("NFKC", text[i:j]):
+            chars.append(c)
+            starts.append(i)
+            ends.append(j)
+        i = j
+    return "".join(chars), starts, ends
 
 
 def _is_latin_char(ch: str) -> bool:
@@ -93,16 +115,8 @@ def match_glossary(
     merged = merge_entries(entries)
     if not merged or not text or limit <= 0:
         return []
-    nfkc, starts, _ = nfkc_map(text)
+    nfkc, _, _ = nfkc_map(text)
     norm, origin = _fold_chars(nfkc)
-    blocked = bytearray(len(norm))  # 1 = ký tự nằm trong nhãn che, không khớp được
-    labelled = [False] * len(text)
-    for m in LABEL_RE.finditer(text):
-        for i in range(m.start(), m.end()):
-            labelled[i] = True
-    for j, o in enumerate(origin):
-        if labelled[starts[o]]:
-            blocked[j] = 1
 
     found: list[tuple[int, int, str]] = []  # (độ dài, vị trí, term_norm)
     for term_norm, match in merged.items():
@@ -112,9 +126,7 @@ def match_glossary(
         count = 0
         while start != -1 and count < MAX_OCCURRENCES_PER_TERM:
             end = start + size
-            if not any(blocked[start:end]) and (
-                not latin or _word_bounded(nfkc, origin, start, end)
-            ):
+            if not latin or _word_bounded(nfkc, origin, start, end):
                 found.append((size, start, match.term_norm))
                 count += 1
             start = norm.find(term_norm, start + 1)

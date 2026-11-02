@@ -245,7 +245,7 @@ async def post_ask(
         404: {"model": ErrorBody, "description": "message_not_found"},
         409: {"model": ErrorBody, "description": "mail_not_ready, translate_in_progress"},
         502: {"model": ErrorBody, "description": "ai_refused, ai_truncated, ai_bad_output…"},
-        503: {"model": ErrorBody, "description": "ai_not_configured, ai_unavailable, ml_…"},
+        503: {"model": ErrorBody, "description": "ai_not_configured, ai_unavailable…"},
     },
     openapi_extra=json_body(TranslateInput),
 )
@@ -254,7 +254,6 @@ async def post_translate(
     message_id: Annotated[int, Path(gt=0, le=MAX_BIGINT)],
     user_id: WebUserId,
     engine: Engine,
-    ml: Annotated[MlClient, Depends(get_ml)],
     resolver: Annotated[LlmResolver, Depends(get_resolver)],
 ) -> MessageTranslationOut:
     raw = await read_body(request)
@@ -271,7 +270,7 @@ async def post_translate(
         ensure_translatable(mail)
         llm = await _llm_for(engine, resolver, user_id, (TASK_TRANSLATE,))
         with request.app.state.translate_guard.hold(user_id):
-            result = await produce_translation(engine, ml, llm, user_id, message_id)
+            result = await produce_translation(engine, llm, user_id, message_id)
             async with user_session(engine, user_id) as s:
                 await save_translation(s, user_id, message_id, result)
                 return (await saved_translations(s, user_id, [message_id]))[message_id]
