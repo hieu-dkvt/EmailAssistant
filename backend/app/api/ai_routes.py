@@ -83,12 +83,6 @@ TEST_SCHEMA: dict[str, object] = {
     "required": ["ok"],
     "additionalProperties": False,
 }
-MASKED_CATEGORIES = [
-    "Email, điện thoại, URL, địa chỉ",
-    "Tên người",
-    "Tên công ty, tổ chức",
-    "Số tiền, số hợp đồng / đơn hàng",
-]
 
 
 def get_ml(request: Request) -> MlClient:
@@ -110,7 +104,6 @@ async def _settings(engine: AsyncEngine, user_id: int) -> AiSettings:
             )
             for t in TASKS.values()
         ],
-        masking=MASKED_CATEGORIES,
     )
 
 

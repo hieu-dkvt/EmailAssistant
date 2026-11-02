@@ -20,11 +20,10 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from app import auto_translate
 from app.ai import people
-from app.ai.ask import build_masker
 from app.ai.client import LlmClient, LlmError, LlmResponse
 from app.ai.prompts import TranslationOut
 from app.ai.provider import LlmResolver
-from app.ai.translate import TranslateError
+from app.ai.translate import TranslateError, build_masker
 from app.auto_translate import (
     ELIGIBLE_SQL,
     MAX_RETRY_WAIT_MINUTES,

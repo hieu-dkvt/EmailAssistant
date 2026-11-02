@@ -1,7 +1,7 @@
 """Hỏi đáp AI (spec 21) và cài đặt model (spec 22) với AI giả và ml-service giả.
 
-Kiểm tra quan trọng nhất (NDA): request gửi AI không chứa giá trị gốc nào đã phải che, và
-không chứa mail của người khác.
+Kiểm tra quan trọng nhất: request gửi AI không chứa mail của người khác (RLS). Từ spec 28 text
+gửi AI là text gốc, không che (xem test_ask_text.py).
 """
 
 from collections.abc import AsyncIterator
@@ -26,7 +26,7 @@ from tests.mlfake import FakeLlm, FakeMl
 from tests.test_web_api import put_mail
 from tests.webutil import CSRF, add_web_user, login
 
-TANAKA = "tanaka@client-a.example.jp"
+# Còn dùng bởi test dịch (test_translate.py...) tới khi bỏ che ở dịch mail.
 SECRETS = (
     "田中",
     "健二",
@@ -60,7 +60,6 @@ async def world(owner_engine: Engine, worker: AsyncEngine, clean: None) -> Simpl
             "est@a.example.jp",
             [fa],
             subject="【サンプルA】お見積りの送付",
-            # Tên công ty chỉ có trong chữ ký (bị cắt khỏi body_clean) và dạng viết tắt ở subject.
             body=(
                 "Trần様\n\nお世話になっております。田中健二です。\n"
                 "お見積りの金額は1,250,000円、契約番号: CT-2026-0042 です。\n"
@@ -129,7 +128,7 @@ def plan(**kw: object) -> QuestionPlan:
 
 
 ANSWER = AnswerOut(
-    answer="[PERSON_1]様([ORG_1])が[MONEY_1]でお見積りを送りました [1]. Liên hệ [PHONE_1].",
+    answer="田中様(サンプルA)が1,250,000円でお見積りを送りました [1]. Liên hệ 03-0000-0001.",
     cited_sources=[1, 7],
     insufficient=False,
 )
@@ -149,28 +148,20 @@ def ai_calls(engine: Engine) -> list[tuple[int, str, str, str, int]]:
         ]
 
 
-async def test_ask_masks_everything_sent_and_unmasks_answer(
+async def test_ask_sources_calls_and_isolation(
     client: AsyncClient, llm: FakeLlm, world: SimpleNamespace, owner_engine: Engine
 ) -> None:
     llm.responses = [plan(), ANSWER]
     r = await ask(client, "田中さんの見積はいくらでしたか?")
     assert r.status_code == 200, r.text
     data = r.json()
-    sent = llm.sent_text()
-    for secret in SECRETS:
-        assert secret not in sent, secret
-    assert "SECRET-OF-B" not in sent
-    user_parts = "\n".join(req["user"] for req in llm.requests)
-    for label in ("[PERSON_1]", "[MONEY_1]", "[CONTRACT_1]", "[PHONE_1]", "[ORG_1]"):
-        assert label in user_parts, label
-    # Câu trả lời đã thay nhãn về giá trị thật; nguồn 7 không tồn tại bị bỏ.
-    assert "田中" in data["answer"] and "1,250,000円" in data["answer"]
-    assert "サンプルA" in data["answer"] and "03-0000-0001" in data["answer"]
+    assert "SECRET-OF-B" not in llm.sent_text()  # mail của B không vào request của A
+    # Nguồn 7 không tồn tại bị bỏ.
+    assert data["answer"] == ANSWER.answer
     assert [s["message_id"] for s in data["sources"] if s["cited"]] == [world.est]
     assert world.b_est not in [s["message_id"] for s in data["sources"]]
     # "Nội dung đã gửi AI" đúng là text trong request.
     assert [s["content"] for s in data["sent"]] == [req["user"] for req in llm.requests]
-    assert data["mask_counts"]["PERSON"] >= 2 and data["mask_counts"]["MONEY"] == 1
     assert [c["task"] for c in data["calls"]] == ["question_analysis", "answer"]
     # Tên model là tên người dùng nhập; không còn tham số fallbacks.
     assert [q["model"] for q in llm.requests] == ["test-model", "test-model"]
@@ -181,12 +172,11 @@ async def test_ask_masks_everything_sent_and_unmasks_answer(
     ]
 
 
-async def test_plan_values_unmasked_before_local_search(
+async def test_plan_sender_narrows_local_search(
     client: AsyncClient, llm: FakeLlm, world: SimpleNamespace
 ) -> None:
-    llm.responses = [plan(sender="[PERSON_1]", sent_after="2026-09-01"), ANSWER]
-    r = await ask(client, "田中さんは何を送りましたか")
-    data = r.json()
+    llm.responses = [plan(sender="田中", sent_after="2026-09-01"), ANSWER]
+    data = (await ask(client, "田中さんは何を送りましたか")).json()
     assert data["plan"]["sender"] == "田中"
     assert data["plan"]["sent_after"] == "2026-09-01"
     assert data["plan"]["filters_relaxed"] is False
@@ -327,11 +317,12 @@ async def test_usage_has_no_price(client: AsyncClient, llm: FakeLlm) -> None:
     assert "total_estimated_usd" not in data
 
 
-async def test_ner_failure_sends_nothing(client: AsyncClient, ml: FakeMl, llm: FakeLlm) -> None:
-    ml.ner_down = True
+async def test_ml_down_sends_nothing_more(client: AsyncClient, ml: FakeMl, llm: FakeLlm) -> None:
+    ml.down = True  # /ask vẫn cần ml-service để embed câu hỏi
+    llm.responses = [plan(), ANSWER]
     r = await ask(client)
     assert (r.status_code, r.json()["code"]) == (503, "ml_unavailable")
-    assert llm.requests == []
+    assert len(llm.requests) == 1  # chỉ bước phân tích; chưa có nguồn nào gửi đi
 
 
 async def test_refusal_and_api_errors(
@@ -455,15 +446,14 @@ async def test_translate_needs_only_its_own_model(
     assert (await ask(client)).json()["code"] == "ai_model_missing"
 
 
-async def test_long_subject_masked_before_cut(
+async def test_long_subject_cut_at_limit(
     client: AsyncClient,
     llm: FakeLlm,
     world: SimpleNamespace,
     owner_engine: Engine,
     worker: AsyncEngine,
 ) -> None:
-    """Vị trí 300 rơi vào giữa số điện thoại: cắt trước khi che thì mảnh số không khớp mẫu che."""
-    subject = "見積" + "件" * 290 + "(090-1234-5678) 以上"
+    subject = "見積" + "件" * 400
     with owner_engine.begin() as conn:
         put_mail(
             conn, world.a, "long@a.example.jp", [world.fa], subject=subject, body="本文", day=4
@@ -472,24 +462,23 @@ async def test_long_subject_masked_before_cut(
     llm.responses = [plan(keywords=["見積"]), ANSWER]
     r = await ask(client)
     assert r.status_code == 200, r.text
-    line = next(ln for ln in llm.requests[1]["user"].splitlines() if "件" * 290 in ln)
-    assert "090" not in line and "1234" not in line, line
-    assert len(line.removeprefix("Subject: ")) <= 300
+    line = next(ln for ln in llm.requests[1]["user"].splitlines() if "件" * 100 in ln)
+    assert line == "Subject: " + subject[:300]
 
 
 LONG_DOMAIN = ".".join(f"dept-{i:04d}-long" for i in range(7)) + ".sample-b.example.jp"
 
 
-async def test_long_address_masked_before_cut(
+async def test_long_address_cut_at_limit(
     client: AsyncClient,
     llm: FakeLlm,
     world: SimpleNamespace,
     owner_engine: Engine,
     worker: AsyncEngine,
 ) -> None:
-    """Địa chỉ trên 100 ký tự: cắt trước khi che thì phần đầu không khớp mẫu email, lọt ra."""
     sender, recipient = f"tanaka.taro@{LONG_DOMAIN}", f"sato.hanako+{'x' * 90}@sample-b.example.jp"
-    assert len(sender) > ask_module.MAX_NAME_CHARS and len(recipient) > ask_module.MAX_NAME_CHARS
+    limit = ask_module.MAX_NAME_CHARS
+    assert len(sender) > limit and len(recipient) > limit
     with owner_engine.begin() as conn:
         put_mail(
             conn,
@@ -506,19 +495,17 @@ async def test_long_address_masked_before_cut(
     llm.responses = [plan(keywords=["見積"]), ANSWER]
     assert (await ask(client)).status_code == 200
     sent = llm.requests[1]["user"]
-    assert f"Subject: {'見積'}" in sent  # mail đúng là một nguồn đã gửi
-    for piece in ("tanaka.taro", "sato.hanako", "xxxx", "dept-", "-000", "sample-b"):
-        assert piece not in sent, piece
+    assert f"From: {sender[:limit]}\n" in sent and f"To: {recipient[:limit]}\n" in sent
+    assert sender not in sent and recipient not in sent
 
 
-async def test_long_name_cut_after_mask(
+async def test_long_name_cut_at_limit(
     client: AsyncClient,
     llm: FakeLlm,
     world: SimpleNamespace,
     owner_engine: Engine,
     worker: AsyncEngine,
 ) -> None:
-    """Giá trị không che được vẫn bị giới hạn độ dài sau khi che."""
     with owner_engine.begin() as conn:
         put_mail(
             conn,
@@ -537,209 +524,34 @@ async def test_long_name_cut_after_mask(
     assert len(line.removeprefix("From: ")) <= ask_module.MAX_NAME_CHARS * 2 + 3
 
 
-async def test_subject_sent_to_ner_capped_at_ingest_limit(
+async def test_only_the_retrieved_chunk_is_sent(
     client: AsyncClient,
-    ml: FakeMl,
     llm: FakeLlm,
     world: SimpleNamespace,
     owner_engine: Engine,
     worker: AsyncEngine,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """20 nguồn không được đưa 800.000 ký tự tới NER: subject che tối đa 10.000 ký tự."""
-    subject = "見積" + "件" * 11_998
-    with owner_engine.begin() as conn:
-        put_mail(conn, world.a, "cap@a.example.jp", [world.fa], subject=subject, body="本文", day=4)
-    await process_user(worker, world.a)
-    llm.responses = [plan(keywords=["見積"]), ANSWER]
-    assert (await ask(client)).status_code == 200
-    assert any("件" * 9_000 in t for t in ml.ner_inputs)  # mail dài đúng là nguồn đã che
-    assert max(len(t) for t in ml.ner_inputs) <= 10_000
-
-
-async def test_dictionary_only_from_own_mail(
-    api: AsyncEngine, owner_engine: Engine, world: SimpleNamespace
-) -> None:
-    with owner_engine.begin() as conn:
-        fb = conn.scalar(text("select id from mail_sources where user_id = :u"), {"u": world.b})
-        put_mail(
-            conn, world.b, "b-only@b.example.jp", [fb], subject="x", body="y",
-            frm="secret-person@b-only.example.jp", from_name="秘密 太郎",
-        )  # fmt: skip
-    from app.db.session import user_session
-
-    async with user_session(api, world.a) as s:
-        ents = await people.correspondents(s, world.a)
-    surfaces = {x for e in ents for x in e.surfaces}
-    assert "田中 健二" in surfaces
-    assert not any("秘密" in x or "b-only" in x for x in surfaces)
-
-
-# --- che theo cửa sổ rộng hơn đoạn (bước gửi đi của /ask) ---
-
-# Có 、。: chuỗi liền không ngắt thì quy tắc URL dài coi cả đoạn là một cụm URL.
-FILLER = ("あ" * 9 + "。") * 40
-LABELLED = [
-    pytest.param("契約番号 ", "CT-7731-0042", "\n", id="contract-ja"),
-    pytest.param("Contract No. ", "CT-7731-0042", "\n", id="contract-en"),
-    pytest.param("金額 ", "1,200,000", "（税別）\n", id="money-ja"),
-    pytest.param("Chi phí: ", "35.000.000", "\n", id="money-vi"),
-    pytest.param("Address: ", "12 Example Street", "\n", id="address"),
-    pytest.param("連絡先 ", "suzuki.ichiro@sample-b.example.jp", " まで\n", id="email"),
-    pytest.param(
-        "資料 ", "https://portal.sample-b.example.jp/alpha/spec.html", " 参照\n", id="url"
-    ),
-]
-
-
-def sent_bodies(user: str) -> str:
-    """Phần đoạn mail của mọi nguồn đã gửi, không có header (ngày trong header có chữ số)."""
-    sources = user.split("<sources>", 1)[1].split('<source id="')[1:]
-    return "\n".join(s.split("\n\n", 1)[1].split("</source>")[0].strip() for s in sources)
-
-
-def fragments(value: str) -> list[str]:
-    """Giá trị và mọi mảnh đầu, mảnh đuôi từ 4 ký tự: không mảnh nào được ra ngoài."""
-    heads = [value[:i] for i in range(4, len(value) + 1)]
-    return heads + [value[i:] for i in range(len(value) - 3)]
-
-
-async def add_body_mail(
-    owner_engine: Engine, worker: AsyncEngine, world: SimpleNamespace, body: str
-) -> tuple[int, str]:
+    """SOURCES đọc đúng đoạn [start, end) của body_clean, không đệm thêm."""
     with owner_engine.begin() as conn:
         m = put_mail(
-            conn, world.a, "cut@a.example.jp", [world.fa], subject="件名", body=body, day=5
+            conn,
+            world.a,
+            "chunk@a.example.jp",
+            [world.fa],
+            subject="件名",
+            body="前半の文章。中盤の文章。後半の文章。",
+            day=5,
         )
     await process_user(worker, world.a)
     with owner_engine.connect() as conn:
-        clean = conn.scalar(text("select body_clean from messages where id = :m"), {"m": m})
-    return m, clean
-
-
-def only_chunk(monkeypatch: pytest.MonkeyPatch, key: tuple[int, int, int]) -> None:
-    """Chỉ gửi một đoạn: nhiều đoạn trong một lần hỏi thì từ điển che giúp nhau, test vô nghĩa."""
+        body = conn.scalar(text("select body_clean from messages where id = :m"), {"m": m})
 
     async def retrieve(*_: object) -> list[tuple[int, int, int]]:
-        return [key]
+        return [(m, body.index("中盤"), body.index("後半"))]
 
     monkeypatch.setattr(ask_module, "_retrieve", retrieve)
-
-
-async def sent_chunk(client: AsyncClient, llm: FakeLlm) -> str:
-    llm.requests.clear()
     llm.responses = [plan(), ANSWER]
-    r = await ask(client)
-    assert r.status_code == 200, r.text
-    return sent_bodies(llm.requests[-1]["user"])
-
-
-@pytest.mark.parametrize(("label", "value", "after"), LABELLED)
-async def test_cut_anywhere_never_sends_value(
-    client: AsyncClient,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    owner_engine: Engine,
-    worker: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-    label: str,
-    value: str,
-    after: str,
-) -> None:
-    """Điểm cắt đi qua từng ký tự của nhãn + giá trị, xét cả đoạn trước lẫn đoạn sau điểm cắt."""
-    m, body = await add_body_mail(
-        owner_engine, worker, world, f"{FILLER}{label}{value}{after}{FILLER}"
-    )
-    start = body.index(label)
-    for cut in range(start, start + len(label) + len(value) + 1):
-        for key in ((m, 0, cut), (m, cut, len(body))):
-            only_chunk(monkeypatch, key)
-            sent = await sent_chunk(client, llm)
-            for piece in fragments(value):
-                assert piece not in sent, (cut, key[1], piece)
-
-
-async def test_url_longer_than_window_sends_no_tail(
-    client: AsyncClient,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    owner_engine: Engine,
-    worker: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Đầu URL nằm ngoài cửa sổ nên không mẫu nào khớp: phần đuôi trong đoạn cũng không được gửi."""
-    url = "https://portal.sample-b.example.jp/" + "alpha-beta/" * 60 + "token=SECRETTOKEN"
-    m, body = await add_body_mail(owner_engine, worker, world, f"{FILLER}{url} 以上{FILLER}")
-    cut = body.index("token=") - 11 * 3
-    only_chunk(monkeypatch, (m, cut, len(body)))
-    sent = await sent_chunk(client, llm)
-    assert "alpha-beta" not in sent and "SECRETTOKEN" not in sent
-    assert "以上" in sent  # phần sau URL vẫn được gửi
-
-
-async def test_unencoded_japanese_url_longer_than_window_sends_no_tail(
-    client: AsyncClient,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    owner_engine: Engine,
-    worker: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """URL giả chưa mã hóa, có chữ Nhật giữa đường dẫn, dài hơn 200 ký tự: điểm cắt nào cũng không
-    gửi phần đuôi. Quy tắc cũ dừng ở ký tự không ASCII đầu tiên nên để lọt phần sau chữ Nhật."""
-    url = (
-        "https://portal.sample-b.example.jp/"
-        + "alpha-beta/" * 25
-        + "資料/"
-        + "gamma-delta/" * 25
-        + "token=SECRETTOKEN"
-    )
-    assert len(url) > 200
-    m, body = await add_body_mail(owner_engine, worker, world, f"{FILLER}{url} 以上{FILLER}")
-    head = body.index("https")
-    for cut in range(head + 1, body.index(" 以上"), 7):
-        only_chunk(monkeypatch, (m, cut, len(body)))
-        sent = await sent_chunk(client, llm)
-        assert "gamma-delta" not in sent and "SECRETTOKEN" not in sent, cut
-        assert "以上" in sent
-
-
-async def test_real_chunks_contract_after_label(
-    client: AsyncClient,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    owner_engine: Engine,
-    worker: AsyncEngine,
-) -> None:
-    """Không can thiệp bước tìm: đoạn thứ hai của split_chunks bắt đầu ngay sau nhãn."""
-    label = "契約番号 "
-    start = embedding.CHUNK_CHARS - embedding.CHUNK_OVERLAP - len(label)
-    body = "あ" * start + label + "CT-7731-0042 の件" + "あ" * 300
-    with owner_engine.begin() as conn:
-        put_mail(conn, world.a, "chunks@a.example.jp", [world.fa], subject="見積", body=body, day=5)
-    await process_user(worker, world.a)
-    await embedding.embed_user(worker, FakeMl(), world.a)
-    assert any(c.start == start + len(label) for c in embedding.split_chunks(body))
-    sent = await sent_chunk(client, llm)
-    assert "] の件" in sent  # đoạn thứ hai đã gửi, số hợp đồng thành nhãn
-    for piece in fragments("CT-7731-0042"):
-        assert piece not in sent, piece
-
-
-async def test_window_labels_only_what_is_sent(
-    client: AsyncClient,
-    llm: FakeLlm,
-    world: SimpleNamespace,
-    owner_engine: Engine,
-    worker: AsyncEngine,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Giá trị chỉ nằm trong phần đệm của cửa sổ thì không có nhãn: mask_counts đúng phần đã gửi."""
-    body = f"連絡先 03-0000-0009 {'あ' * 150}本文の前半{'あ' * 150}本文の後半"
-    m, body = await add_body_mail(owner_engine, worker, world, body)
-    only_chunk(monkeypatch, (m, body.index("本文の前半"), body.index("本文の後半")))
-    llm.requests.clear()
-    llm.responses = [plan(), ANSWER]
-    data = (await ask(client)).json()
-    sent = sent_bodies(llm.requests[-1]["user"])
-    assert sent.startswith("本文の前半") and sent.endswith("あ")
-    assert "PHONE" not in data["mask_counts"]
+    assert (await ask(client)).status_code == 200
+    chunk = llm.requests[-1]["user"].split("\n\n", 1)[1].split("\n</source>")[0]
+    assert chunk == "中盤の文章。"

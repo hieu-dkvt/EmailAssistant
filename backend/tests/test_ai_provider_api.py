@@ -180,10 +180,11 @@ async def test_ask_uses_custom_provider_and_models(
     assert resp.status_code == 200
     assert llm.requests == []  # client môi trường không được dùng
     assert [q["model"] for q in gateway.requests] == list(MODELS.values())
-    # Che thông tin vẫn bắt buộc với provider ngoài.
+    # Text gốc đi tới gateway của người dùng (spec 28), không có mail của người khác.
     sent = gateway.sent_text()
-    for secret in ("田中", "tanaka@", "1,250,000", "CT-2026-0042", "03-0000-0001"):
-        assert secret not in sent
+    for value in ("田中", "tanaka@", "1,250,000"):
+        assert value in sent
+    assert "SECRET-OF-B" not in sent
     with owner_engine.connect() as conn:
         models = [r[0] for r in conn.execute(text("select model from ai_calls order by id"))]
     assert models == list(MODELS.values())

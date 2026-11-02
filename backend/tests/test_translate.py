@@ -13,7 +13,6 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.ai.ask import build_masker
 from app.ai.client import LlmError, LlmResponse, LlmUsage
 from app.ai.glossary import GlossaryMatch
 from app.ai.masking import cut_masked
@@ -21,6 +20,7 @@ from app.ai.prompts import TRANSLATE_PROMPT_VERSION, TRANSLATE_SYSTEM, Translati
 from app.ai.translate import (
     TranslateError,
     TranslationResult,
+    build_masker,
     check_translation,
     is_stale,
     mail_hash,

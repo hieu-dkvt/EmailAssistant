@@ -19,7 +19,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
-from app.ai.ask import build_masker
+from app.ai import people as people_mod
+from app.ai.ask import MAX_ADDRESSES
 from app.ai.client import CallLog, LlmClient, LlmError, call_task
 from app.ai.glossary import (
     GlossaryEntry,
@@ -30,6 +31,7 @@ from app.ai.glossary import (
 )
 from app.ai.masking import LABEL_RE, MAX_MASK_INPUT_CHARS, Masker, cut_masked
 from app.ai.models import TASK_TRANSLATE
+from app.ai.names import companies_in
 from app.ai.prompts import (
     TRANSLATE_PROMPT_VERSION,
     TRANSLATE_SYSTEM,
@@ -172,6 +174,39 @@ def _glossary_line(term: str, translations: Sequence[str], note: str, conflict: 
     if note:
         line += f" (ghi chú: {' '.join(note.split())})"
     return line
+
+
+def _participants(rows: Sequence[Any]) -> list[tuple[str | None, str | None]]:
+    out: list[tuple[str | None, str | None]] = []
+    for r in rows:
+        out.append((r.from_name, r.from_addr))
+        for group in (r.to_addrs or [], r.cc_addrs or []):
+            for a in group[:MAX_ADDRESSES]:
+                if isinstance(a, dict):
+                    out.append((a.get("name"), a.get("addr")))
+    return out
+
+
+def learn_rows(masker: Masker, rows: Sequence[Any]) -> None:
+    """Thêm vào từ điển che người gửi/nhận và tên công ty trong toàn văn (kể cả chữ ký đã cắt
+    khỏi phần gửi đi) của các mail. Hàng cần cột from_name, from_addr, to_addrs, cc_addrs,
+    full_text."""
+    masker.add_entities(people_mod.entities_of(_participants(rows)))
+    masker.add_entities(companies_in(r.full_text for r in rows if r.full_text))
+
+
+async def build_masker(
+    session: AsyncSession, ml: MlClient, user_id: int, rows: Sequence[Any]
+) -> Masker:
+    """Masker có từ điển dùng cho dịch mail.
+
+    session phải là user_session của engine role app_api: correspondents dựa vào RLS, không lọc
+    user_id trong câu truy vấn (role worker sẽ đọc lẫn người gửi/nhận của người khác).
+    """
+    masker = Masker(ml.ner)
+    masker.add_entities(await people_mod.correspondents(session, user_id))
+    learn_rows(masker, rows)
+    return masker
 
 
 async def _masked_glossary(masker: Masker, matches: Sequence[GlossaryMatch]) -> str:

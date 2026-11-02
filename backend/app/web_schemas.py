@@ -268,7 +268,6 @@ class AskResult(BaseModel):
     sources: list[AskSource]
     plan: AskPlan | None
     sent: list[AskSent]
-    mask_counts: dict[str, int]
     calls: list[AskCall]
 
 
@@ -285,7 +284,6 @@ class AiTaskInfo(BaseModel):
 class AiSettings(BaseModel):
     configured: bool  # đã nhập nhà cung cấp AI
     tasks: list[AiTaskInfo]
-    masking: list[str]
 
 
 class AiSettingsUpdate(StrictModel):
