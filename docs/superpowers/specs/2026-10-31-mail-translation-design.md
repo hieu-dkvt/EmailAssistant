@@ -80,6 +80,7 @@ Xử lý lỗi:
 | `ai_bad_output`, `ai_truncated`, `ai_refused`, `mask_unstable` | Lỗi theo mail: ghi `retry`, `attempts + 1`, chờ `attempts × 10` phút (tối đa 60). Sau `MAX_MAIL_ATTEMPTS` = 3 lần ghi `failed`, mail ở lại Inbox. Mail sau vẫn chạy. |
 | `translate_failed` (lỗi không lường trước trong Masker, thay ngược, kiểm tra, ghi kết quả; chỉ log tên lớp lỗi qua `describe()`) | Xử lý như lỗi theo mail, để một mail hỏng không chặn mọi mail sau. Mã `translate_failed` giống mã API. |
 | `ai_bad_request` | Có thể do một mail (quá dài) hoặc do sai tên model nên không được làm hỏng hàng loạt: ghi `retry`, `attempts + 1`, chờ `min(attempts × 10, 60)` phút, **không bao giờ thành `failed`**. Mail sau vẫn chạy. Giới hạn: một mail thật sự lỗi được thử lại mỗi giờ mãi. |
+| `ai_timeout` (spec 28, sửa sau review) | Gateway nhận request nhưng không trả lời xong trong 120 giây: xử lý như `ai_bad_request`, không bao giờ `failed`, mail sau vẫn chạy. Hết giờ kết nối vẫn là `ai_unavailable`. |
 | Lỗi hạ tầng: `OperationalError`, `InterfaceError`, hết kết nối pool, `OSError`, `httpx.HTTPError` | Không phải lỗi của mail: không tính lượt thử, không ghi gì. Job báo lỗi (đã bọc `sanitized`), lần quét sau làm lại. |
 | Mọi lỗi khác: `ml_unavailable`, chưa cấu hình AI, thiếu model, `ai_auth_failed`, `ai_unavailable` | Tạm thời: dừng người dùng này, không ghi gì, không tự đẩy job tiếp, lần quét sau thử lại. Không tăng số lần thử. |
 | Mail rỗng cả subject lẫn body (chỉ có file đính kèm) | Không gọi AI, ghi `done` với `error_code = nothing_to_translate`, vẫn chuyển folder. |

@@ -50,5 +50,5 @@ Chạy từ thư mục gốc `Email Assistant`.
 Đo lại 2026-11-02 sau khi gỡ NER (spec 28): i5-8500 (6 nhân, 3,0 GHz), 15,8 GB RAM, không GPU, Windows 11; cổng 8002 song song với ml-service của người dùng; `uv run --no-sync`, cache model đã có. Venv lúc đo vẫn còn spaCy cài sẵn (chưa `uv sync` được vì file bị khóa) nhưng không có code nào import; test `test_no_spacy_import` kiểm điều này.
 
 - Khởi động tới khi `/health` trả lời: khoảng 39 giây, trong đó nạp model khoảng 38 giây (`ml models loaded ms=37891`).
-- Bộ nhớ private của process: khoảng 3,2 GB sau khi nạp model, 3.250 MB sau lần `/embed` đầu (5 câu ngắn, lần đầu 4,3 giây, lần hai 0,3 giây). Trước spec 28 khoảng 4 GB (kèm NER); bớt khoảng 0,8 GB.
+- Bộ nhớ private của process: khoảng 3,2 GB sau khi nạp model, 3.250 MB sau lần `/embed` đầu (5 câu ngắn, lần đầu 4,3 giây, lần hai 0,3 giây). Số cũ khoảng 4 GB (kèm NER) đo trên máy khác (i5-1235U, 7,7 GB RAM, spec 17 mục 8): hai số đo trên hai máy, venv lúc đo mới vẫn còn spaCy cài sẵn, nên không so sánh được và chưa biết gỡ NER bớt bao nhiêu.
 - Tốc độ embed theo đoạn không đo lại. Số cũ (i5-1235U, 7,7 GB RAM, spec 17 mục 8): khoảng 0,3 đoạn/giây với đoạn 800 ký tự, 0,8 đoạn/giây với 300 ký tự (giới hạn bởi tính toán CPU; lượng tử hóa int8 động hay đổi số luồng không nhanh hơn rõ rệt); câu tìm kiếm khoảng 0,4 giây.

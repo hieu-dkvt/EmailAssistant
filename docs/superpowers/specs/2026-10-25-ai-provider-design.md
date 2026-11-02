@@ -108,7 +108,7 @@ Gọi kiểu `openai`:
 
 ## 13. Sửa sau review (2026-10-25, security-reviewer)
 
-- Giao thức `anthropic`: SDK mặc định theo redirect (header `x-api-key` và mail đã che có thể đi sang host khác, kể cả `127.0.0.1:8001`). Sửa: `http_client=DefaultAsyncHttpxClient(follow_redirects=False)`; có test.
+- Giao thức `anthropic`: SDK mặc định theo redirect (header `x-api-key` và mail đã che có thể đi sang host khác, kể cả `127.0.0.1:8001`). Sửa: `http_client=DefaultAsyncHttpxClient(follow_redirects=False)`; có test. (Spec 28 mục 12 đổi thành `httpx2.AsyncClient(trust_env=False, follow_redirects=False)`.)
 - Kiểm tra URL chỉ chặn IP viết thẳng: thêm chặn tên nội bộ, IP dạng số/hex, và phân giải DNS (mục 6). `/ai/provider/test` không còn dò được cổng nội bộ qua host kiểu này.
 - `OpenAiLlm` đọc body có giới hạn 4 MiB (`ai_bad_output` khi vượt); client bị thay thế hoặc xóa được đóng (`aclose`/`close`).
 - `api_key_hint` chỉ trả khi key dài từ 16 ký tự.

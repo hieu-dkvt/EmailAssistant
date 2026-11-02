@@ -11,10 +11,10 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 - Bỏ khóa mặc định: backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_*`. `LlmResolver.for_user` trả `None` khi chưa nhập nhà cung cấp: `/ask`, dịch tay → 503 `ai_not_configured`, job dịch dừng. Câu hỏi còn treo ở spec 26 (job dịch rơi về khóa môi trường) không còn.
 - Bỏ ba cấp Haiku/Sonnet/Opus và giá ước tính; mỗi tác vụ chỉ có tên model người dùng nhập. Migration 0019: xóa dòng `user_ai_settings` chỉ có cấp, `DROP COLUMN tier`, `model NOT NULL`, cấp `DELETE` cho `app_api`.
 - Bỏ che thông tin: xóa `Masker` (`masking.py`, `names.py`, `people.py`); `/ask` và dịch gửi text gốc; thêm `app/ai/text.py` (`cut_text`); `AskResult` bỏ `mask_counts`; `TRANSLATE_PROMPT_VERSION` lên 2. Dịch không còn gọi ml-service.
-- ml-service: xóa `POST /ner`, `app/ner.py`, spaCy, GiNZA. Đo lại trên máy dev (i5-8500, 15,8 GB RAM): khởi động khoảng 39 giây, bộ nhớ private khoảng 3,2 GB (trước khoảng 4 GB).
+- ml-service: xóa `POST /ner`, `app/ner.py`, spaCy, GiNZA. Đo lại trên máy dev (i5-8500, 15,8 GB RAM): khởi động khoảng 39 giây, bộ nhớ private khoảng 3,2 GB. Số cũ khoảng 4 GB (kèm NER) đo trên máy khác (i5-1235U, 7,7 GB RAM): không so sánh được, chưa biết gỡ NER bớt bao nhiêu.
 - Web: Cài đặt AI bỏ ba cấp và thẻ "Che thông tin", luôn hiện "Mail không che sẽ gửi tới <host>"; Hỏi đáp bỏ chữ "đã che".
 - Chạy thử đầu cuối trên `mailassist_test` với gateway giả `127.0.0.2`: request có text gốc, không có nhãn, `model` đúng tên đã nhập; đặt `ANTHROPIC_API_KEY` giả rồi xóa nhà cung cấp thì `/ask` và dịch trả 503 `ai_not_configured`, không có request nào ra ngoài (spec 28 mục 10).
-- Kiểm tra cuối: backend 835 test (trước đó 1.051: bớt phần test che đã xóa cùng code), ml-service 13 test, web 107 test, ESLint, Prettier, `tsc` và build web sạch.
+- Kiểm tra cuối (sau đợt sửa review): backend 900 test (đầu đợt 28 có 1.051, bớt phần test che đã xóa cùng code; trước đợt sửa review 835), ml-service 13 test, web 109 test, ruff, pyright, ESLint, Prettier, `tsc` và build web sạch.
 - Tài liệu: spec 28 (xong, mục 10 kết quả đo, mục 11 quyết định của người viết), dòng cập nhật ở đầu spec 17, 20, 21, 22, 24, 26, 27, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI" viết lại), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`.
 
 ### Quyết định của người dùng
@@ -27,18 +27,37 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 
 ### Đã xử lý sau review
 - Sửa spec 28 mục 5: giới hạn thân mail không phải `SOURCE_LIMITS` (hằng đó chỉ giữ From, To, Cc, Subject) mà là đoạn ≤ 800 ký tự (`/ask`) và 12.000 ký tự (dịch).
+- **Client AI đi theo proxy của môi trường** (Critical): có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail chưa che và API key đi qua proxy, kể cả địa chỉ LAN. Cả hai client đặt `trust_env=False`; giao thức `anthropic` đổi từ `DefaultAsyncHttpxClient` sang `httpx2.AsyncClient` vì lớp cũ vẫn gắn proxy. `httpx2` thành dependency chính của backend.
+- SDK `anthropic` vẫn đọc `ANTHROPIC_CUSTOM_HEADERS`: xóa sau khi dựng client, có test canh khi nâng SDK.
+- **Một mail gateway không dịch xong không còn chặn cả hàng dịch.** Mã lỗi mới `ai_timeout` (503) cho hết giờ đọc phản hồi, không thử lại ở cả hai giao thức; job ghi `retry` chờ tối đa 60 phút, không bao giờ `failed`, đi tiếp mail sau. Hết giờ kết nối vẫn là `ai_unavailable`. Web có chữ riêng cho `ai_timeout`.
+- Prompt dịch: glossary được ưu tiên hơn quy tắc tên riêng (giữ `TRANSLATE_PROMPT_VERSION` = 2 vì chưa phát hành).
+- `usage` sai dạng từ gateway thành `ai_bad_output`, không còn đưa chuỗi của gateway vào traceback; `/ai/provider/test` trả 500 `provider_test_failed` với lỗi lạ, chỉ log tên lớp.
+- `validate_base_url` bỏ dấu chấm cuối trước khi xét host, từ chối ký tự điều khiển và khoảng trắng. Tên model do gateway trả chỉ nhận chuỗi in được, tối đa 200 ký tự.
+- `load_provider`, `delete_provider`, `user_models` tự lọc `user_id`, không chỉ dựa vào RLS. `create_app` bỏ `app.state.llm`.
+- Trang Hỏi đáp không còn khẳng định gửi cho model nội bộ (ô URL nhận mọi địa chỉ).
+- Test: `/ask` log đi đủ hai lượt qua client thật, cô lập nhà cung cấp với một `LlmResolver`, biến môi trường đặt trước `create_app`.
+- Tài liệu: sửa quyền cột ở spec 28 (migration là `GRANT DELETE`), phạm vi `reject_link_local`, bỏ cách nói gỡ NER bớt 0,8 GB, thêm các giới hạn ở spec 28 mục 8, thêm chỉ dẫn đầu spec 27 và kế hoạch 27.
 
 ### Người dùng cần làm sau khi cập nhật code
-1. `uv run --directory backend alembic upgrade head` trên DB dev (migration 0019; chạy trước khi khởi động lại API).
+1. Dừng API và worker, rồi `uv run --directory backend alembic upgrade head` trên DB dev (migration 0019 xóa cột `tier`, code cũ đang chạy sẽ lỗi).
 2. Dừng ml-service đang chạy rồi `uv sync --directory ml-service` (gỡ spaCy, GiNZA; Windows khóa file nên không sync được khi service chạy).
-3. Khởi động lại API và worker.
-4. Ở Cài đặt AI nhập URL gateway, API key và tên model cho từng tác vụ. Dòng cấu hình chỉ có cấp bị xóa nên `/ask` và dịch báo thiếu tên model cho tới khi nhập; trang không tự báo tác vụ nào thiếu. Cần `$env:PMM_SECRET_KEY` để lưu key.
-5. Bản dịch cũ hiện nhãn "cũ" và có thể còn nhãn che; bấm "Dịch lại" nếu cần.
+3. `npm --prefix web install`, `npm --prefix web run build`: `web/dist` không theo git, web cũ gọi API đã đổi sẽ lỗi.
+4. Khởi động lại ml-service, API và worker.
+5. Ở Cài đặt AI nhập URL gateway, API key và tên model cho từng tác vụ. Dòng cấu hình chỉ có cấp bị xóa nên `/ask` và dịch báo thiếu tên model cho tới khi nhập; trang không tự báo tác vụ nào thiếu. Cần `$env:PMM_SECRET_KEY` để lưu key.
+6. Bản dịch cũ hiện nhãn "cũ" và có thể còn nhãn che; bấm "Dịch lại" nếu cần.
 
 ### Còn để sau
 - Gọi thử gateway thật, đo chất lượng và khả năng output có cấu trúc của model nội bộ.
 - Dòng `message_auto_runs` đã `failed` với mã `mask_unstable` giữ nguyên `failed` (dịch tay hoặc "Thử lại").
 - Cảnh báo địa chỉ công cộng theo URL đã lưu, chưa theo URL đang gõ.
+- **Chờ người dùng:** đổi URL mà để trống key thì key đã lưu đi theo host mới (`ai_routes.py`, có từ spec 24). Có buộc nhập lại key khi đổi host không?
+- Chặn metadata cloud ngoài link-local (`fd00:ec2::254`, `100.100.100.200`): chờ quyết định nơi đặt server.
+- Gateway `https` với CA riêng: `trust_env=False` tắt `SSL_CERT_FILE`, giao thức `openai` chỉ tin `certifi`. Chưa có cấu hình CA riêng (spec 28 mục 8).
+- Kiểm lại link-local mỗi lần `for_user`.
+- Web: cảnh báo công cộng khi đang gõ URL, báo tác vụ thiếu tên model ở Cài đặt AI, test xóa tên model.
+- `MessageTranslation.tsx` map `ml_unavailable` không còn dùng cho dịch.
+- Lỗi `/ask`: ml-service tắt thì 503 đến sau một lượt gọi AI phân tích.
+- Dọn nhỏ: `MAX_RETRIES` trùng ở `client.py` và `provider.py`, `except` ở `ai_routes.py` (dịch), comment test, test giới hạn To/Cc.
 - Làm spec 27 (truy xuất hỏi đáp), rồi phần còn lại của giai đoạn 6.
 - Chờ người dùng: có nới "mỗi bản mail chỉ gọi AI một lần" không.
 

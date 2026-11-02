@@ -1,5 +1,7 @@
 # Spec: Cải thiện truy xuất cho hỏi đáp trên mail
 
+> **Cập nhật 2026-11-02:** spec 28 đã xóa `Masker`, `learn_rows`, `FakeMl.ner_names`, `people`: mọi yêu cầu che trong tài liệu này không còn áp dụng.
+
 Ngày: 2026-11-01 · Thành phần: `backend/app/ai/ask.py`, `backend/app/ai/prompts.py`, `backend/app/search/keyword.py`, `backend/app/search/semantic.py`, `backend/app/ml_client.py`, `backend/app/config.py`, `backend/app/web_schemas.py`, `backend/app/api/ai_routes.py`, `backend/app/db/models.py`, `ml-service/app/` (`reranker.py`, `main.py`, `config.py`, `run.py`), `web/src/pages/AskPage.tsx`, `eval/retrieval_eval.py`, `eval/vector_bench.py`, migration 0020 · Trạng thái: đang làm (đã duyệt spec và kế hoạch, chưa có code)
 
 ## 1. Mục đích
@@ -228,7 +230,7 @@ Chạy trên DB test với profile giả, không chạy trên `mailassist`.
 
 `eval/vector_bench.py` (mới, chỉ dùng vector ngẫu nhiên, không có nội dung mail): sinh khoảng 100.000 đoạn trên DB test, đo `EXPLAIN ANALYZE` và thời gian của đường HNSW, đường quét chính xác ở các ngưỡng 5.000, 10.000, 20.000 đoạn, và recall với `ef_construction` 64 và 128. Vector ngẫu nhiên khó hơn dữ liệu thật với HNSW, nên số recall chỉ để so sánh tương đối.
 
-**Tiêu chí đề xuất bật reranker** (người dùng quyết định): MRR tăng, hit@5 không giảm, rerank 40 đoạn không quá 10 giây trên máy dev. Báo cáo kèm bộ nhớ ml-service khi có reranker (máy dev 7,7 GB, ml-service đang chiếm khoảng 4 GB).
+**Tiêu chí đề xuất bật reranker** (người dùng quyết định): MRR tăng, hit@5 không giảm, rerank 40 đoạn không quá 10 giây trên máy dev. Báo cáo kèm bộ nhớ ml-service khi có reranker (máy dev hiện tại 15,8 GB RAM, ml-service khoảng 3,2 GB bộ nhớ private sau khi nạp model, đo 2026-11-02 ở spec 28 mục 10).
 
 Giới hạn của eval: 28 câu trên mail giả, mỗi câu chiếm khoảng 0,036 điểm hit@1, nên chỉ mang tính định hướng. Chất lượng câu trả lời và phần ngữ cảnh người dùng tự chấm trên mail thật (30 câu của spec 21). Claude Code không đọc mail thật.
 
