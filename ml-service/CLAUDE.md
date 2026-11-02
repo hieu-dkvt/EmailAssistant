@@ -36,7 +36,7 @@ tests/           # test_api.py (model giả; /ner trả 404; app không import s
 - Chỉ lắng nghe `127.0.0.1`, chỉ nhận Host trong `ML_ALLOWED_HOSTS`; không có CORS. Telemetry OpenTelemetry bật sẵn của FastAPI phải tắt (`create_app` truyền `telemetry={...False}`).
 - Lỗi khi suy luận bắt ngay trong endpoint (`failed()`), không để lan tới handler `Exception`: uvicorn sẽ log traceback, mà thông điệp lỗi của tokenizer có thể chứa text.
 - Model đã có trong cache thì `app.run` tự đặt `HF_HUB_OFFLINE=1`. Khi cấu hình `ML_RERANK_MODEL`, chỉ đặt offline khi **cả hai** model (embedding và rerank) đã có trong cache; nếu không, lần đầu bật reranker sẽ không tải được model (`can_go_offline` trong `app/run.py`).
-- Reranker mặc định tắt. Bật: `$env:ML_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"` (khoảng 1,1 GB, tải ở lần chạy đầu), tùy chọn `ML_RERANK_MAX_LENGTH` (mặc định 512). Chưa đo thời gian và bộ nhớ với model thật (spec 27 mục 12). `/rerank` dùng chung quy tắc không log text và lỗi qua `failed()` như `/embed`.
+- Reranker mặc định tắt. Bật: `$env:ML_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"` (cache 2,2 GB, tải ở lần chạy đầu), tùy chọn `ML_RERANK_MAX_LENGTH` (mặc định 512). Đo 2026-11-03 trên CPU 6 nhân: khoảng 1,1 giây mỗi đoạn 800 ký tự (40 đoạn 45 giây), bộ nhớ private 5,8 GB khi nạp cả bge-m3 (spec 27 mục 10). `/rerank` dùng chung quy tắc không log text và lỗi qua `failed()` như `/embed`.
 
 ## Lệnh
 
@@ -55,4 +55,4 @@ Chạy từ thư mục gốc `Email Assistant`.
 
 - Khởi động tới khi `/health` trả lời: khoảng 39 giây, trong đó nạp model khoảng 38 giây (`ml models loaded ms=37891`).
 - Bộ nhớ private của process: khoảng 3,2 GB sau khi nạp model, 3.250 MB sau lần `/embed` đầu (5 câu ngắn, lần đầu 4,3 giây, lần hai 0,3 giây). Số cũ khoảng 4 GB (kèm NER) đo trên máy khác (i5-1235U, 7,7 GB RAM, spec 17 mục 8): hai số đo trên hai máy, venv lúc đo mới vẫn còn spaCy cài sẵn, nên không so sánh được và chưa biết gỡ NER bớt bao nhiêu.
-- Tốc độ embed theo đoạn không đo lại. Số cũ (i5-1235U, 7,7 GB RAM, spec 17 mục 8): khoảng 0,3 đoạn/giây với đoạn 800 ký tự, 0,8 đoạn/giây với 300 ký tự (giới hạn bởi tính toán CPU; lượng tử hóa int8 động hay đổi số luồng không nhanh hơn rõ rệt); câu tìm kiếm khoảng 0,4 giây.
+- Tốc độ embed: 2026-11-03 trên máy dev hiện tại (6 nhân), profile giả 1.050 đoạn ngắn mất 463 giây (khoảng 2,3 đoạn/giây, lô 16 đoạn khoảng 8 giây); chưa đo lại với đoạn 800 ký tự. Số cũ (i5-1235U, 7,7 GB RAM, spec 17 mục 8): khoảng 0,3 đoạn/giây với đoạn 800 ký tự, 0,8 đoạn/giây với 300 ký tự (giới hạn bởi tính toán CPU; lượng tử hóa int8 động hay đổi số luồng không nhanh hơn rõ rệt); câu tìm kiếm khoảng 0,4 giây.

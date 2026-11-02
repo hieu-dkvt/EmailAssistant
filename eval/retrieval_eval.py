@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import ml_client
 from app.ai.ask import _rerank_texts
 from app.ai.context import ChunkKey
 from app.config import ml_service_url
@@ -92,12 +93,17 @@ def read_mbox(path: Path) -> list[Message]:
 def load_profile(owner_url: str) -> int:
     owner = create_engine(owner_url)
     rows: dict[str, dict[str, object]] = {}
+    folders: dict[str, list[str]] = {}  # folder_path → Message-ID theo thứ tự trong mbox
     for path in sorted(PROFILE.rglob("*")):
         if not path.is_file() or path.suffix or path.stat().st_size == 0:
             continue
+        in_folder = folders.setdefault(path.relative_to(PROFILE).as_posix(), [])
         for msg in read_mbox(path):
             mid = normalize_message_id(msg["Message-ID"])
-            if not mid or mid in rows:
+            if not mid:
+                continue
+            in_folder.append(mid)
+            if mid in rows:
                 continue
             name, addr = parseaddr(msg["From"])
             refs = [normalize_message_id(r) for r in (msg["References"] or "").split()]
@@ -119,7 +125,8 @@ def load_profile(owner_url: str) -> int:
         conn.execute(text("DELETE FROM users WHERE email = :e"), {"e": EMAIL})
         user = conn.scalar(
             text(
-                "INSERT INTO users (email, display_name, role) VALUES (:e, 'Eval', 'pm') RETURNING id"
+                "INSERT INTO users (email, display_name, role) "
+                "VALUES (:e, 'Eval', 'pm') RETURNING id"
             ),
             {"e": EMAIL},
         )
@@ -132,6 +139,35 @@ def load_profile(owner_url: str) -> int:
             ),
             [{"u": user, **r} for r in rows.values()],
         )
+        # Folder như collector gửi lên (một mail_sources mỗi mbox, message_ownership mỗi bản):
+        # cần cho phép đo recall có lọc folder.
+        ids = {
+            r.message_id: r.id
+            for r in conn.execute(
+                text("SELECT message_id, id FROM messages WHERE user_id = :u"), {"u": user}
+            )
+        }
+        for folder, mids in folders.items():
+            if not mids:
+                continue
+            source = conn.scalar(
+                text(
+                    "INSERT INTO mail_sources (user_id, kind, account, folder_path) "
+                    "VALUES (:u, :k, 'eval', :p) RETURNING id"
+                ),
+                {
+                    "u": user,
+                    "k": "imap_cache" if folder.startswith("ImapMail/") else "local",
+                    "p": folder,
+                },
+            )
+            conn.execute(
+                text(
+                    "INSERT INTO message_ownership (message_id, source_id, user_id, mbox_offset) "
+                    "VALUES (:m, :s, :u, :o) ON CONFLICT DO NOTHING"
+                ),
+                [{"m": ids[mid], "s": source, "u": user, "o": i} for i, mid in enumerate(mids)],
+            )
     owner.dispose()
     print(f"Đã nạp {len(rows)} mail giả cho người dùng id={user}", file=sys.stderr)
     return int(user)
@@ -175,6 +211,9 @@ def thread_keys(ranked_mids: list[int], key_of: dict[int, str]) -> list[str]:
 
 
 RERANK_TOP = 40  # RERANK_CANDIDATES của /ask
+# Eval đo cả chất lượng khi rerank chậm hơn timeout 30 giây của /ask (CPU: khoảng 45 giây cho 40
+# đoạn); /ask vẫn dùng 30 giây và rơi về thứ tự RRF.
+ml_client.RERANK_TIMEOUT_SECONDS = 600.0
 
 
 def rerank_enabled_in_ml() -> str | None:
@@ -204,7 +243,7 @@ async def rerank_ranking(
     keys: list[ChunkKey] = []
     for m in head:
         h = best.get(m)
-        keys.append((m, h.start_pos, h.end_pos) if h else (m, 0, CHUNK_CHARS))
+        keys.append((m, h.start, h.end) if h else (m, 0, CHUNK_CHARS))
     texts = await _rerank_texts(s, keys)
     started = time.monotonic()
     scores = await ml.rerank(question, texts)
@@ -307,7 +346,8 @@ async def evaluate(user: int, api_url: str) -> tuple[str, dict[str, dict[str, fl
     for m in methods:
         sc = scores[m]
         lines.append(
-            f"| {m} | {sc['hit@1']:.2f} | {sc['hit@5']:.2f} | {sc['hit@10']:.2f} | {sc['mrr']:.2f} |"
+            f"| {m} | {sc['hit@1']:.2f} | {sc['hit@5']:.2f} | {sc['hit@10']:.2f} "
+            f"| {sc['mrr']:.2f} |"
         )
     if rerank_times:
         avg = sum(rerank_times) / len(rerank_times)

@@ -2,7 +2,7 @@
 
 > **Cập nhật 2026-11-02:** spec 28 đã xóa `Masker`, `learn_rows`, `FakeMl.ner_names`, `people`: mọi yêu cầu che trong tài liệu này không còn áp dụng.
 
-Ngày: 2026-11-01 · Thành phần: `backend/app/ai/ask.py`, `backend/app/ai/prompts.py`, `backend/app/search/keyword.py`, `backend/app/search/semantic.py`, `backend/app/ml_client.py`, `backend/app/config.py`, `backend/app/web_schemas.py`, `backend/app/api/ai_routes.py`, `backend/app/db/models.py`, `ml-service/app/` (`reranker.py`, `main.py`, `config.py`, `run.py`), `web/src/pages/AskPage.tsx`, `eval/retrieval_eval.py`, `eval/vector_bench.py`, migration 0020 · Trạng thái: xong (2026-11-02; reranker làm sẵn, mặc định tắt, chưa đo với model thật; recall trên embedding thật chưa đo; sửa sau review: mục 15)
+Ngày: 2026-11-01 · Thành phần: `backend/app/ai/ask.py`, `backend/app/ai/prompts.py`, `backend/app/search/keyword.py`, `backend/app/search/semantic.py`, `backend/app/ml_client.py`, `backend/app/config.py`, `backend/app/web_schemas.py`, `backend/app/api/ai_routes.py`, `backend/app/db/models.py`, `ml-service/app/` (`reranker.py`, `main.py`, `config.py`, `run.py`), `web/src/pages/AskPage.tsx`, `eval/retrieval_eval.py`, `eval/vector_bench.py`, migration 0020 · Trạng thái: xong (2026-11-02; reranker làm sẵn, mặc định tắt, đo 2026-11-03: chất lượng tăng nhưng quá chậm trên CPU, mục 10; sửa sau review: mục 15)
 
 ## 1. Mục đích
 
@@ -180,7 +180,7 @@ Người dùng chọn (2026-11-01): làm sẵn, mặc định tắt.
 ### ml-service
 
 - `app/reranker.py`: giao thức `Reranker` và `CrossEncoderReranker` (`sentence_transformers.CrossEncoder`), khóa một lần suy luận riêng, dùng `torch_threads`, `batch_size` như embedder.
-- `ML_RERANK_MODEL`: mặc định rỗng (không nạp). Giá trị dùng thử: `BAAI/bge-reranker-v2-m3`, khoảng 1,1 GB. `ML_RERANK_MAX_LENGTH`: mặc định 512.
+- `ML_RERANK_MODEL`: mặc định rỗng (không nạp). Giá trị dùng thử: `BAAI/bge-reranker-v2-m3` (cache Hugging Face chiếm 2,2 GB sau khi tải, đo 2026-11-03). `ML_RERANK_MAX_LENGTH`: mặc định 512.
 - `POST /rerank` `{query, texts}`: `query` 1–2.000 ký tự, 1–64 text, mỗi text ≤ 10.000 ký tự → `{model, scores}`, `scores` cùng thứ tự với `texts`. Chưa nạp model → 503 `{"detail": "rerank_disabled"}`.
 - `/health` có thêm `rerank_model` (null khi tắt).
 - Cùng quy tắc với `/embed`: không log text, lỗi suy luận đi qua `failed()`, lỗi 422 không trả lại text.
@@ -234,6 +234,21 @@ Chạy trên DB test với profile giả, không chạy trên `mailassist`.
 
 **Tiêu chí đề xuất bật reranker** (người dùng quyết định): MRR tăng, hit@5 không giảm, rerank 40 đoạn không quá 10 giây trên máy dev. Báo cáo kèm thời gian rerank và bộ nhớ ml-service khi có reranker (máy dev hiện tại 15,8 GB RAM, ml-service khoảng 3,2 GB bộ nhớ private sau khi nạp model, đo 2026-11-02 ở spec 28 mục 10).
 
+**Kết quả đo 2026-11-03** (`eval/results-sample.md`; DB test, profile giả 1.050 mail, bge-m3 thật, `BAAI/bge-reranker-v2-m3`, CPU 6 nhân, ml-service không chạy việc khác):
+
+| Cách | hit@1 | hit@5 | hit@10 | MRR |
+|---|---|---|---|---|
+| `vector` | 0,89 | 0,96 | 0,96 | 0,92 |
+| `hybrid_or` | 0,64 | 0,79 | 0,93 | 0,71 |
+| `hybrid_or_rerank` | 0,82 | 0,89 | 0,93 | 0,86 |
+
+- Chất lượng: rerank đạt hai tiêu chí đầu (MRR 0,71 → 0,86, hit@5 0,79 → 0,89).
+- Tốc độ: **không đạt**. Rerank 40 đoạn trung bình 17,2 giây trong eval; đo riêng với text giả dài 800 ký tự: 40 đoạn 45 giây, 20 đoạn 22 giây, 10 đoạn 11 giây, 40 đoạn 400 ký tự 21 giây (khoảng 1,1 giây mỗi đoạn dài). Lần gọi đầu trong eval mất 32 giây, quá `RERANK_TIMEOUT_SECONDS` = 30 giây: bật trên máy này thì `/ask` chờ tới 30 giây rồi nhiều câu vẫn rơi về thứ tự RRF.
+- Bộ nhớ ml-service khi nạp cả hai model: 5,8 GB private (chỉ bge-m3: khoảng 3,2 GB).
+- Đề xuất của người viết spec: **giữ tắt** trên máy CPU này; cân nhắc lại khi có GPU. Người dùng quyết định.
+- Ghi nhận ngoài phạm vi: trên bộ câu này `vector` một mình (MRR 0,92) hơn `hybrid_or` (0,71) vì nhánh từ khóa OR với câu hỏi tiếng Việt và mail tiếng Nhật thêm nhiễu. `/ask` không dùng đúng `hybrid_or` của eval (nhánh từ khóa lấy từ khóa do AI phân tích, có nhiều câu truy vấn), nên chưa kết luận được cho `/ask`.
+- Eval đặt `ml_client.RERANK_TIMEOUT_SECONDS = 600` cho riêng nó để đo được chất lượng khi rerank chậm; `/ask` vẫn dùng 30 giây.
+
 Giới hạn của eval: 28 câu trên mail giả, mỗi câu chiếm khoảng 0,036 điểm hit@1, nên chỉ mang tính định hướng. Chất lượng câu trả lời và phần ngữ cảnh người dùng tự chấm trên mail thật (30 câu của spec 21). Claude Code không đọc mail thật.
 
 ## 11. Kiểm thử
@@ -261,8 +276,8 @@ Test không gọi AI thật, dùng `FakeMl`, `FakeLlm`. Trước khi commit ch�
 - Reranker chạy CPU, cùng tranh tài nguyên với worker embed. Timeout thì quay về RRF.
 - Khi chỉ có bộ lọc người gửi, `scope_is_small` đếm tới ngưỡng + 1 đoạn trên toàn bộ mail của người dùng (lọc `ILIKE` không có index), tốn hơn các bộ lọc khác. Chưa đo riêng.
 - Chi phí câu đếm phạm vi và câu quét chính xác với bộ lọc thật (dự án, folder, người gửi, ngày, RLS) trên hộp mail lớn chưa đo bằng `EXPLAIN ANALYZE`; có thể tỷ lệ với số đoạn của người dùng chứ không với kích thước phạm vi. Mỗi lượt tìm chạy câu đếm một lần và câu quét tối đa 4 lần (vector), tìm lại thì thêm một lượt nữa. Bench ở mục 13 chỉ đo phạm vi theo khoảng id.
-- Recall của HNSW trên embedding thật chưa đo: `eval/retrieval_eval.py` đã có phần đo nhưng DB test chưa có embedding bge-m3 của profile giả (embed cả profile trên CPU mất hàng giờ), và số recall ở mục 13 đo trên vector tổng hợp có cụm.
-- Chưa đo rerank với model thật: model `bge-reranker-v2-m3` (1,1 GB) chưa tải về, người dùng quyết định.
+- Recall của HNSW trên embedding bge-m3 thật chỉ mới đo trên profile giả 1.050 mail (recall@120 = 1,000 cả khi không lọc lẫn lọc theo folder lớn nhất, 2026-11-03): tập nhỏ nên chưa nói được gì về hộp mail lớn.
+- Reranker trên CPU quá chậm so với tiêu chí (mục 10): khoảng 1,1 giây mỗi đoạn dài, 40 đoạn có thể vượt timeout 30 giây.
 - `/ask` luôn mở hai `user_session` đọc (phiên tìm và phiên đọc nguồn), kể cả khi tắt rerank.
 
 ## 13. Giá trị và kết quả đo
@@ -300,7 +315,7 @@ Recall@120 của HNSW (`m = 16`, `iterative_scan = relaxed_order`, 20 truy vấn
 | 128 | 120 | 0,976 | 3,3 | 149 |
 | 128 | 200 | 0,992 | 5,3 | 149 |
 
-Đọc số: recall tăng theo `ef_search` (đối chứng cho thấy GUC có hiệu lực). `ef_construction = 128` hơn 64 khoảng 0,5 đến 2 điểm phần trăm recall, đổi lại build lâu hơn khoảng 2,3 lần (trên dữ liệu đo). Chênh lệch nhỏ và đo trên vector tổng hợp, chưa phải embedding thật: 128 vẫn là lựa chọn của người viết spec, số liệu này chỉ cho thấy không có hại ngoài thời gian build. Lần đo đầu với vector đều ngẫu nhiên (không cụm) cho recall khoảng 0,13 ở cả hai mức: HNSW suy biến khi không có cấu trúc, không dùng để chọn tham số. Đo lại trên embedding thật khi có eval (mục 10). Chưa có kết quả đo của rerank (chưa đo, xem mục 12). `eval/vector_bench.py` có `EXPLAIN ANALYZE` của đường quét chính xác, không có của đường HNSW.
+Đọc số: recall tăng theo `ef_search` (đối chứng cho thấy GUC có hiệu lực). `ef_construction = 128` hơn 64 khoảng 0,5 đến 2 điểm phần trăm recall, đổi lại build lâu hơn khoảng 2,3 lần (trên dữ liệu đo). Chênh lệch nhỏ và đo trên vector tổng hợp, chưa phải embedding thật: 128 vẫn là lựa chọn của người viết spec, số liệu này chỉ cho thấy không có hại ngoài thời gian build. Lần đo đầu với vector đều ngẫu nhiên (không cụm) cho recall khoảng 0,13 ở cả hai mức: HNSW suy biến khi không có cấu trúc, không dùng để chọn tham số. Trên embedding bge-m3 thật của profile giả (1.050 mail, 2026-11-03), recall@120 = 1,000 cả không lọc và lọc theo folder; tập nhỏ, chưa thay được số đo trên hộp mail lớn. Kết quả đo rerank: mục 10. `eval/vector_bench.py` có `EXPLAIN ANALYZE` của đường quét chính xác, không có của đường HNSW.
 
 ## 14. Phụ thuộc và thứ tự làm
 
@@ -320,5 +335,6 @@ Làm theo từng task, mỗi task có review riêng:
 - Security review (`security-reviewer`, 2026-11-02): 0 Critical, 0 Important, 3 Minor, xử lý như dưới. M1: mail trước chọn theo thread, không theo bộ lọc dự án/folder/ngày, ghi là chủ ý ở mục 6 và 9. M2: `_ANSWER_TAG` và `_TRANSLATE_TAG` (`app/ai/prompts.py`) nay dùng lớp khoảng cách `[\s\u200b-\u200f\u2060\ufeff]{0,32}` (trước là `\s{0,8}`) và coi `＜` (U+FF1C) như `<`; vẫn có giới hạn lượng từ, thêm test `<\u200b/source>`, `＜/source＞`, `<` + 20 khoảng trắng, chuỗi dài (tuyến tính) và các ca tương ứng cho tag dịch. M3: bỏ các dòng `learn_rows`/`Masker` của mail trước ở mục 9 và mục "Che thông tin" ở mục 11.
 - Final review (2026-11-02, 0 Critical, 1 Important, 8 Minor): chi phí đếm và quét chính xác với bộ lọc thật chưa đo, mục 13 bỏ "còn dư nhiều lần", mục 12 ghi giới hạn; mục 4 và CHANGELOG bỏ nhận định thread liên quan được lợi; sửa tên `_retrieve` thành `_candidates`; mục 10 mô tả đúng eval (40 mail đầu); bỏ yêu cầu NER/`Masker` còn sót ở mục 6, 9, 11; spec 17 mục 3 thêm `/rerank`.
 - Mã: `embed_text(subject, piece)` trong `app/embedding.py` dùng chung cho `embed_input` và `_rerank_texts` (text gửi embed không đổi); test: đếm phạm vi một lần mỗi lượt `_candidates`, log rerank không chứa text đã gửi `/rerank` (nhánh thành công và lỗi). Chưa làm: bỏ kiểm `isfinite` thừa.
+- Sửa khi chạy eval lần đầu (2026-11-03): `rerank_ranking` dùng `h.start_pos`/`h.end_pos` không có trong `ChunkHit` (đúng là `start`/`end`; pyright mặc định không kiểm `eval/`); `load_profile` không tạo `mail_sources` và `message_ownership` nên phép đo recall có lọc folder bị bỏ qua, nay mỗi mbox là một `mail_sources` như collector gửi; timeout rerank riêng cho eval (mục 10).
 - Sửa thêm (2026-11-03): phép ghép đầu/đuôi tách khỏi `ask()` thành `_rerank_head` (không đổi hành vi) để có test phần đuôi ngoài 40 ứng viên giữ thứ tự RRF.
 - Dọn tài liệu: bỏ `full_text` và che 7 giá trị khỏi mục 6, ghi giới hạn header thật; bỏ chữ "tạm" của ngưỡng quét; bỏ hằng `NL` thừa trong test; sửa chữ "ngẫu nhiên" thành "tổng hợp có cụm" ở `eval/vector_bench.py`.

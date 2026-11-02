@@ -2,6 +2,24 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-03: đo reranker và eval trên embedding thật (spec 27)
+
+### Đã làm
+- Tải `BAAI/bge-reranker-v2-m3` (người dùng cho phép; cache 2,2 GB, không phải 1,1 GB như đã ghi), embed profile giả 1.050 mail trên DB test bằng bge-m3 thật (khoảng 8 phút, nhanh hơn ước lượng "hàng giờ"), chạy `eval/retrieval_eval.py` lần đầu. Kết quả ở `eval/results-sample.md` và spec 27 mục 10.
+- Rerank: MRR 0,71 → 0,86, hit@5 0,79 → 0,89 so với `hybrid_or`; nhưng 40 đoạn trung bình 17,2 giây (đoạn dài 800 ký tự: 45 giây), không đạt tiêu chí ≤ 10 giây và có thể vượt timeout 30 giây của `/ask`. ml-service dùng 5,8 GB khi nạp cả hai model. Reranker **vẫn tắt**.
+- Recall@120 của HNSW trên embedding thật: 1,000 không lọc và lọc theo folder (tập nhỏ).
+- Sửa `eval/retrieval_eval.py`: tên trường `ChunkHit` sai ở bước rerank, nạp profile kèm `mail_sources` và `message_ownership` (cần cho đo có lọc folder), timeout rerank 600 giây riêng cho eval, hai dòng quá dài.
+- Test phần sau 40 ứng viên giữ thứ tự RRF khi rerank (`_rerank_head`), cùng ngày, commit `24a4414`.
+- DB dev `mailassist`, `mailassist_proj` đã lên migration 0020.
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Đề xuất giữ reranker tắt trên máy CPU hiện tại; cân nhắc lại khi có GPU.
+
+### Còn để sau
+- **Chờ người dùng:** bật reranker hay không (có thể bớt số đoạn, ví dụ 10 đoạn khoảng 11 giây, nhưng chưa đo chất lượng với số đó).
+- Eval cho thấy `vector` một mình (MRR 0,92) hơn `hybrid_or` (0,71) trên bộ câu giả; `/ask` dùng nhánh từ khóa khác eval nên chưa kết luận, cần đo riêng nếu muốn đổi cách gộp.
+- Recall và chi phí quét trên hộp mail lớn vẫn chưa đo.
+
 ## 2026-11-02: cải thiện truy xuất cho hỏi đáp (spec 27, xong)
 
 ### Đã làm
