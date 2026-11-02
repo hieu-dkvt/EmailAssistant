@@ -313,7 +313,7 @@ def _anthropic_llm(config: ProviderConfig) -> LlmClient:
             timeout=TIMEOUT_SECONDS,
             max_retries=MAX_RETRIES,
             open_telemetry=False,
-            # SDK mặc định theo redirect: header x-api-key và mail đã che sẽ bị gửi tới host khác.
+            # SDK mặc định theo redirect: header x-api-key và mail gốc sẽ bị gửi tới host khác.
             http_client=DefaultAsyncHttpxClient(follow_redirects=False, timeout=TIMEOUT_SECONDS),
         )
     )

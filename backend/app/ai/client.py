@@ -78,7 +78,7 @@ class LlmClient(Protocol):
 
 
 def _quiet_sdk_logs() -> None:
-    # ANTHROPIC_LOG=debug làm SDK ghi cả request (text đã che) vào log: giữ mức WARNING.
+    # ANTHROPIC_LOG=debug làm SDK ghi cả request (chứa text mail gốc) vào log: giữ mức WARNING.
     for name in ("anthropic", "httpx2", "httpcore2", "httpx", "httpcore"):
         logging.getLogger(name).setLevel(logging.WARNING)
 

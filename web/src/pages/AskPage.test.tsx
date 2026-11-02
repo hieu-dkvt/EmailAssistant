@@ -44,10 +44,9 @@ const RESULT: AskResult = {
     filters_relaxed: false,
   },
   sent: [
-    { task: "question_analysis", content: "Today: 2026-10-20\nQuestion: [PERSON_1]さんの見積" },
-    { task: "answer", content: "<question>[PERSON_1]さんの見積</question>" },
+    { task: "question_analysis", content: "Today: 2026-10-20\nQuestion: 田中さんの見積" },
+    { task: "answer", content: "<question>田中さんの見積</question>" },
   ],
-  mask_counts: { PERSON: 1, MONEY: 2 },
   calls: [
     {
       task: "question_analysis",
@@ -115,8 +114,23 @@ describe("AskPage", () => {
     expect(posts[0].headers.get(CSRF_HEADER)).toBe("1");
     expect(await posts[0].json()).toEqual({ question: "Khách gửi báo giá bao nhiêu?" });
     expect(screen.getByText("được trích")).toBeInTheDocument();
-    expect(screen.getByText(/Đã che: 1 tên người, 2 số tiền/)).toBeInTheDocument();
-    expect(screen.getByText(/Question: \[PERSON_1\]さんの見積/)).toBeInTheDocument();
+    expect(screen.getByText(/Question: 田中さんの見積/)).toBeInTheDocument();
+  });
+
+  it("AskPage không còn chữ đã che", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) =>
+        request.method === "POST" ? json(200, RESULT) : json(200, []),
+      ),
+    );
+    renderAt(<AskPage />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Câu hỏi"), "x");
+    await user.click(screen.getByRole("button", { name: "Hỏi" }));
+    expect(await screen.findByText("Mail nguồn (2)")).toBeInTheDocument();
+    expect(screen.getByText("Nội dung đã gửi cho AI")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/đã che|che thông tin|\bche\b|\[PERSON_1\]/i);
   });
 
   it("hiện lỗi của backend", async () => {

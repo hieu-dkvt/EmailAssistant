@@ -17,16 +17,6 @@ import { threadLink } from "@/lib/links";
 
 const MAX_QUESTION = 1000;
 const CITE = /\[(\d{1,3})\]/g;
-const KIND_LABEL: Record<string, string> = {
-  PERSON: "tên người",
-  ORG: "công ty / tổ chức",
-  EMAIL: "email",
-  PHONE: "điện thoại",
-  URL: "URL",
-  ADDRESS: "địa chỉ",
-  MONEY: "số tiền",
-  CONTRACT: "số hợp đồng / đơn hàng",
-};
 const TASK_LABEL: Record<string, string> = {
   question_analysis: "Phân tích câu hỏi",
   answer: "Trả lời",
@@ -96,20 +86,10 @@ function Sources({ sources }: { sources: AskSource[] }) {
 }
 
 function SentToAi({ result }: { result: AskResult }) {
-  const counts = Object.entries(result.mask_counts);
   return (
     <details className="rounded-lg border p-3 text-sm">
-      <summary className="cursor-pointer font-medium">
-        Nội dung đã gửi cho AI (đã che thông tin nhạy cảm)
-      </summary>
-      <p className="mt-2 text-muted-foreground">
-        {counts.length
-          ? "Đã che: " +
-            counts.map(([k, n]) => `${formatCount(n)} ${KIND_LABEL[k] ?? k}`).join(", ") +
-            ". AI chỉ thấy nhãn như [PERSON_1]; câu trả lời được thay lại giá trị thật trên máy chủ của mình."
-          : "Không có thông tin nào cần che."}{" "}
-        Kiểm tra bên dưới nếu còn tên hoặc số liệu chưa được che.
-      </p>
+      <summary className="cursor-pointer font-medium">Nội dung đã gửi cho AI</summary>
+      <p className="mt-2 text-muted-foreground">Đúng text gốc mà backend gửi tới model.</p>
       {result.sent.map((s, i) => (
         <div key={i} className="mt-3">
           <p className="mb-1 font-medium">{TASK_LABEL[s.task] ?? s.task}</p>
@@ -209,8 +189,7 @@ export function AskPage() {
         <h1 className="text-lg font-semibold">Hỏi AI về mail</h1>
         <p className="text-sm text-muted-foreground">
           Hỏi bằng tiếng Việt, Nhật hoặc Anh. Hệ thống tìm các đoạn mail liên quan trong mail của
-          bạn, che tên người, công ty, email, điện thoại, địa chỉ, số tiền, số hợp đồng rồi mới gửi
-          cho AI. Câu hỏi và câu trả lời không được lưu lại.
+          bạn rồi gửi cho model AI nội bộ. Câu hỏi và câu trả lời không được lưu lại.
         </p>
       </div>
       <form onSubmit={submit} className="grid gap-3 rounded-lg border p-3" aria-label="Hỏi đáp">

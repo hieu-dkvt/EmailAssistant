@@ -1307,19 +1307,6 @@
             "application/json": {
               "schema": {
                 "properties": {
-                  "tiers": {
-                    "additionalProperties": {
-                      "type": "string",
-                      "enum": [
-                        "haiku",
-                        "sonnet",
-                        "opus"
-                      ]
-                    },
-                    "type": "object",
-                    "title": "Tiers",
-                    "default": {}
-                  },
                   "models": {
                     "additionalProperties": {
                       "anyOf": [
@@ -1623,7 +1610,7 @@
             }
           },
           "503": {
-            "description": "ai_not_configured, ai_unavailable, ml_…",
+            "description": "ai_not_configured, ai_unavailable…",
             "content": {
               "application/json": {
                 "schema": {
@@ -3426,10 +3413,6 @@
       },
       "AiProvider": {
         "properties": {
-          "configured_env": {
-            "type": "boolean",
-            "title": "Configured Env"
-          },
           "secret_key_ready": {
             "type": "boolean",
             "title": "Secret Key Ready"
@@ -3447,7 +3430,6 @@
         },
         "type": "object",
         "required": [
-          "configured_env",
           "secret_key_ready",
           "custom"
         ],
@@ -3481,6 +3463,10 @@
               }
             ],
             "title": "Api Key Hint"
+          },
+          "public_host": {
+            "type": "boolean",
+            "title": "Public Host"
           }
         },
         "type": "object",
@@ -3488,7 +3474,8 @@
           "protocol",
           "base_url",
           "api_key_set",
-          "api_key_hint"
+          "api_key_hint",
+          "public_host"
         ],
         "title": "AiProviderCustom"
       },
@@ -3521,39 +3508,18 @@
             "type": "boolean",
             "title": "Configured"
           },
-          "custom_provider": {
-            "type": "boolean",
-            "title": "Custom Provider"
-          },
           "tasks": {
             "items": {
               "$ref": "#/components/schemas/AiTaskInfo"
             },
             "type": "array",
             "title": "Tasks"
-          },
-          "tiers": {
-            "items": {
-              "$ref": "#/components/schemas/AiTierInfo"
-            },
-            "type": "array",
-            "title": "Tiers"
-          },
-          "masking": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Masking"
           }
         },
         "type": "object",
         "required": [
           "configured",
-          "custom_provider",
-          "tasks",
-          "tiers",
-          "masking"
+          "tasks"
         ],
         "title": "AiSettings"
       },
@@ -3570,12 +3536,6 @@
           "description": {
             "type": "string",
             "title": "Description"
-          },
-          "tier": {
-            "$ref": "#/components/schemas/TierName"
-          },
-          "default_tier": {
-            "$ref": "#/components/schemas/TierName"
           },
           "model": {
             "anyOf": [
@@ -3594,43 +3554,9 @@
           "task",
           "label",
           "description",
-          "tier",
-          "default_tier",
           "model"
         ],
         "title": "AiTaskInfo"
-      },
-      "AiTierInfo": {
-        "properties": {
-          "tier": {
-            "$ref": "#/components/schemas/TierName"
-          },
-          "label": {
-            "type": "string",
-            "title": "Label"
-          },
-          "model": {
-            "type": "string",
-            "title": "Model"
-          },
-          "input_price": {
-            "type": "number",
-            "title": "Input Price"
-          },
-          "output_price": {
-            "type": "number",
-            "title": "Output Price"
-          }
-        },
-        "type": "object",
-        "required": [
-          "tier",
-          "label",
-          "model",
-          "input_price",
-          "output_price"
-        ],
-        "title": "AiTierInfo"
       },
       "AiUsage": {
         "properties": {
@@ -3649,18 +3575,13 @@
           "total_calls": {
             "type": "integer",
             "title": "Total Calls"
-          },
-          "total_estimated_usd": {
-            "type": "number",
-            "title": "Total Estimated Usd"
           }
         },
         "type": "object",
         "required": [
           "since",
           "rows",
-          "total_calls",
-          "total_estimated_usd"
+          "total_calls"
         ],
         "title": "AiUsage"
       },
@@ -3689,17 +3610,6 @@
           "cache_write_tokens": {
             "type": "integer",
             "title": "Cache Write Tokens"
-          },
-          "estimated_usd": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Estimated Usd"
           }
         },
         "type": "object",
@@ -3709,8 +3619,7 @@
           "input_tokens",
           "output_tokens",
           "cache_read_tokens",
-          "cache_write_tokens",
-          "estimated_usd"
+          "cache_write_tokens"
         ],
         "title": "AiUsageRow"
       },
@@ -3853,13 +3762,6 @@
             "type": "array",
             "title": "Sent"
           },
-          "mask_counts": {
-            "additionalProperties": {
-              "type": "integer"
-            },
-            "type": "object",
-            "title": "Mask Counts"
-          },
           "calls": {
             "items": {
               "$ref": "#/components/schemas/AskCall"
@@ -3875,7 +3777,6 @@
           "sources",
           "plan",
           "sent",
-          "mask_counts",
           "calls"
         ],
         "title": "AskResult"
@@ -3897,7 +3798,7 @@
           "content"
         ],
         "title": "AskSent",
-        "description": "Đúng nội dung (đã che) gửi AI trong một lần gọi."
+        "description": "Đúng nội dung (text gốc) gửi AI trong một lần gọi."
       },
       "AskSource": {
         "properties": {
@@ -5647,14 +5548,6 @@
           "items"
         ],
         "title": "ThreadTranslations"
-      },
-      "TierName": {
-        "type": "string",
-        "enum": [
-          "haiku",
-          "sonnet",
-          "opus"
-        ]
       },
       "ValidationError": {
         "properties": {

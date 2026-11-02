@@ -566,8 +566,6 @@ export interface components {
     };
     /** AiProvider */
     AiProvider: {
-      /** Configured Env */
-      configured_env: boolean;
       /** Secret Key Ready */
       secret_key_ready: boolean;
       custom: components["schemas"]["AiProviderCustom"] | null;
@@ -585,6 +583,8 @@ export interface components {
       api_key_set: boolean;
       /** Api Key Hint */
       api_key_hint: string | null;
+      /** Public Host */
+      public_host: boolean;
     };
     /** AiProviderTest */
     AiProviderTest: {
@@ -599,14 +599,8 @@ export interface components {
     AiSettings: {
       /** Configured */
       configured: boolean;
-      /** Custom Provider */
-      custom_provider: boolean;
       /** Tasks */
       tasks: components["schemas"]["AiTaskInfo"][];
-      /** Tiers */
-      tiers: components["schemas"]["AiTierInfo"][];
-      /** Masking */
-      masking: string[];
     };
     /** AiTaskInfo */
     AiTaskInfo: {
@@ -616,22 +610,8 @@ export interface components {
       label: string;
       /** Description */
       description: string;
-      tier: components["schemas"]["TierName"];
-      default_tier: components["schemas"]["TierName"];
       /** Model */
       model: string | null;
-    };
-    /** AiTierInfo */
-    AiTierInfo: {
-      tier: components["schemas"]["TierName"];
-      /** Label */
-      label: string;
-      /** Model */
-      model: string;
-      /** Input Price */
-      input_price: number;
-      /** Output Price */
-      output_price: number;
     };
     /** AiUsage */
     AiUsage: {
@@ -644,8 +624,6 @@ export interface components {
       rows: components["schemas"]["AiUsageRow"][];
       /** Total Calls */
       total_calls: number;
-      /** Total Estimated Usd */
-      total_estimated_usd: number;
     };
     /** AiUsageRow */
     AiUsageRow: {
@@ -661,8 +639,6 @@ export interface components {
       cache_read_tokens: number;
       /** Cache Write Tokens */
       cache_write_tokens: number;
-      /** Estimated Usd */
-      estimated_usd: number | null;
     };
     /** AskCall */
     AskCall: {
@@ -705,16 +681,12 @@ export interface components {
       plan: components["schemas"]["AskPlan"] | null;
       /** Sent */
       sent: components["schemas"]["AskSent"][];
-      /** Mask Counts */
-      mask_counts: {
-        [key: string]: number;
-      };
       /** Calls */
       calls: components["schemas"]["AskCall"][];
     };
     /**
      * AskSent
-     * @description Đúng nội dung (đã che) gửi AI trong một lần gọi.
+     * @description Đúng nội dung (text gốc) gửi AI trong một lần gọi.
      */
     AskSent: {
       /** Task */
@@ -1234,8 +1206,6 @@ export interface components {
       /** Items */
       items: components["schemas"]["ThreadTranslationItem"][];
     };
-    /** @enum {string} */
-    TierName: "haiku" | "sonnet" | "opus";
     /** ValidationError */
     ValidationError: {
       /** Location */
@@ -2112,13 +2082,6 @@ export interface operations {
       content: {
         "application/json": {
           /**
-           * Tiers
-           * @default {}
-           */
-          tiers?: {
-            [key: string]: "haiku" | "sonnet" | "opus";
-          };
-          /**
            * Models
            * @default {}
            */
@@ -2358,7 +2321,7 @@ export interface operations {
           "application/json": components["schemas"]["ErrorBody"];
         };
       };
-      /** @description ai_not_configured, ai_unavailable, ml_… */
+      /** @description ai_not_configured, ai_unavailable… */
       503: {
         headers: {
           [name: string]: unknown;

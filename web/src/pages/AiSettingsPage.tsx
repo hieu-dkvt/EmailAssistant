@@ -1,6 +1,7 @@
+import { TriangleAlert } from "lucide-react";
 import { type FormEvent, useState } from "react";
 
-import { errorMessage, type AiSettings, type Tier } from "@/api/client";
+import { errorMessage, type AiSettings } from "@/api/client";
 import {
   useAiProvider,
   useAiSettings,
@@ -16,38 +17,18 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCount, formatDateTime } from "@/lib/format";
-import { cn } from "cn";
 
-const usd = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumFractionDigits: 4,
-});
-
-function price(n: number): string {
-  return `$${n.toFixed(2)}`;
-}
-
-/**
- * Chọn cấp model (spec 22) hoặc nhập tên model (khi có nhà cung cấp tùy chỉnh, spec 24) cho từng
- * tác vụ. Lưu cả bảng một lần.
- */
-function TierForm({ settings }: { settings: AiSettings }) {
+/** Nhập tên model (theo cách gọi của gateway) cho từng tác vụ. Lưu cả bảng một lần. */
+function ModelForm({ settings }: { settings: AiSettings }) {
   const save = useSaveAiSettings();
-  const [chosen, setChosen] = useState<Record<string, Tier>>(() =>
-    Object.fromEntries(settings.tasks.map((t) => [t.task, t.tier])),
-  );
   const [models, setModels] = useState<Record<string, string>>(() =>
     Object.fromEntries(settings.tasks.map((t) => [t.task, t.model ?? ""])),
   );
-  const custom = settings.custom_provider;
-  const changed = custom
-    ? settings.tasks.some((t) => models[t.task].trim() !== (t.model ?? ""))
-    : settings.tasks.some((t) => chosen[t.task] !== t.tier);
+  const changed = settings.tasks.some((t) => models[t.task].trim() !== (t.model ?? ""));
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    save.mutate(custom ? { models } : { tiers: chosen });
+    save.mutate({ models });
   }
 
   return (
@@ -56,58 +37,17 @@ function TierForm({ settings }: { settings: AiSettings }) {
         <fieldset key={task.task} className="grid gap-2 rounded-lg border p-3">
           <legend className="px-1 font-medium">{task.label}</legend>
           <p className="text-sm text-muted-foreground">{task.description}</p>
-          {custom ? (
-            <div className="grid gap-1">
-              <Label htmlFor={`model-${task.task}`}>Tên model</Label>
-              <Input
-                id={`model-${task.task}`}
-                value={models[task.task]}
-                maxLength={200}
-                placeholder="tên model theo nhà cung cấp"
-                autoComplete="off"
-                onChange={(e) => setModels({ ...models, [task.task]: e.target.value })}
-              />
-            </div>
-          ) : (
-            <div className="grid gap-2 sm:grid-cols-3">
-              {settings.tiers.map((tier) => {
-                const id = `tier-${task.task}-${tier.tier}`;
-                const active = chosen[task.task] === tier.tier;
-                return (
-                  <label
-                    key={tier.tier}
-                    htmlFor={id}
-                    className={cn(
-                      "grid cursor-pointer gap-0.5 rounded-md border p-2 text-sm",
-                      active && "border-primary bg-secondary",
-                    )}
-                  >
-                    <span className="flex items-center gap-2 font-medium">
-                      <input
-                        id={id}
-                        type="radio"
-                        name={task.task}
-                        value={tier.tier}
-                        checked={active}
-                        onChange={() => setChosen({ ...chosen, [task.task]: tier.tier })}
-                      />
-                      {tier.label}
-                      {task.default_tier === tier.tier && (
-                        <span className="text-xs font-normal text-muted-foreground">
-                          (mặc định)
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-xs text-muted-foreground">{tier.model}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {price(tier.input_price)} vào / {price(tier.output_price)} ra mỗi 1 triệu
-                      token
-                    </span>
-                  </label>
-                );
-              })}
-            </div>
-          )}
+          <div className="grid gap-1">
+            <Label htmlFor={`model-${task.task}`}>Tên model</Label>
+            <Input
+              id={`model-${task.task}`}
+              value={models[task.task]}
+              maxLength={200}
+              placeholder="tên model theo nhà cung cấp"
+              autoComplete="off"
+              onChange={(e) => setModels({ ...models, [task.task]: e.target.value })}
+            />
+          </div>
         </fieldset>
       ))}
       <div className="flex items-center gap-3">
@@ -137,8 +77,8 @@ function hostOf(url: string): string {
   }
 }
 
-/** Nhà cung cấp AI tùy chỉnh (spec 24): OpenRouter, 9router… API key chỉ đi một chiều. */
-function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
+/** Nhà cung cấp AI: gateway model nội bộ kiểu 9router (spec 24, 28). API key chỉ đi một chiều. */
+function ProviderForm() {
   const provider = useAiProvider();
   const save = useSaveAiProvider();
   const remove = useDeleteAiProvider();
@@ -159,6 +99,8 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
   const shownProtocol = protocol ?? p.custom?.protocol ?? "openai";
   const shownUrl = baseUrl ?? p.custom?.base_url ?? "";
   const host = hostOf(shownUrl);
+  // public_host do backend tính cho địa chỉ đã lưu: sửa URL trong ô thì chưa biết, bỏ cảnh báo.
+  const publicHost = !!p.custom?.public_host && shownUrl.trim() === p.custom.base_url;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -193,7 +135,7 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
           value={shownProtocol}
           onChange={(e) => setProtocol(e.target.value as "anthropic" | "openai")}
         >
-          <option value="openai">Tương thích OpenAI (OpenRouter, 9router…)</option>
+          <option value="openai">Tương thích OpenAI (9router…)</option>
           <option value="anthropic">Anthropic (Messages API)</option>
         </select>
       </div>
@@ -202,13 +144,12 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
         <Input
           id="provider-url"
           value={shownUrl}
-          placeholder="https://openrouter.ai/api/v1"
+          placeholder="http://10.0.0.5:20128/v1"
           autoComplete="off"
           onChange={(e) => setBaseUrl(e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          <code>https://</code> cho dịch vụ bên ngoài; <code>http://</code> chỉ cho gateway chạy
-          trên máy này (<code>localhost</code>, <code>127.0.0.1</code>).
+          Địa chỉ gateway model nội bộ, <code>http://</code> hoặc <code>https://</code>.
         </p>
       </div>
       <div className="grid gap-1">
@@ -234,7 +175,15 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
       {host && (
         <Alert>
           <AlertDescription>
-            Mail đã che thông tin sẽ đi qua <strong>{host}</strong>. Bạn chịu trách nhiệm với NDA của khách.
+            Mail <strong>không che</strong> sẽ gửi tới <code>{host}</code>.
+          </AlertDescription>
+        </Alert>
+      )}
+      {publicHost && (
+        <Alert variant="destructive">
+          <TriangleAlert />
+          <AlertDescription>
+            Đây là địa chỉ công cộng, mail sẽ ra ngoài mạng nội bộ.
           </AlertDescription>
         </Alert>
       )}
@@ -269,11 +218,6 @@ function ProviderForm({ configuredEnv }: { configuredEnv: boolean }) {
           </span>
         )}
       </div>
-      {!p.custom && configuredEnv && (
-        <p className="text-sm text-muted-foreground">
-          Chưa lưu nhà cung cấp riêng: đang dùng <code>ANTHROPIC_API_KEY</code> của backend.
-        </p>
-      )}
       {[save.error, test.error, remove.error].map(
         (error, i) =>
           error && (
@@ -309,7 +253,6 @@ function Usage() {
             <th className="py-1 text-right font-normal">Lần gọi</th>
             <th className="py-1 text-right font-normal">Token vào</th>
             <th className="py-1 text-right font-normal">Token ra</th>
-            <th className="py-1 text-right font-normal">Ước tính</th>
           </tr>
         </thead>
         <tbody>
@@ -319,17 +262,12 @@ function Usage() {
               <td className="py-1 text-right">{formatCount(r.calls)}</td>
               <td className="py-1 text-right">{formatCount(r.input_tokens)}</td>
               <td className="py-1 text-right">{formatCount(r.output_tokens)}</td>
-              <td className="py-1 text-right">
-                {r.estimated_usd === null ? "không rõ giá" : usd.format(r.estimated_usd)}
-              </td>
             </tr>
           ))}
         </tbody>
       </table>
       <p className="text-muted-foreground">
-        Tổng {formatCount(u.total_calls)} lần gọi, khoảng {usd.format(u.total_estimated_usd)} từ{" "}
-        {formatDateTime(u.since)}. Ước tính theo bảng giá cố định theo cấp model mặc định (model tự nhập không có
-        giá), số tiền thật xem trên hóa đơn của nhà cung cấp.
+        Tổng {formatCount(u.total_calls)} lần gọi từ {formatDateTime(u.since)}.
       </p>
     </div>
   );
@@ -352,9 +290,8 @@ export function AiSettingsPage() {
       {!s.configured && (
         <Alert>
           <AlertDescription>
-            Chưa cấu hình AI: nhập nhà cung cấp ở khối bên dưới, hoặc đặt biến môi trường{" "}
-            <code>ANTHROPIC_API_KEY</code> cho backend rồi chạy lại <code>python -m app.run</code>.
-            Chức năng hỏi đáp chưa dùng được.
+            Chưa cấu hình AI: nhập nhà cung cấp ở khối bên dưới. Hỏi đáp và dịch mail chưa dùng
+            được.
           </AlertDescription>
         </Alert>
       )}
@@ -362,43 +299,24 @@ export function AiSettingsPage() {
         <CardHeader>
           <CardTitle>Nhà cung cấp AI</CardTitle>
           <CardDescription>
-            Dùng gateway như OpenRouter, 9router thay cho <code>ANTHROPIC_API_KEY</code> của
-            backend. API key được mã hóa khi lưu và không bao giờ hiển thị lại. Chỉ áp dụng cho tài
-            khoản của bạn.
+            Gateway model nội bộ (kiểu 9router). API key được mã hóa khi lưu và không bao giờ hiển
+            thị lại. Chỉ áp dụng cho tài khoản của bạn.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <ProviderForm configuredEnv={s.configured && !s.custom_provider} />
+          <ProviderForm />
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
           <CardTitle>Model theo tác vụ</CardTitle>
           <CardDescription>
-            {s.custom_provider
-              ? "Nhập tên model theo cách gọi của nhà cung cấp cho từng tác vụ."
-              : "Haiku nhanh và rẻ, Sonnet cân bằng, Opus trả lời tốt nhất với câu hỏi khó nhưng đắt nhất."}{" "}
-            Cài đặt này chỉ áp dụng cho tài khoản của bạn.
+            Nhập tên model theo cách gọi của gateway cho từng tác vụ. Cài đặt này chỉ áp dụng cho
+            tài khoản của bạn.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <TierForm key={s.custom_provider ? "custom" : "tiers"} settings={s} />
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader>
-          <CardTitle>Che thông tin trước khi gửi AI</CardTitle>
-          <CardDescription>
-            Luôn bật theo yêu cầu NDA của khách, không tắt được, với mọi nhà cung cấp. Các nhóm
-            thông tin bị thay bằng nhãn giả:
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <ul className="list-disc pl-5 text-sm">
-            {s.masking.map((m) => (
-              <li key={m}>{m}</li>
-            ))}
-          </ul>
+          <ModelForm settings={s} />
         </CardContent>
       </Card>
       <Card>

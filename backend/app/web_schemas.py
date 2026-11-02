@@ -247,7 +247,7 @@ class AskPlan(BaseModel):
 
 
 class AskSent(BaseModel):
-    """Đúng nội dung (đã che) gửi AI trong một lần gọi."""
+    """Đúng nội dung (text gốc) gửi AI trong một lần gọi."""
 
     task: str
     content: str

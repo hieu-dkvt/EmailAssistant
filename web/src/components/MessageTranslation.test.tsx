@@ -174,6 +174,26 @@ describe("MessageTranslation", () => {
     }
   });
 
+  it("bản dịch cũ có labels_missing vẫn hiện cảnh báo", () => {
+    stub();
+    show(item({ translation: translation({ warnings: ["labels_missing", "labels_unknown"] }) }));
+    const items = within(screen.getByTestId("translation-warnings")).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent(/thiếu một số nhãn/);
+    expect(items[1]).toHaveTextContent(/nhãn che không có trong bản gốc/);
+  });
+
+  it("thông báo ml_unavailable không nói về che thông tin", async () => {
+    stub((call) =>
+      call.path.endsWith("/translate") ? json(503, { detail: "x", code: "ml_unavailable" }) : null,
+    );
+    show(item());
+    await userEvent.setup().click(screen.getByRole("button", { name: "Dịch" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toMatch(/ml-service/);
+    expect(alert.textContent).not.toMatch(/che/);
+  });
+
   it("bản dịch cũ có nút Dịch lại", async () => {
     const calls = stub();
     show(item({ translation: translation({ stale: true }) }));

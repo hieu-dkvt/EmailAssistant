@@ -27,9 +27,9 @@ LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 
 
 def ml_service_url() -> str:
-    """ml-service (embedding, NER) chạy trên cùng máy (spec 2026-10-19-ml-service-design).
+    """ml-service (embedding) chạy trên cùng máy (spec 2026-10-19-ml-service-design).
 
-    ml-service nhận text CHƯA che: chỉ cho phép http tới chính máy này, máy khác phải là https.
+    ml-service nhận text mail gốc: chỉ cho phép http tới chính máy này, máy khác phải là https.
     """
     url = (os.environ.get("ML_SERVICE_URL") or "http://127.0.0.1:8001").rstrip("/")
     parsed = urlparse(url)

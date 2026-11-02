@@ -48,7 +48,6 @@ export type GlossaryBody = NonNullable<
 export type GlossaryImportBody = NonNullable<
   paths["/api/v1/glossary/import"]["post"]["requestBody"]
 >["content"]["application/json"];
-export type Tier = Schemas["AiTierInfo"]["tier"];
 export type AskBody = NonNullable<
   paths["/api/v1/ask"]["post"]["requestBody"]
 >["content"]["application/json"];

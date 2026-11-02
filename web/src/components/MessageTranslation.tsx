@@ -18,7 +18,7 @@ const ERROR_TEXT: Record<string, string> = {
   translate_in_progress: "Đang dịch một mail khác, thử lại sau ít phút.",
   mail_not_ready: "Mail chưa được làm sạch, chờ worker xử lý rồi thử lại.",
   nothing_to_translate: "Mail không có nội dung để dịch.",
-  ml_unavailable: "Dịch vụ ml-service chưa chạy: chưa che được thông tin nên chưa gửi đi.",
+  ml_unavailable: "Dịch vụ ml-service chưa chạy: bật ml-service rồi thử lại.",
   ai_not_configured: "Chưa cấu hình AI: vào Cài đặt AI để nhập nhà cung cấp.",
   ai_model_missing: "Chưa chọn model dịch: vào Cài đặt AI để chọn model cho tác vụ dịch.",
   move_invalid: "Dự án này không chứa mail hoặc chưa có folder đích.",
