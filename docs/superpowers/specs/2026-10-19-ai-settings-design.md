@@ -2,6 +2,8 @@
 
 Ngày: 2026-10-19 · Thành phần: `backend/app/ai/models.py`, `backend/app/ai/settings.py`, `backend/app/api/ai_routes.py` (`/api/v1/ai/settings`, `/api/v1/ai/usage`), migration 0015 (`user_ai_settings`), 0016 (cột `model`), 0019 (bỏ cột `tier`), `web/src/pages/AiSettingsPage.tsx` · Trạng thái: xong (sửa ở spec 28)
 
+> **Đang thiết kế (2026-11-07), chưa có code:** [spec 29](2026-11-07-ai-token-budget-design.md) mục 4 (người dùng đã duyệt) thêm vào mỗi dòng tác vụ hai ô "Ngữ cảnh (token)" và "Chờ tối đa (giây)" (cột mới `context_tokens`, `timeout_seconds` của `user_ai_settings`), và ô "Glossary tối đa mỗi phạm vi" cạnh dòng "Dịch mail" (bảng mới `user_glossary_settings`). Nội dung bên dưới vẫn mô tả code hiện tại.
+>
 > **Cập nhật 2026-11-01 (quyết định của người dùng):** AI chỉ chạy trên model nội bộ qua gateway, không dùng API ngoài, không cần che thông tin ([CHANGELOG](../../CHANGELOG.md)). Đã làm ở [spec 28](2026-11-01-internal-model-design.md) (2026-11-02): bản đầu của spec này chọn một trong ba cấp model đặt sẵn và hiện giá ước tính; nay mỗi tác vụ chỉ có tên model do người dùng nhập (migration 0019). Tài liệu viết lại theo code hiện tại ngày 2026-11-05.
 
 ## 1. Mục đích

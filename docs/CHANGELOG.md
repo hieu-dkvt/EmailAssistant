@@ -2,6 +2,39 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-07: rà luồng dịch, thiết kế ngân sách token và glossary theo loại (spec 29, 30; chỉ tài liệu, chưa có code)
+
+### Đã làm
+- Rà soát tài liệu đề xuất của người dùng `Thiet ke glossary dich jp vn.md` (thư mục gốc, chưa commit) so với nguyên tắc dự án và code dịch hiện tại. Kết quả ghi ở spec 30 mục 2–4.
+- Chạy code dịch hiện tại trên mail giả (không DB, không AI) để mô tả từng bước. Phát hiện: mục glossary `Redmine` khớp cả bên trong URL; seed `対応 = xử lý` (bắt buộc) ép dịch sai "Safari対応" hoặc gây `glossary_missing` oan; seed `改修 = chỉnh sửa cải tiến` dùng từ mà tài liệu đề xuất xếp vào loại cấm; model nhận nguyên chữ toàn độ rộng.
+- Đo token của prompt dịch bằng tokenizer Qwen3 (cache local): tiếng Nhật 0,60 token/ký tự, tiếng Việt 0,31; mail 12.000 ký tự khoảng 10.100 token vào và 7.500 ra; 60 mục glossary dài hết cỡ đẩy prompt lên khoảng 43.000 token. Mọi request xin cố định `max_tokens` 16.000 (dịch), 8.000 (trả lời), 2.000 (phân tích): với model ngữ cảnh 16.384 token, mọi mail dịch đều bị gateway kiểu vLLM từ chối. Chi tiết: spec 29 phụ lục A.
+- Đo `match_glossary` theo số mục trên máy dev: 5.000 mục 83 ms, 50.000 mục 606 ms, 100.000 mục 1,2 giây mỗi lần khớp (spec 29 phụ lục B). Giới hạn 5.000 mục là quyết định của người viết spec 26, không phải giới hạn kỹ thuật hay phần cứng.
+- Viết spec 29 (`2026-11-07-ai-token-budget-design.md`) và spec 30 (`2026-11-07-glossary-kinds-design.md`), cả hai "đang thiết kế". Cập nhật danh mục spec, `CLAUDE.md` gốc (trạng thái, nguyên tắc gọi AI), `email-assistant-plan.md` (giai đoạn 6), ghi chú đầu spec 22 và 26.
+- Commit đợt 2026-11-05 (spec 28 mục 14) sau khi chạy lại kiểm tra: pytest 994 đạt, ruff, pyright, Vitest 112 đạt, ESLint, tsc sạch, `web/openapi.json` khớp backend; security-reviewer không có phát hiện chặn (ghi chú: migration 0021 giữ URL và key cũ, người dùng nên kiểm tra lại ở Cài đặt AI).
+
+### Quyết định của người dùng
+- **Cài đặt AI có thêm "tổng ngữ cảnh model" (token vào + ra) cho mọi tác vụ**, mỗi dòng một ô cạnh tên model; code tự chia ngân sách. Model đang nhắm tới có ngữ cảnh khoảng 100.000 token.
+- **Thêm "thời gian chờ (giây)" cho từng tác vụ**, thay cho 120 giây cố định.
+- **Mail dài chia đoạn rồi ghép**, không bỏ phần sau. Trả lời câu hỏi đang chờ từ 2026-11-01 ("có nới 'mỗi bản mail chỉ gọi AI một lần' không"): với dịch mail, đổi thành "mỗi bản mail chỉ **dịch** một lần", một mail dài được gọi AI nhiều lần.
+- **Không cắt theo giới hạn ký tự cố định trong code**; chỉ chia hoặc cắt khi vượt ngân sách token đã nhập.
+- **Giới hạn glossary cấu hình được, tối đa 50.000 mục mỗi phạm vi**, nhập ở Cài đặt AI.
+- **Tên tiếng Nhật được giữ trình bày theo kiểu (A)**: `「受注日」 (Ngày nhận đơn)`, chữ Nhật trước để tra tài liệu gốc.
+- **Thay trực tiếp** thuật ngữ cố định vào văn bản trước khi gửi model, thay cho placeholder ⟦T⟧ của tài liệu đề xuất.
+- Duyệt thiết kế cài đặt (spec 29 mục 4: cột `context_tokens`, `timeout_seconds` của `user_ai_settings`, bảng `user_glossary_settings`, API, màn hình). Đếm token bằng ước lượng theo ký tự.
+- Chỉ cập nhật tài liệu trong lượt này, để làm tiếp trên máy khác. Không commit file đề xuất `Thiet ke glossary dich jp vn.md` (spec 30 mục 2 tóm tắt nội dung).
+- Spec 30: nghĩa của tên giữ nguyên **chỉ ghi ở lần xuất hiện đầu tiên**; **dịch lại tự động tối đa một lần** khi kiểm tra phát hiện lỗi nặng (người viết đã đề xuất chỉ cảnh báo); **làm chức năng trước, bộ đo sau** (người viết đã đề xuất bộ đo trước).
+
+### Quyết định của người viết spec (người dùng có thể đổi)
+- Khoảng và mặc định: ngữ cảnh 4.096–131.072 (32.768), thời gian chờ 30–3.600 giây (120), glossary 100–50.000 (5.000). Giới hạn glossary ở bảng riêng, không ở dòng "Dịch mail".
+- Hệ số ước lượng: 1,0 token/ký tự CJK, 0,4 với ký tự khác, dự phòng 10%; phần ngữ cảnh 10%, phần glossary 15% ngân sách (spec 29 mục 5, 6).
+- Hỏi đáp giữ các giới hạn ký tự của spec 27 làm mức trần, chỉ bớt nguồn khi ngân sách nhỏ hơn.
+- Prompt dịch giữ nguyên ở spec 29 (`TRANSLATE_PROMPT_VERSION` vẫn 2); spec 30 sẽ tăng lên 3.
+
+### Còn để sau
+- **Chờ người dùng (spec 29 mục 15):** duyệt mục 5–10; giới hạn số đoạn cho job tự động; dịch tay mail nhiều đoạn chờ trong request hay chuyển sang job; mở rộng ngữ cảnh hỏi đáp khi ngân sách lớn; giữ mặc định 32.768 và 120 giây.
+- **Chờ người dùng (spec 30 mục 9):** duyệt thiết kế chi tiết; phần 1 (dữ liệu glossary: cột `kind`, `accepted`, `forbidden`, `exclude`, CSV, API, màn hình) đã trình bày, phần 2–4 chưa trình bày.
+- Ngoài phạm vi, chờ người dùng: Redmine, IMAP IDLE, Drafts trên IMAP, tự gửi mail, glossary dùng chung có người duyệt, dịch VN→JP (mâu thuẫn hoặc chưa có trong nguyên tắc hiện tại, spec 30 mục 3).
+
 ## 2026-11-05: chỉ còn giao thức tương thích OpenAI, bỏ thông tin nhà cung cấp AI ngoài (spec 28 mục 14)
 
 ### Quyết định của người dùng
