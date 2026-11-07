@@ -10,6 +10,7 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 - Đo token của prompt dịch bằng tokenizer Qwen3 (cache local): tiếng Nhật 0,60 token/ký tự, tiếng Việt 0,31; mail 12.000 ký tự khoảng 10.100 token vào và 7.500 ra; 60 mục glossary dài hết cỡ đẩy prompt lên khoảng 43.000 token. Mọi request xin cố định `max_tokens` 16.000 (dịch), 8.000 (trả lời), 2.000 (phân tích): với model ngữ cảnh 16.384 token, mọi mail dịch đều bị gateway kiểu vLLM từ chối. Chi tiết: spec 29 phụ lục A.
 - Đo `match_glossary` theo số mục trên máy dev: 5.000 mục 83 ms, 50.000 mục 606 ms, 100.000 mục 1,2 giây mỗi lần khớp (spec 29 phụ lục B). Giới hạn 5.000 mục là quyết định của người viết spec 26, không phải giới hạn kỹ thuật hay phần cứng.
 - Viết spec 29 (`2026-11-07-ai-token-budget-design.md`) và spec 30 (`2026-11-07-glossary-kinds-design.md`), cả hai "đang thiết kế". Cập nhật danh mục spec, `CLAUDE.md` gốc (trạng thái, nguyên tắc gọi AI), `email-assistant-plan.md` (giai đoạn 6), ghi chú đầu spec 22 và 26.
+- Spec 30 viết lại thành thiết kế đầy đủ (dữ liệu, vùng bảo vệ, thay trực tiếp, prompt v3 nguyên văn, khôi phục ⟪⟫ và chèn nghĩa, kiểm tra nặng/nhẹ, dịch lại một lần, seed, bộ đo, kiểm thử) và kế hoạch thực hiện 11 task `docs/superpowers/plans/2026-11-07-glossary-kinds.md`.
 - Commit đợt 2026-11-05 (spec 28 mục 14) sau khi chạy lại kiểm tra: pytest 994 đạt, ruff, pyright, Vitest 112 đạt, ESLint, tsc sạch, `web/openapi.json` khớp backend; security-reviewer không có phát hiện chặn (ghi chú: migration 0021 giữ URL và key cũ, người dùng nên kiểm tra lại ở Cài đặt AI).
 
 ### Quyết định của người dùng
@@ -22,6 +23,7 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 - **Thay trực tiếp** thuật ngữ cố định vào văn bản trước khi gửi model, thay cho placeholder ⟦T⟧ của tài liệu đề xuất.
 - Duyệt thiết kế cài đặt (spec 29 mục 4: cột `context_tokens`, `timeout_seconds` của `user_ai_settings`, bảng `user_glossary_settings`, API, màn hình). Đếm token bằng ước lượng theo ký tự.
 - Chỉ cập nhật tài liệu trong lượt này, để làm tiếp trên máy khác. Không commit file đề xuất `Thiet ke glossary dich jp vn.md` (spec 30 mục 2 tóm tắt nội dung).
+- Spec 30: duyệt thiết kế dữ liệu glossary, xử lý trước khi gửi, xử lý sau dịch (từng phần); **ủy quyền người viết hoàn tất tới hết tài liệu** (phần seed, bộ đo, kiểm thử, kế hoạch thực hiện) để làm tiếp trên máy khác.
 - Spec 30: nghĩa của tên giữ nguyên **chỉ ghi ở lần xuất hiện đầu tiên**; **dịch lại tự động tối đa một lần** khi kiểm tra phát hiện lỗi nặng (người viết đã đề xuất chỉ cảnh báo); **làm chức năng trước, bộ đo sau** (người viết đã đề xuất bộ đo trước).
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
@@ -32,7 +34,7 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 
 ### Còn để sau
 - **Chờ người dùng (spec 29 mục 15):** duyệt mục 5–10; giới hạn số đoạn cho job tự động; dịch tay mail nhiều đoạn chờ trong request hay chuyển sang job; mở rộng ngữ cảnh hỏi đáp khi ngân sách lớn; giữ mặc định 32.768 và 120 giây.
-- **Chờ người dùng (spec 30 mục 9):** duyệt thiết kế chi tiết; phần 1 (dữ liệu glossary: cột `kind`, `accepted`, `forbidden`, `exclude`, CSV, API, màn hình) đã trình bày, phần 2–4 chưa trình bày.
+- Spec 30: làm theo kế hoạch `docs/superpowers/plans/2026-11-07-glossary-kinds.md` trên máy khác; chọn cách chạy (subagent từng task hoặc tự làm) khi bắt đầu. Bộ đo (Task 11) cần người dùng chạy với gateway thật.
 - Ngoài phạm vi, chờ người dùng: Redmine, IMAP IDLE, Drafts trên IMAP, tự gửi mail, glossary dùng chung có người duyệt, dịch VN→JP (mâu thuẫn hoặc chưa có trong nguyên tắc hiện tại, spec 30 mục 3).
 
 ## 2026-11-05: chỉ còn giao thức tương thích OpenAI, bỏ thông tin nhà cung cấp AI ngoài (spec 28 mục 14)

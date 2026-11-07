@@ -251,7 +251,7 @@ audit_log            (user_id, action, target, at)
 **Công việc**
 - [ ] *(Yêu cầu thêm 2026-10-31, làm trước các mục khác)* Tự động dịch mail khách trong Inbox sang tiếng Việt, glossary chung và theo dự án, chuyển mail sang folder dự án trên web (spec 26). Dịch tài liệu, Backlog làm sau bằng spec riêng. Move thật qua IMAP là chức năng riêng, cần đổi nguyên tắc "không ghi lên mail server".
 - [ ] *(Yêu cầu thêm 2026-11-07, làm trước phân loại)* Ở Cài đặt AI, mỗi tác vụ có thêm tổng ngữ cảnh model (token) và thời gian chờ (giây); dịch và hỏi đáp tự chia ngân sách theo con số này, mail dài được chia đoạn rồi ghép thay vì cắt ở 12.000 ký tự; giới hạn glossary cấu hình được tới 50.000 mục mỗi phạm vi (spec 29).
-- [ ] *(Yêu cầu thêm 2026-11-07, sau spec 29)* Glossary theo loại (cố định, giữ nguyên, bắt buộc, theo ngữ cảnh), thay trực tiếp thuật ngữ cố định vào văn bản trước khi gửi model, giữ tên màn hình, mục, bảng, cột tiếng Nhật theo kiểu `「受注日」 (Ngày nhận đơn)`, kiểm tra sau dịch không dùng AI, bộ đo chất lượng dịch (spec 30).
+- [ ] *(Yêu cầu thêm 2026-11-07, làm trước hoặc sau spec 29)* Glossary theo loại (cố định, giữ nguyên, bắt buộc, theo ngữ cảnh), thay trực tiếp thuật ngữ cố định vào văn bản trước khi gửi model, giữ tên màn hình, mục, bảng, cột tiếng Nhật theo kiểu `「受注日」 (Ngày nhận đơn)`, kiểm tra sau dịch không dùng AI và tự dịch lại tối đa một lần khi lỗi nặng, bộ đo chất lượng dịch (spec 30).
 - [ ] Phân loại mail (model cấp nhỏ, structured output): loại (QA, bug, thay đổi spec, lịch, báo cáo, hợp đồng, chỉ thông báo), mức ưu tiên, sắc thái của khách.
 - [ ] Trích xuất action item và deadline (ví dụ "来週水曜日までに" chuyển thành ngày cụ thể).
 - [ ] Xác định **ball-in-court** của thread: chờ mình / chờ khách / xử lý nội bộ / đã đóng.
