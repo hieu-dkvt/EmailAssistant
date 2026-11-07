@@ -1,8 +1,8 @@
-"""Gọi AI (SDK anthropic) và ghi lại mỗi lần gọi vào ai_calls (spec 21 mục 5, spec 22).
+"""Kiểu chung của client AI và ghi lại mỗi lần gọi vào ai_calls (spec 21 mục 5, spec 22).
 
-- Output có cấu trúc: structured outputs (output_config.format, schema từ Pydantic) rồi tự kiểm tra
-  bằng Pydantic, để luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
-- Lỗi SDK được thay bằng LlmError (mã cho web); log chỉ có tên lớp lỗi, không có thông điệp.
+- Output có cấu trúc: JSON schema từ Pydantic (strict_schema) rồi tự kiểm tra bằng Pydantic, để
+  luôn đọc được stop_reason và usage kể cả khi model từ chối / hết token.
+- Client gọi gateway nằm ở provider.py (OpenAiLlm); lỗi được thay bằng LlmError (mã cho web).
 - Text gửi đi là text gốc, không che (spec 28): địa chỉ ở Cài đặt AI quyết định mail đi đâu.
 """
 
@@ -11,20 +11,16 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-import anthropic
-import httpx2
-from anthropic import APIRequest, AsyncAnthropic, AsyncAPIResponse, AsyncCallNext, transform_schema
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.ai.models import TASKS, Effort
+from app.ai.models import TASKS
 from app.db.session import user_session
 
 log = logging.getLogger("app.ai")
 
 TIMEOUT_SECONDS = 120.0
-MAX_RETRIES = 2
 TIMEOUT_MESSAGE = "Model trả lời quá lâu, thử lại sau hoặc dùng model nhanh hơn"
 MAX_MODEL_CHARS = 200
 
@@ -76,14 +72,7 @@ class LlmClient(Protocol):
         user: str,
         schema: dict[str, object],
         max_tokens: int,
-        effort: Effort,
     ) -> LlmResponse: ...
-
-
-def _quiet_sdk_logs() -> None:
-    # ANTHROPIC_LOG=debug làm SDK ghi cả request (chứa text mail gốc) vào log: giữ mức WARNING.
-    for name in ("anthropic", "httpx2", "httpcore2", "httpx", "httpcore"):
-        logging.getLogger(name).setLevel(logging.WARNING)
 
 
 def served_model(value: object, requested: str) -> str:
@@ -96,86 +85,24 @@ def served_model(value: object, requested: str) -> str:
     return requested
 
 
-class ReadTimedOut(Exception):
-    """Hết giờ chờ phản hồi. Không thuộc lớp lỗi SDK thử lại (spec 28, sửa sau review)."""
+def strict_schema(model: type[BaseModel]) -> dict[str, Any]:
+    """JSON schema của model Pydantic cho response_format strict: mọi object không nhận thêm khóa.
 
-
-async def no_retry_on_read_timeout(
-    request: APIRequest, call_next: AsyncCallNext
-) -> AsyncAPIResponse[Any]:
-    """Middleware của SDK: hết giờ đọc phản hồi thì không thử lại.
-
-    SDK thử lại mọi APITimeoutError; mỗi lần thử tốn tới 120 giây tải của gateway. Hết giờ khi kết
-    nối thì vẫn thử lại như cũ. `from None`: SDK xét cả chuỗi __cause__ để quyết định thử lại.
+    Output model ở prompts.py chỉ dùng kiểu đơn giản (str, int, bool, list, None) và mọi trường
+    đều bắt buộc, nên schema của Pydantic chỉ thiếu additionalProperties.
     """
-    try:
-        return await call_next(request)
-    except anthropic.APITimeoutError as e:
-        if isinstance(e.__cause__, httpx2.ReadTimeout):
-            raise ReadTimedOut from None
-        raise
+    return _close_objects(model.model_json_schema())
 
 
-class AnthropicLlm:
-    def __init__(self, client: AsyncAnthropic) -> None:
-        # Client luôn do _anthropic_llm (provider.py) dựng với base_url, key của người dùng:
-        # không có đường nào đọc khóa hay địa chỉ từ biến môi trường.
-        self._client = client
-
-    async def create(
-        self,
-        *,
-        model: str,
-        system: str,
-        user: str,
-        schema: dict[str, object],
-        max_tokens: int,
-        effort: Effort,
-    ) -> LlmResponse:
-        output_config = {"effort": effort, "format": {"type": "json_schema", "schema": schema}}
-        messages = [{"role": "user", "content": user}]
-        try:
-            resp = await self._client.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                system=system,
-                messages=messages,  # type: ignore[arg-type]
-                output_config=output_config,  # type: ignore[arg-type]
-            )
-        except ReadTimedOut as e:
-            raise _api_error("ai_timeout", 503, TIMEOUT_MESSAGE, e) from None
-        except (anthropic.AuthenticationError, anthropic.PermissionDeniedError) as e:
-            raise _api_error("ai_auth_failed", 503, "Khóa API của AI không hợp lệ", e) from None
-        except anthropic.RateLimitError as e:
-            raise _api_error("ai_unavailable", 503, "AI đang quá tải, thử lại sau", e) from None
-        except anthropic.BadRequestError as e:
-            raise _api_error("ai_bad_request", 502, "AI từ chối request", e) from None
-        except anthropic.APIStatusError as e:
-            if e.status_code >= 500:
-                raise _api_error("ai_unavailable", 503, "AI đang lỗi, thử lại sau", e) from None
-            raise _api_error("ai_bad_request", 502, "AI từ chối request", e) from None
-        except anthropic.APIConnectionError as e:  # gồm hết giờ kết nối (APITimeoutError)
-            raise _api_error("ai_unavailable", 503, "Không kết nối được AI", e) from None
-        usage = resp.usage
-        text_block = next((b.text for b in resp.content if b.type == "text"), None)
-        return LlmResponse(
-            text=text_block,
-            model=served_model(resp.model, model),
-            stop_reason=resp.stop_reason,
-            usage=LlmUsage(
-                input_tokens=usage.input_tokens or 0,
-                output_tokens=usage.output_tokens or 0,
-                cache_read_tokens=usage.cache_read_input_tokens or 0,
-                cache_write_tokens=usage.cache_creation_input_tokens or 0,
-            ),
-        )
-
-
-def _api_error(code: str, http_status: int, message: str, e: Exception) -> LlmError:
-    log.warning(
-        "ai api error type=%s request_id=%s", type(e).__name__, getattr(e, "request_id", None)
-    )
-    return LlmError(code, http_status, message)
+def _close_objects(node: Any) -> Any:
+    if isinstance(node, dict):
+        out = {k: _close_objects(v) for k, v in node.items()}
+        if out.get("type") == "object":
+            out["additionalProperties"] = False
+        return out
+    if isinstance(node, list):
+        return [_close_objects(v) for v in node]
+    return node
 
 
 @dataclass
@@ -257,9 +184,8 @@ async def call_task[T: BaseModel](
             model=model,
             system=system,
             user=user,
-            schema=transform_schema(output_type),
+            schema=strict_schema(output_type),
             max_tokens=spec.max_tokens,
-            effort=spec.effort,
         )
         usage, served = resp.usage, resp.model or model
         if resp.stop_reason == "refusal":

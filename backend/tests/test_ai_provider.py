@@ -8,15 +8,13 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
-import httpx2
 import pytest
 from cryptography.fernet import Fernet
 
 from app.ai import provider
 from app.ai import secrets as ai_secrets
-from app.ai.client import TIMEOUT_MESSAGE, TIMEOUT_SECONDS, LlmError
+from app.ai.client import TIMEOUT_MESSAGE, LlmError
 from app.ai.provider import OpenAiLlm, is_public_host, reject_link_local, validate_base_url
-from tests.test_ai_client import message
 
 SCHEMA: dict[str, object] = {
     "type": "object",
@@ -140,7 +138,7 @@ def completion(
     content: str | None = '{"answer": "ok"}', finish: str = "stop", **extra: Any
 ) -> httpx.Response:
     body = {
-        "model": "anthropic/claude-sonnet-5-5",
+        "model": "local/qwen3-32b",
         "choices": [{"finish_reason": finish, "message": {"content": content}}],
         "usage": {"prompt_tokens": 11, "completion_tokens": 3},
         **extra,
@@ -166,12 +164,11 @@ def make(handler: Any, retries: int = 0) -> tuple[OpenAiLlm, list[httpx.Request]
 
 async def create(llm: OpenAiLlm) -> Any:
     return await llm.create(
-        model="anthropic/claude-sonnet-5-5",
+        model="local/qwen3-32b",
         system="SYS",
         user="USER",
         schema=SCHEMA,
         max_tokens=100,
-        effort="low",
     )
 
 
@@ -181,14 +178,14 @@ async def test_json_schema_request_and_response() -> None:
     assert resp.text == '{"answer": "ok"}'
     assert resp.stop_reason == "end_turn"
     assert (resp.usage.input_tokens, resp.usage.output_tokens) == (11, 3)
-    assert resp.model == "anthropic/claude-sonnet-5-5"
+    assert resp.model == "local/qwen3-32b"
     req = seen[0]
     assert str(req.url) == "https://gateway.example/v1/chat/completions"
     assert req.headers["authorization"] == f"Bearer {KEY}"
     assert set(req.headers) >= {"authorization", "content-type"}
     assert "referer" not in req.headers and "http-referer" not in req.headers
     body = json.loads(req.content)
-    assert body["model"] == "anthropic/claude-sonnet-5-5"
+    assert body["model"] == "local/qwen3-32b"
     assert body["max_tokens"] == 100
     assert body["messages"] == [
         {"role": "system", "content": "SYS"},
@@ -261,7 +258,7 @@ async def test_overload_log_has_status_code_only(
         await create(llm)
     assert f"type=Status{status}" in caplog.text
     assert f"HTTP {status}" in e.value.message
-    assert "gateway.example" in e.value.message and "anthropic/claude-sonnet-5-5" in e.value.message
+    assert "gateway.example" in e.value.message and "local/qwen3-32b" in e.value.message
     assert "MAIL-BODY" not in e.value.message and KEY not in e.value.message
     assert "MAIL-BODY" not in caplog.text and KEY not in caplog.text
 
@@ -382,7 +379,7 @@ async def test_odd_usage_is_bad_output_without_echo(
 )
 async def test_odd_model_name_falls_back_to_requested(served: object) -> None:
     llm, _ = make(lambda r: completion(model=served))
-    assert (await create(llm)).model == "anthropic/claude-sonnet-5-5"
+    assert (await create(llm)).model == "local/qwen3-32b"
 
 
 @pytest.mark.parametrize("served", ["gw/model-2", "x" * 200, "モデル 1"])
@@ -512,50 +509,6 @@ async def test_openai_client_ignores_env_proxy(proxy_env: None) -> None:
     http._transport = httpx.MockTransport(handler)
     await create(llm)
     assert seen == ["http://10.0.0.5:20128/v1/chat/completions"]
-
-
-async def test_anthropic_client_ignores_env_proxy(proxy_env: None) -> None:
-    seen: list[str] = []
-
-    def handler(request: httpx2.Request) -> httpx2.Response:
-        seen.append(str(request.url))
-        return message()
-
-    llm: Any = provider.build_llm(
-        provider.ProviderConfig("anthropic", "http://10.0.0.5:20128", KEY)
-    )
-    http = llm._client._client
-    assert http.trust_env is False
-    assert http._mounts == {}
-    assert http.follow_redirects is False
-    assert http.timeout == httpx2.Timeout(TIMEOUT_SECONDS)
-    http._transport = httpx2.MockTransport(handler)
-    await create(llm)
-    assert seen == ["http://10.0.0.5:20128/v1/messages"]
-
-
-async def test_anthropic_protocol_does_not_follow_redirects() -> None:
-    hits: list[str] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        hits.append(str(request.url))
-        return httpx.Response(307, headers={"location": "http://127.0.0.1:8001/embed"})
-
-    cfg = provider.ProviderConfig("anthropic", "https://gateway.example", KEY)
-    llm = provider.build_llm(cfg)
-    inner = llm._client  # type: ignore[attr-defined]
-    assert inner._client.follow_redirects is False
-    inner._client._transport = httpx.MockTransport(handler)  # type: ignore[assignment]
-    with pytest.raises(LlmError):
-        await llm.create(
-            model="m",
-            system="s",
-            user="u",
-            schema=SCHEMA,
-            max_tokens=10,
-            effort="low",
-        )
-    assert all(u.startswith("https://gateway.example") for u in hits)
 
 
 def test_key_hint_hides_short_keys() -> None:

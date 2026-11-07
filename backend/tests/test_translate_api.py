@@ -172,11 +172,7 @@ async def test_requires_csrf(client: AsyncClient, llm: FakeLlm, world: SimpleNam
     assert llm.requests == []
 
 
-async def test_not_configured_503(
-    api: AsyncEngine, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")  # không còn được đọc
-    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "x")
+async def test_not_configured_503(api: AsyncEngine, world: SimpleNamespace) -> None:
     app = create_app(api, ml=FakeMl(), web_dist=None)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         await login(c, "a@example.com")
@@ -188,10 +184,7 @@ async def test_saved_translation_works_without_ai_configured(
     api: AsyncEngine,
     world: SimpleNamespace,
     owner_engine: Engine,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")  # không còn được đọc
-    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "x")
     with owner_engine.begin() as conn:
         add_translation(conn, world.a, world.est)
     app = create_app(api, ml=FakeMl(), web_dist=None)

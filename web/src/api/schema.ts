@@ -574,9 +574,9 @@ export interface components {
     AiProviderCustom: {
       /**
        * Protocol
-       * @enum {string}
+       * @constant
        */
-      protocol: "anthropic" | "openai";
+      protocol: "openai";
       /** Base Url */
       base_url: string;
       /** Api Key Set */
@@ -2630,9 +2630,9 @@ export interface operations {
         "application/json": {
           /**
            * Protocol
-           * @enum {string}
+           * @constant
            */
-          protocol: "anthropic" | "openai";
+          protocol: "openai";
           /** Base Url */
           base_url: string;
           /** Api Key */

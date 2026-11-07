@@ -521,7 +521,7 @@ class UserAiProvider(Base):
     """Nhà cung cấp AI tùy chỉnh của từng người; API key đã mã hóa (spec 24 mục 4, 5)."""
 
     __tablename__ = "user_ai_provider"
-    __table_args__ = (CheckConstraint("protocol IN ('anthropic', 'openai')", name="protocol"),)
+    __table_args__ = (CheckConstraint("protocol = 'openai'", name="protocol"),)
 
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True

@@ -177,3 +177,32 @@ def test_migration_drops_tier(owner_engine: Engine, api_engine: Engine, clean: N
     finally:
         truncate_mail_tables(owner_engine)
         run_alembic("upgrade", "head")
+
+
+def test_migration_keeps_only_openai_protocol(owner_engine: Engine, clean: None) -> None:
+    insert = text(
+        "insert into user_ai_provider (user_id, protocol, base_url, api_key_enc) "
+        "values (:u, :p, :url, 'enc')"
+    )
+    run_alembic("downgrade", "0020")
+    try:
+        with owner_engine.begin() as conn:
+            a = add_user(conn, "a@example.com")
+            b = add_user(conn, "b@example.com")
+            conn.execute(insert, {"u": a, "p": "anthropic", "url": "http://10.0.0.5:20128"})
+            conn.execute(insert, {"u": b, "p": "openai", "url": "http://10.0.0.6:20128/v1"})
+        run_alembic("upgrade", "head")
+        with owner_engine.connect() as conn:
+            rows = conn.execute(
+                text("select user_id, protocol, base_url, api_key_enc from user_ai_provider")
+            ).all()
+        # Dòng cũ đổi giao thức, giữ URL và key đã mã hóa.
+        assert sorted(tuple(r) for r in rows) == [
+            (a, "openai", "http://10.0.0.5:20128", "enc"),
+            (b, "openai", "http://10.0.0.6:20128/v1", "enc"),
+        ]
+        with pytest.raises(IntegrityError), owner_engine.begin() as conn:
+            conn.execute(text("update user_ai_provider set protocol = 'anthropic'"))
+    finally:
+        truncate_mail_tables(owner_engine)
+        run_alembic("upgrade", "head")

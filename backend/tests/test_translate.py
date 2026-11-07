@@ -163,7 +163,7 @@ async def test_result_metadata(
     assert r.model == "test-model" and r.prompt_version == 2
     assert len(r.source_hash) == 32
     assert len(r.notes) == 5
-    assert llm.requests[0]["max_tokens"] == 16_000 and llm.requests[0]["effort"] == "low"
+    assert llm.requests[0]["max_tokens"] == 16_000
     with owner_engine.connect() as conn:
         rows = conn.execute(text("select task, status from ai_calls")).all()
     assert [tuple(x) for x in rows] == [("translate", "ok")]

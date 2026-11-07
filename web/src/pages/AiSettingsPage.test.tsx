@@ -79,9 +79,8 @@ describe("AiSettingsPage", () => {
     renderPage();
     expect(await screen.findByText(/Chưa cấu hình AI/)).toBeInTheDocument();
     expect(await screen.findByText("Tháng này chưa gọi AI lần nào.")).toBeInTheDocument();
-    expect(screen.queryByText(/ANTHROPIC_API_KEY/)).toBeNull();
     expect(screen.queryByText(/Che thông tin/)).toBeNull();
-    expect(screen.queryByText(/Haiku|Sonnet|Opus/)).toBeNull();
+    expect(screen.queryByLabelText("Giao thức")).toBeNull();
     expect(screen.queryByRole("radio")).toBeNull();
     expect(screen.queryByText(/Ước tính/)).toBeNull();
     expect(screen.queryByText(/USD|\$/)).toBeNull();

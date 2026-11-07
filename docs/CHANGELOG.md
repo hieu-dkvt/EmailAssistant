@@ -2,6 +2,26 @@
 
 Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở trên. Chi tiết từng chức năng: [docs/superpowers/specs/README.md](superpowers/specs/README.md). Bản ghi chi tiết từng bước (ruling, review) nằm trong `.superpowers/sdd/*/progress.md` (không commit).
 
+## 2026-11-05: chỉ còn giao thức tương thích OpenAI, bỏ thông tin nhà cung cấp AI ngoài (spec 28 mục 14)
+
+### Quyết định của người dùng
+- Dùng model nội bộ nên các vấn đề bảo mật, che dữ liệu khi gửi AI không cần; bỏ thông tin về nhà cung cấp AI bên ngoài khỏi tài liệu và chú thích code.
+- **Bỏ hẳn giao thức thứ hai** (Messages API của nhà cung cấp ngoài), chỉ còn giao thức tương thích OpenAI (9router).
+- **Sửa cả tài liệu lịch sử** (spec, plan, CHANGELOG cũ): xóa spec 20 (che thông tin) và các plan đã chạy xong `2026-10-25-ai-provider.md`, `2026-10-31-mail-translation.md`, `2026-11-01-internal-model.md` (khôi phục được từ git); spec 17, 21, 22, 24 viết lại theo code hiện tại; spec 26, 27, 28, kế hoạch, CHANGELOG bỏ các đoạn về che và tên nhà cung cấp ngoài.
+- Giữ quy tắc "Claude Code không đọc mail thật": quy tắc này nói về công cụ lập trình, không phải AI của sản phẩm.
+
+### Đã làm
+- Backend: xóa client SDK riêng, bỏ phụ thuộc `anthropic` và `httpx2`; `build_llm` luôn dựng `OpenAiLlm`. `call_task` lấy schema từ `strict_schema` (`client.py`), schema gửi đi giữ nguyên. Bỏ tham số `effort` (gateway OpenAI không dùng).
+- Migration 0021: dòng `user_ai_provider` có giao thức cũ đổi sang `openai` (giữ URL, key), CHECK chỉ nhận `openai`. API `protocol` chỉ nhận `"openai"` (schema API đổi: chỉ web bị ảnh hưởng, collector không).
+- Web: Cài đặt AI bỏ ô chọn giao thức; chú thích ô URL nói rõ gateway tương thích OpenAI, thường kết thúc bằng `/v1`. Sinh lại `web/openapi.json`, `web/src/api/schema.ts`.
+- Test: viết lại `tests/test_ai_client.py` (`strict_schema`, `served_model`), thêm test migration 0021 và ca `protocol` cũ bị 422, bỏ test của client cũ và các biến môi trường của nó; tên model trong test đổi sang tên giả của model nội bộ.
+- Tài liệu: `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI"), `README.md`, `email-assistant-plan.md`, `docs/progress-2026-10-18.md`, danh mục spec, spec 17, 21, 22, 24, 26, 27, 28, kế hoạch spec 25 và 27.
+
+### Người dùng cần làm sau khi cập nhật code
+1. Dừng API và worker, `uv sync --directory backend`, rồi `uv run --directory backend alembic upgrade head` (migration 0021).
+2. `npm --prefix web run build`.
+3. Nếu trước đây chọn giao thức cũ ở Cài đặt AI: kiểm tra URL gốc là endpoint tương thích OpenAI (thường thêm `/v1`), bấm "Kiểm tra kết nối".
+
 ## 2026-11-03: đo reranker và eval trên embedding thật (spec 27)
 
 ### Đã làm
@@ -43,12 +63,12 @@ Ghi lại những gì đã làm, đã đổi và đã xử lý, mới nhất ở
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - `EXACT_SCAN_MAX_CHUNKS = 20_000` (bench: trung vị 72 ms, lớn nhất 241 ms), `CONTEXT_MAX_CHARS = 24_000`, `SOURCE_MAX_CHARS = 3_000`, `PREVIOUS_MAX_CHARS = 1_200`, `MIN_EXPANSION_CHARS = 200`, `RERANK_CANDIDATES = 40`, `RERANK_TIMEOUT_SECONDS = 30`, `m = 16`, `ef_construction = 128`.
-- Spec 28 đã bỏ che nên các yêu cầu che trong spec 27 và kế hoạch không áp dụng; kiểm thử đầu cuối thay "không còn tên người" bằng "có `<previous_mail>`, chỉ mail của dự án, không có mail người dùng khác".
+- Spec 28 đã bỏ che thông tin nên các yêu cầu che trong spec 27 và kế hoạch không áp dụng; kiểm thử đầu cuối kiểm "có `<previous_mail>`, chỉ mail của dự án, không có mail người dùng khác".
 - `create_app` của ml-service chỉ thêm `load_reranker` (không còn `load_recognizer`).
 
 ### Đã xử lý sau review
 - Test mail chưa embed của dự án (chèn link sau `process_user`), test EXPLAIN của đường quét chính xác (có đối chứng), bench sang vector có cụm, `DROP INDEX ... _new` đầu migration 0020, test RLS của mail trước không dùng DDL, thêm test mail dài, `OverflowError` khi điểm rerank là số nguyên rất lớn. Chi tiết: spec 27 mục 15.
-- Security review và final review (2026-11-02, 0 Critical): tag giả `</source>` chen ký tự vô hình, khoảng trắng dài hoặc `＜` bị vô hiệu hóa (cả tag dịch); mail trước chọn theo thread là chủ ý; helper `embed_text` dùng chung; thêm test đếm phạm vi một lần, log rerank; sửa các chỗ spec còn viết theo NER/`Masker`, thread liên quan, `_retrieve`, eval 40 mail.
+- Security review và final review (2026-11-02, 0 Critical): tag giả `</source>` chen ký tự vô hình, khoảng trắng dài hoặc `＜` bị vô hiệu hóa (cả tag dịch); mail trước chọn theo thread là chủ ý; helper `embed_text` dùng chung; thêm test đếm phạm vi một lần, log rerank; sửa các chỗ spec còn viết theo NER, thread liên quan, `_retrieve`, eval 40 mail.
 
 ### Còn để sau
 - Reranker vẫn tắt: chờ người dùng quyết định tải model `BAAI/bge-reranker-v2-m3` (1,1 GB) và chạy eval có dòng `hybrid_or_rerank`, so với tiêu chí ở spec 27 mục 10.
@@ -68,14 +88,14 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 
 ### Đã làm
 - URL gateway: `validate_base_url` nhận `http` và `https` tới mọi địa chỉ (LAN, localhost, công cộng), chỉ từ chối URL sai dạng, IP viết tắt và link-local (`reject_link_local`). `AiProviderCustom.public_host` và `Alert` cảnh báo trên Cài đặt AI khi host là địa chỉ công cộng.
-- Bỏ khóa mặc định: backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_*`. `LlmResolver.for_user` trả `None` khi chưa nhập nhà cung cấp: `/ask`, dịch tay → 503 `ai_not_configured`, job dịch dừng. Câu hỏi còn treo ở spec 26 (job dịch rơi về khóa môi trường) không còn.
-- Bỏ ba cấp Haiku/Sonnet/Opus và giá ước tính; mỗi tác vụ chỉ có tên model người dùng nhập. Migration 0019: xóa dòng `user_ai_settings` chỉ có cấp, `DROP COLUMN tier`, `model NOT NULL`, cấp `DELETE` cho `app_api`.
-- Bỏ che thông tin: xóa `Masker` (`masking.py`, `names.py`, `people.py`); `/ask` và dịch gửi text gốc; thêm `app/ai/text.py` (`cut_text`); `AskResult` bỏ `mask_counts`; `TRANSLATE_PROMPT_VERSION` lên 2. Dịch không còn gọi ml-service.
+- Bỏ khóa mặc định: backend không đọc khóa, URL hay tên model AI từ biến môi trường. `LlmResolver.for_user` trả `None` khi chưa nhập nhà cung cấp: `/ask`, dịch tay → 503 `ai_not_configured`, job dịch dừng. Câu hỏi còn treo ở spec 26 (job dịch rơi về khóa môi trường) không còn.
+- Bỏ ba cấp model và giá ước tính; mỗi tác vụ chỉ có tên model người dùng nhập. Migration 0019: xóa dòng `user_ai_settings` chỉ có cấp, `DROP COLUMN tier`, `model NOT NULL`, cấp `DELETE` cho `app_api`.
+- Bỏ che thông tin: xóa code che; `/ask` và dịch gửi text gốc; thêm `app/ai/text.py` (`cut_text`); `TRANSLATE_PROMPT_VERSION` lên 2. Dịch không còn gọi ml-service.
 - ml-service: xóa `POST /ner`, `app/ner.py`, spaCy, GiNZA. Đo lại trên máy dev (i5-8500, 15,8 GB RAM): khởi động khoảng 39 giây, bộ nhớ private khoảng 3,2 GB. Số cũ khoảng 4 GB (kèm NER) đo trên máy khác (i5-1235U, 7,7 GB RAM): không so sánh được, chưa biết gỡ NER bớt bao nhiêu.
-- Web: Cài đặt AI bỏ ba cấp và thẻ "Che thông tin", luôn hiện "Mail không che sẽ gửi tới <host>"; Hỏi đáp bỏ chữ "đã che".
-- Chạy thử đầu cuối trên `mailassist_test` với gateway giả `127.0.0.2`: request có text gốc, không có nhãn, `model` đúng tên đã nhập; đặt `ANTHROPIC_API_KEY` giả rồi xóa nhà cung cấp thì `/ask` và dịch trả 503 `ai_not_configured`, không có request nào ra ngoài (spec 28 mục 10).
-- Kiểm tra cuối (sau đợt sửa review): backend 900 test (đầu đợt 28 có 1.051, bớt phần test che đã xóa cùng code; trước đợt sửa review 835), ml-service 13 test, web 109 test, ruff, pyright, ESLint, Prettier, `tsc` và build web sạch.
-- Tài liệu: spec 28 (xong, mục 10 kết quả đo, mục 11 quyết định của người viết), dòng cập nhật ở đầu spec 17, 20, 21, 22, 24, 26, 27, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI" viết lại), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`.
+- Web: Cài đặt AI bỏ ba cấp và thẻ che thông tin, luôn hiện "Mail không che sẽ gửi tới <host>".
+- Chạy thử đầu cuối trên `mailassist_test` với gateway giả `127.0.0.2`: request có text gốc, `model` đúng tên đã nhập; xóa nhà cung cấp thì `/ask` và dịch trả 503 `ai_not_configured`, không có request nào ra ngoài (spec 28 mục 10).
+- Kiểm tra cuối (sau đợt sửa review): backend 900 test, ml-service 13 test, web 109 test, ruff, pyright, ESLint, Prettier, `tsc` và build web sạch.
+- Tài liệu: spec 28 (xong, mục 10 kết quả đo, mục 11 quyết định của người viết), dòng cập nhật ở đầu spec 17, 21, 22, 24, 26, 27, danh mục spec, `CLAUDE.md` gốc, `backend/CLAUDE.md` (mục "Gọi AI" viết lại), `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`.
 
 ### Quyết định của người dùng
 - Làm theo quyết định 2026-11-01 (model nội bộ, ô URL nhận mọi địa chỉ, bỏ che).
@@ -89,15 +109,14 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 
 ### Đã xử lý sau review
 - Sửa spec 28 mục 5: giới hạn thân mail không phải `SOURCE_LIMITS` (hằng đó chỉ giữ From, To, Cc, Subject) mà là đoạn ≤ 800 ký tự (`/ask`) và 12.000 ký tự (dịch).
-- **Client AI đi theo proxy của môi trường** (Critical): có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail chưa che và API key đi qua proxy, kể cả địa chỉ LAN. Cả hai client đặt `trust_env=False`; giao thức `anthropic` đổi từ `DefaultAsyncHttpxClient` sang `httpx2.AsyncClient` vì lớp cũ vẫn gắn proxy. `httpx2` thành dependency chính của backend.
-- SDK `anthropic` vẫn đọc `ANTHROPIC_CUSTOM_HEADERS`: xóa sau khi dựng client, có test canh khi nâng SDK.
-- **Một mail gateway không dịch xong không còn chặn cả hàng dịch.** Mã lỗi mới `ai_timeout` (503) cho hết giờ đọc phản hồi, không thử lại ở cả hai giao thức; job ghi `retry` chờ tối đa 60 phút, không bao giờ `failed`, đi tiếp mail sau. Hết giờ kết nối vẫn là `ai_unavailable`. Web có chữ riêng cho `ai_timeout`.
+- **Client AI đi theo proxy của môi trường** (Critical): có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail và API key đi qua proxy, kể cả địa chỉ LAN. Client đặt `trust_env=False`.
+- **Một mail gateway không dịch xong không còn chặn cả hàng dịch.** Mã lỗi mới `ai_timeout` (503) cho hết giờ đọc phản hồi, không thử lại; job ghi `retry` chờ tối đa 60 phút, không bao giờ `failed`, đi tiếp mail sau. Hết giờ kết nối vẫn là `ai_unavailable`. Web có chữ riêng cho `ai_timeout`.
 - Prompt dịch: glossary được ưu tiên hơn quy tắc tên riêng (giữ `TRANSLATE_PROMPT_VERSION` = 2 vì chưa phát hành).
 - `usage` sai dạng từ gateway thành `ai_bad_output`, không còn đưa chuỗi của gateway vào traceback; `/ai/provider/test` trả 500 `provider_test_failed` với lỗi lạ, chỉ log tên lớp.
 - `validate_base_url` bỏ dấu chấm cuối trước khi xét host, từ chối ký tự điều khiển và khoảng trắng. Tên model do gateway trả chỉ nhận chuỗi in được, tối đa 200 ký tự.
 - `load_provider`, `delete_provider`, `user_models` tự lọc `user_id`, không chỉ dựa vào RLS. `create_app` bỏ `app.state.llm`.
 - Trang Hỏi đáp không còn khẳng định gửi cho model nội bộ (ô URL nhận mọi địa chỉ).
-- Test: `/ask` log đi đủ hai lượt qua client thật, cô lập nhà cung cấp với một `LlmResolver`, biến môi trường đặt trước `create_app`.
+- Test: `/ask` log đi đủ hai lượt qua client thật, cô lập nhà cung cấp với một `LlmResolver`.
 - Tài liệu: sửa quyền cột ở spec 28 (migration là `GRANT DELETE`), phạm vi `reject_link_local`, bỏ cách nói gỡ NER bớt 0,8 GB, thêm các giới hạn ở spec 28 mục 8, thêm chỉ dẫn đầu spec 27 và kế hoạch 27.
 
 ### Người dùng cần làm sau khi cập nhật code
@@ -106,11 +125,11 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 3. `npm --prefix web install`, `npm --prefix web run build`: `web/dist` không theo git, web cũ gọi API đã đổi sẽ lỗi.
 4. Khởi động lại ml-service, API và worker.
 5. Ở Cài đặt AI nhập URL gateway, API key và tên model cho từng tác vụ. Dòng cấu hình chỉ có cấp bị xóa nên `/ask` và dịch báo thiếu tên model cho tới khi nhập; trang không tự báo tác vụ nào thiếu. Cần `$env:PMM_SECRET_KEY` để lưu key.
-6. Bản dịch cũ hiện nhãn "cũ" và có thể còn nhãn che; bấm "Dịch lại" nếu cần.
+6. Bản dịch cũ hiện nhãn "cũ"; bấm "Dịch lại" nếu cần.
 
 ### Còn để sau
 - Gọi thử gateway thật, đo chất lượng và khả năng output có cấu trúc của model nội bộ.
-- Dòng `message_auto_runs` đã `failed` với mã `mask_unstable` giữ nguyên `failed` (dịch tay hoặc "Thử lại").
+- Dòng `message_auto_runs` đã `failed` với mã lỗi cũ (trước spec 28) giữ nguyên `failed` (dịch tay hoặc "Thử lại").
 - Cảnh báo địa chỉ công cộng theo URL đã lưu, chưa theo URL đang gõ.
 - Chặn metadata cloud ngoài link-local (`fd00:ec2::254`, `100.100.100.200`): chờ quyết định nơi đặt server.
 - Gateway `https` với CA riêng: `trust_env=False` tắt `SSL_CERT_FILE`, giao thức `openai` chỉ tin `certifi`. Không làm cấu hình CA riêng (người dùng: mạng nội bộ đã chặn ra ngoài; spec 28 mục 8).
@@ -125,27 +144,27 @@ Thực hiện quyết định của người dùng ngày 2026-11-01 ở mục b�
 ## 2026-11-01: chuyển sang model nội bộ, không còn yêu cầu che thông tin (mới đổi tài liệu, code chưa đổi)
 
 ### Quyết định của người dùng
-- **Không dùng API ngoài, AI chạy trên model local nội bộ**, gọi qua gateway hoạt động như 9router. Thay cho: được gửi qua Claude API (2026-10-19), gateway công cộng (2026-10-25), OpenRouter để thử (2026-10-31).
-- **Không cần che thông tin, các ràng buộc NDA về gửi AI ra ngoài không còn cần thiết**, vì mail không ra ngoài. Thay cho quyết định bắt buộc che (2026-10-19) và "Che thông tin giữ nguyên dù model là nội bộ" (2026-10-31).
+- **Không dùng API ngoài, AI chạy trên model local nội bộ**, gọi qua gateway hoạt động như 9router. Thay cho các quyết định trước đó về API ngoài (2026-10-19, 2026-10-25, 2026-10-31).
+- **Không cần che thông tin**, vì mail không ra ngoài. Thay cho các quyết định trước đó về che thông tin (2026-10-19, 2026-10-31).
 - **Giữ màn hình Cài đặt AI**: người dùng nhập URL gateway, API key, model.
 - **Làm trực tiếp trên `master`**, không tạo nhánh riêng. Spec 25, 26 đã merge qua PR #1, #2.
 - **Ô URL nhận mọi địa chỉ** (chọn sau khi được nêu rủi ro nhập nhầm URL công cộng): code không chặn API ngoài, "không gửi mail ra API ngoài" là quy ước do người cấu hình đảm bảo.
 
 ### Đã làm
-- Rà soát toàn bộ tài liệu theo hai quyết định trên: `CLAUDE.md` gốc, `backend/CLAUDE.md`, `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`, `.claude/` (security-reviewer, mẫu spec, skill survey-profile), danh mục spec, spec 12, 17, 20, 21, 22, 24, 26, 27 và kế hoạch 27, `backend/Mail automation spec.md`.
+- Rà soát toàn bộ tài liệu theo hai quyết định trên: `CLAUDE.md` gốc, `backend/CLAUDE.md`, `ml-service/CLAUDE.md`, `web/CLAUDE.md`, `email-assistant-plan.md`, `.claude/` (security-reviewer, mẫu spec, skill survey-profile), danh mục spec, spec 12, 17, 21, 22, 24, 26, 27 và kế hoạch 27, `backend/Mail automation spec.md`.
 - Viết spec 28 (`2026-11-01-internal-model-design.md`), đã duyệt thiết kế, chưa có code. Spec 27 làm sau spec 28, migration đổi thành 0020.
-- Không sửa code: `Masker` vẫn chạy, `ANTHROPIC_API_KEY` vẫn dùng được, gateway trong LAN vẫn bị từ chối.
+- Không sửa code ở mục này (làm ở spec 28, mục trên).
 
 ### Quyết định của người viết (người dùng có thể đổi)
-- Spec đã xong giữ nguyên nội dung vì mô tả code hiện tại, chỉ thêm dòng cập nhật ở đầu. Lịch sử CHANGELOG, kế hoạch đã chạy xong, `docs/progress-2026-10-18.md` không sửa.
-- Giữ các nguyên tắc không phụ thuộc việc che: chỉ đọc mbox, không tự gửi mail, không commit mail thật, không ghi nội dung mail vào log, không lưu nội dung file đính kèm, RLS. Giữ "Claude Code không đọc mail thật" vì Claude Code gửi mọi thứ nó đọc tới Anthropic, tức là một API ngoài.
-- **Bỏ `Masker` và khóa mặc định `ANTHROPIC_API_KEY` trong cùng một đợt**: nếu không, người chưa nhập gateway sẽ gửi mail chưa che tới Anthropic.
-- Bỏ khỏi kế hoạch: Voyage AI dự phòng, Message Batches API, tool runner của SDK `anthropic` (đều cần API ngoài hoặc SDK ngoài).
+- Spec đã xong giữ nguyên nội dung vì mô tả code hiện tại, chỉ thêm dòng cập nhật ở đầu. (Từ 2026-11-05 tài liệu lịch sử cũng được sửa, xem mục 2026-11-05.)
+- Giữ các nguyên tắc không phụ thuộc việc che: chỉ đọc mbox, không tự gửi mail, không commit mail thật, không ghi nội dung mail vào log, không lưu nội dung file đính kèm, RLS. Giữ "Claude Code không đọc mail thật" vì Claude Code gửi mọi thứ nó đọc ra ngoài.
+- **Bỏ che thông tin và khóa AI mặc định trong cùng một đợt**: nếu không, người chưa nhập gateway sẽ gửi mail chưa che ra API ngoài.
+- Bỏ khỏi kế hoạch: Voyage AI dự phòng và các chức năng chỉ có ở API ngoài.
 - Giữ "mỗi bản mail chỉ gọi AI một lần": người dùng chưa quyết định đổi.
 - Spec 28: giữ chặn địa chỉ link-local (metadata cloud), cảnh báo trên màn hình khi host là địa chỉ công cộng, xóa cột `user_ai_settings.tier`, bỏ giá ước tính.
 
 ### Còn để sau
-- Làm spec 28: nhận gateway trong LAN, bỏ khóa mặc định, bỏ `Masker`, NER, phần giao diện liên quan, đổi ba cấp Haiku/Sonnet/Opus thành tên model. Sau đó mới làm spec 27.
+- Làm spec 28: nhận gateway trong LAN, bỏ khóa mặc định, bỏ che thông tin, NER, phần giao diện liên quan, đổi ba cấp model thành tên model. Sau đó mới làm spec 27.
 - **Chờ người dùng:** có nới "mỗi bản mail chỉ gọi AI một lần" không.
 - Câu hỏi "job dịch rơi về khóa môi trường mặc định khi xóa nhà cung cấp" (spec 26) sẽ hết khi bỏ khóa môi trường.
 
@@ -155,7 +174,7 @@ Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên 
 
 ### Đã làm
 - Migration 0018: cột `customer_domains`, `processed_source_id`, `ai_since` của `projects`; bảng `glossary_terms`, `message_translations`, `message_auto_runs`.
-- Dịch: `app/ai/translate.py` (che → glossary → `call_task("translate")` → kiểm tra → thay ngược), nút Dịch / Dịch lại trên web (`POST /messages/{id}/translate`), job nền `translate_sweep` (mỗi phút) và `translate_user` (queue `translate`, role `app_api` qua `user_session`), `app/worker.py` chạy hai vòng worker trong một process. Tiêu chí tự động: mail thuộc dự án, From thuộc domain khách, nằm trong Inbox, từ mốc 14 ngày của dự án.
+- Dịch: `app/ai/translate.py` (glossary → `call_task("translate")` → kiểm tra), nút Dịch / Dịch lại trên web (`POST /messages/{id}/translate`), job nền `translate_sweep` (mỗi phút) và `translate_user` (queue `translate`, role `app_api` qua `user_session`), `app/worker.py` chạy hai vòng worker trong một process. Tiêu chí tự động: mail thuộc dự án, From thuộc domain khách, nằm trong Inbox, từ mốc 14 ngày của dự án.
 - Glossary chung và theo dự án (`/glossary`, nhập CSV hoặc dán nhiều dòng có xem trước, xuất CSV), trang `/settings/glossary`, tab Glossary trong cấu hình dự án, thêm từ đoạn bôi đen trong thẻ mail, file hạt giống `backend/seed/glossary-it-ja-vi.csv` (151 thuật ngữ công khai).
 - Chuyển mail đã dịch sang folder dự án **chỉ trên web** (`message_auto_runs.target_source_id`), `move`, `move-back`, `auto-retry`; folder hiệu lực áp cho bộ lọc folder, nhãn folder, `GET /folders`. Thunderbird vẫn thấy mail ở Inbox.
 - Web: hai cột bản gốc / bản dịch, cảnh báo kiểm tra sau dịch, `MovePicker`, khối "Dịch tự động" ở cấu hình dự án, `GlossaryPage`.
@@ -167,30 +186,26 @@ Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên 
 - Worker hai vòng, vòng nào kết thúc thì dừng vòng kia (treo khi tắt trên Linux nếu không).
 - Thêm trường `projects` và `move_projects` vào `ThreadTranslationItem` để ô chọn dự án và phạm vi glossary chỉ hiện dự án của mail.
 - Sửa thẳng migration 0018 (bỏ `SELECT` thừa của `app_worker`) vì chưa phát hành; `mailassist` và `mailassist_proj` mới ở 0017.
-- Giữ phần bỏ đuôi chuỗi liền dài hơn phần đệm khỏi đoạn gửi của `/ask`: thà thiếu ngữ cảnh còn hơn lọt mảnh chưa che.
-- Che thừa cạnh chữ Nhật và từ thường (hệ quả của ranh giới từ chỉ xét chữ Latin) được chấp nhận.
 
 ### Đã xử lý sau review (review toàn nhánh và security-reviewer, 2026-11-01)
-- **Che thông tin, cũng ảnh hưởng `/ask`:** (1) cắt sau khi che thay vì trước, che tối đa 40.000 ký tự rồi `cut_masked`; (2) ranh giới từ của EMAIL, URL, PHONE, MONEY và mẫu tên chỉ xét chữ Latin nên địa chỉ, số điện thoại liền sau chữ Nhật được che; (3) chuỗi trên 500 ký tự không vào từ điển, URL dài không còn làm `RecursionError`; (4) **`/ask` lọt giá trị nguyên vẹn do cắt đoạn trước khi che** (nghiêm trọng, có sẵn từ spec 21): nay che theo cửa sổ ±200 ký tự (`Masker.mask(keep=…)`, `_chunk_range`), kể cả URL dài chưa mã hóa có chữ Nhật (0 trên 975 điểm cắt lọt, trước đó 449); (5) `_person` và header `/ask` che tới trần ingest rồi mới cắt. Spec 20 mục 10, spec 21 mục 11. **Spec 27 phải giữ `keep` và `_chunk_range` khi đổi `SOURCES`.**
 - Bẫy `no_folder`: mail dịch trước khi chọn folder nay được xét lại khi lưu dự án; `MovePicker` hiện cho mọi mail `done` chưa có đích.
 - Mail ở hai Inbox: dùng "mọi Inbox" thay cho `from_source_id`; `GET /folders` không đếm đôi; viết lại `LIST_FOLDERS` bằng `LEFT JOIN … IS NULL` (60 ms thay vì 1.562 ms).
 - Glossary: khớp katakana nửa độ rộng và NFD; xuất chặn ký tự công thức full-width; nhập bỏ BOM.
 - `app_worker` bỏ quyền `SELECT` trên `glossary_terms`, `message_translations`.
-- Job: lỗi lạ thành `translate_failed` thay vì lỗi mãi ở mail cũ nhất, `mask_unstable` là lỗi theo mail, `httpx.HTTPError` không tính lượt thử; pytest có `faulthandler_timeout = 300` sau một lần treo 6 giờ không tái hiện được.
+- Job: lỗi lạ thành `translate_failed` thay vì lỗi mãi ở mail cũ nhất, `httpx.HTTPError` không tính lượt thử; pytest có `faulthandler_timeout = 300` sau một lần treo 6 giờ không tái hiện được.
 - Giao diện: hiện mã lỗi cạnh "Đang chờ dịch lại tự động"; nút "Chuyển lại Inbox" kiểu viền.
 
 ### Còn để sau
 - **Chờ người dùng quyết định:** khi người dùng xóa nhà cung cấp của mình, job dịch rơi về khóa môi trường mặc định và vẫn gọi AI; có nên chặn không.
 - Gọi thử gateway thật; move thật qua IMAP (đổi nguyên tắc "không ghi lên mail server"); cho phép gateway ở máy khác trong LAN.
 - Chưa đo lại `GET /folders` và lọc theo folder dưới phiên RLS sau thay đổi "mọi Inbox" (số đo mới bằng superuser).
-- Các điểm nhỏ ở spec 26 mục 15: chất lượng dịch giảm vì che thừa, thuật ngữ thêm từ đoạn bôi đen vẫn còn sau khi xóa mail, `ai_bad_request` thử lại mỗi giờ mãi, bộ đếm lượt thử dùng chung, xóa thuật ngữ không có xác nhận, dữ liệu mẫu `data/project-test-profile` có ngày 9 nên không qua mốc 14 ngày.
+- Các điểm nhỏ ở spec 26 mục 15: thuật ngữ thêm từ đoạn bôi đen vẫn còn sau khi xóa mail, `ai_bad_request` thử lại mỗi giờ mãi, bộ đếm lượt thử dùng chung, xóa thuật ngữ không có xác nhận, dữ liệu mẫu `data/project-test-profile` có ngày 9 nên không qua mốc 14 ngày.
 - Môi trường: `npm run lint` bước prettier báo 13 file CRLF có từ trước; `npm run gen:api` cần `$env:PYTHONUTF8 = "1"` trên máy này.
 
 ## 2026-10-31: thiết kế dịch mail tự động và folder dự án (spec 26; làm xong ngày 2026-11-01, xem mục trên)
 
 ### Quyết định của người dùng (2026-10-31)
 - **Model:** đang dùng OpenRouter để thử, khi vận hành người dùng tự chuyển sang model nội bộ qua gateway kiểu 9router ở máy khác trong mạng nội bộ. Việc chọn model không thuộc phạm vi thiết kế dịch.
-- **Che thông tin giữ nguyên** dù model là nội bộ.
 - **Dịch tự động mail đủ 3 tiêu chí:** thuộc dự án, From thuộc domain khách khai báo ở dự án, nằm trong Inbox. Chỉ từ mốc 14 ngày, mail cũ hơn dịch tay được.
 - **Sau khi dịch, chuyển mail sang folder dự án** chọn ở cấu hình dự án. Đợt này chỉ chuyển trên web, Thunderbird và mail server không đổi. Move thật qua IMAP làm spec riêng sau, lúc đó mới đổi nguyên tắc "không ghi lên mail server".
 - Làm trước phần còn lại của giai đoạn 6.
@@ -198,22 +213,21 @@ Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Mốc 14 ngày tính theo từng dự án, đặt lần đầu khai báo domain. Mục "Mốc theo người dùng hay theo dự án" của ngày 2026-10-31 chốt tại đây.
 - Mail khớp nhiều folder đích thì ở lại Inbox và hỏi người dùng, theo nguyên tắc spec 25.
-- Glossary theo từng người (chung và theo dự án), so khớp trên text đã che; không có translation memory ở đợt này.
+- Glossary theo từng người (chung và theo dự án); không có translation memory ở đợt này.
 - Kiểm tra sau dịch chỉ cảnh báo, không tự gọi AI lại. Giữ nút dịch tay cho mail ngoài tiêu chí.
 - Job dịch chạy trên queue riêng, dùng role `app_api`.
 
 ### Còn để sau
 - Move thật qua IMAP. Cho phép gateway ở máy khác trong LAN, sửa khi chuyển sang model nội bộ.
 
-## 2026-10-31: bỏ chỗ ghi riêng Claude trong giao diện và tài liệu
+## 2026-10-31: giao diện và tài liệu không ghi riêng tên một nhà cung cấp AI
 
 ### Quyết định của người dùng (2026-10-31)
-- Người dùng đã đặt model bất kỳ ở Cài đặt AI, nên giao diện và tài liệu không còn nói riêng về Claude hay Anthropic. Chờ trả lời hiện "Đang tìm mail và chờ AI trả lời…".
+- Người dùng đã đặt model bất kỳ ở Cài đặt AI, nên giao diện và tài liệu chỉ nói "AI". Chờ trả lời hiện "Đang tìm mail và chờ AI trả lời…".
 
 ### Đã làm
-- Web: `AskPage`, `AiSettingsPage` đổi chữ "Claude" thành "AI" (khối "Nội dung đã gửi cho AI", thông báo gateway, lựa chọn giao thức "Anthropic (Messages API)", placeholder tên model không còn ví dụ Claude). Thông điệp lỗi và docstring backend, ml-service tương tự; schema API sinh lại (`web/openapi.json`).
-- Tài liệu: `CLAUDE.md` gốc, backend, web, ml-service, danh mục spec, spec 20, 21, 22, kế hoạch (bảng công nghệ mục LLM).
-- Không đổi: giao thức `anthropic`/`openai` trong DB và API, SDK `anthropic`, khóa mặc định `ANTHROPIC_API_KEY` (vẫn dùng được khi chưa nhập nhà cung cấp).
+- Web: `AskPage`, `AiSettingsPage` dùng chữ "AI" (khối "Nội dung đã gửi cho AI", thông báo gateway, placeholder tên model). Thông điệp lỗi và docstring backend, ml-service tương tự; schema API sinh lại (`web/openapi.json`).
+- Tài liệu: `CLAUDE.md` gốc, backend, web, ml-service, danh mục spec, spec 21, 22, kế hoạch (bảng công nghệ mục LLM).
 
 ## 2026-10-31: profile mẫu để thử bộ lọc dự án
 
@@ -251,23 +265,23 @@ Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên 
 ## 2026-10-25: nhà cung cấp AI tùy chỉnh (spec 24)
 
 ### Quyết định của người dùng (2026-10-25)
-- **NDA nới thêm: cho phép gửi nội dung mail đã che tới gateway công cộng** (OpenRouter, 9router…), không chỉ Claude API của Anthropic. Việc che 4 nhóm thông tin vẫn bắt buộc. Người dùng chịu trách nhiệm xác nhận với khách; trang Cài đặt AI hiện cảnh báo theo host.
+- **Cho phép dùng gateway tùy chọn** (OpenRouter, 9router…). Trang Cài đặt AI hiện cảnh báo theo host. (Thay bằng quyết định 2026-11-01: chỉ model nội bộ.)
 - **Trang Cài đặt AI cho nhập URL, API key và tên model** để hỏi đáp AI chạy qua các gateway đó.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
 - Cấu hình theo từng người dùng, không dùng chung toàn hệ thống.
 - Khóa mã hóa API key lấy từ biến môi trường `PMM_SECRET_KEY` (Fernet), không tự sinh file khóa; thiếu thì không lưu key.
-- Hai giao thức: `openai` (chat/completions, `json_schema` rồi lùi về `json_object`) và `anthropic`.
+- Giao thức `openai` (chat/completions, `json_schema` rồi lùi về `json_object`). (Giao thức thứ hai đã bỏ ngày 2026-11-05.)
 - `http://` chỉ cho loopback; `https://` mọi host công cộng, chặn IP riêng/metadata/userinfo/query, không theo redirect.
 
 ### Đã làm
 - Migration `0016_ai_provider`: bảng `user_ai_provider` (RLS, key mã hóa), cột `user_ai_settings.model`, `tier` cho phép NULL.
 - Backend: `app/ai/provider.py` (kiểm tra URL, `OpenAiLlm`, `LlmResolver`), `app/ai/secrets.py`, `call_task(custom_model=…)`, `ask(custom_provider=…)`; API `GET/PUT/DELETE /ai/provider`, `POST /ai/provider/test`; `/ai/settings` thêm `custom_provider` và `models`. CLI `gen-secret-key`. Phụ thuộc mới: `cryptography`.
-- Web: khối "Nhà cung cấp AI" (giao thức, URL, API key không hiện lại, Kiểm tra kết nối, Xóa, cảnh báo NDA theo host), ô tên model theo tác vụ khi có provider tùy chỉnh.
-- Kiểm thử: 47 test cho mã hóa, URL, client OpenAI-compatible (gateway giả); 20 test API (key không lộ qua response/log, RLS, che thông tin với provider ngoài, khóa sai); web thêm 1 test.
+- Web: khối "Nhà cung cấp AI" (URL, API key không hiện lại, Kiểm tra kết nối, Xóa, cảnh báo theo host), ô tên model theo tác vụ khi có provider tùy chỉnh.
+- Kiểm thử: 47 test cho mã hóa, URL, client OpenAI-compatible (gateway giả); 20 test API (key không lộ qua response/log, RLS, khóa sai); web thêm 1 test.
 
 ### Đã xử lý sau review
-- security-reviewer (2026-10-25): giao thức `anthropic` theo redirect (có thể đưa key và mail đã che sang host khác) đã tắt; kiểm tra URL thêm tên nội bộ, IP dạng số/hex và phân giải DNS; giới hạn 4 MiB body phản hồi; đóng client cũ; chỉ hiện gợi ý key khi key dài từ 16 ký tự. Chi tiết: spec 24 mục 13.
+- security-reviewer (2026-10-25): client không theo redirect (có thể đưa key và mail sang host khác); kiểm tra URL thêm tên nội bộ, IP dạng số/hex và phân giải DNS; giới hạn 4 MiB body phản hồi; đóng client cũ; chỉ hiện gợi ý key khi key dài từ 16 ký tự. Chi tiết: spec 24 mục 13.
 
 - Chẩn đoán lỗi "Nhà cung cấp AI đang quá tải hoặc lỗi" (2026-10-26): log `ai provider error` nay ghi thêm mã HTTP cuối cùng (`type=Status429`, `Status502`…, không có body) để phân biệt giới hạn tốc độ với lỗi gateway. Log trên máy dev cho thấy `Status429` với model `:free` của OpenRouter (giới hạn tốc độ của gói miễn phí), nên với 429 thông báo nói rõ "giới hạn tốc độ: chờ, đổi model hoặc nạp thêm hạn mức". Theo yêu cầu người dùng, lỗi 429/5xx/mạng của provider kiểu `openai` hiện kèm chi tiết ra màn hình: mã HTTP (hoặc tên lớp lỗi mạng), host, model, số lần thử. Vẫn không chép body phản hồi của gateway.
 
@@ -279,53 +293,42 @@ Thiết kế và quyết định của người dùng ở mục 2026-10-31 bên 
 ## 2026-10-19 → 2026-10-21: giai đoạn 5, tìm kiếm ngữ nghĩa và hỏi đáp AI
 
 ### Quyết định của người dùng (2026-10-19)
-- **NDA: khách cho phép gửi nội dung mail qua Claude API, với điều kiện phải che thông tin nhạy cảm**: email, điện thoại, URL, địa chỉ; tên người; tên công ty, tổ chức; số tiền, số hợp đồng/đơn hàng (chọn cả bốn nhóm). Đã ghi vào kế hoạch (giai đoạn 0, mục 3) và `CLAUDE.md`.
-- **Thêm màn hình cài đặt model AI**: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ.
+- **Thêm màn hình cài đặt model AI**, chọn model theo từng tác vụ.
 
 ### Đã làm
-- Spec 17 (ml-service), 18 (embedding mail), 19 (tìm kiếm hybrid + `eval/`), 20 (che thông tin), 21 (hỏi đáp AI), 22 (cài đặt model AI), 23 (thread liên quan).
-- `ml-service/` (mới, Python 3.12): `/embed` (bge-m3, CPU), `/ner` (GiNZA tiếng Nhật, spaCy tiếng Anh; tiếng Việt không có NER), `/health`; chỉ `127.0.0.1`, kiểm Host, không log text, lỗi không trả lại input.
+- Spec 17 (ml-service), 18 (embedding mail), 19 (tìm kiếm hybrid + `eval/`), 21 (hỏi đáp AI), 22 (cài đặt model AI), 23 (thread liên quan).
+- `ml-service/` (mới, Python 3.12): `/embed` (bge-m3, CPU), `/health` (lúc đó có cả `/ner`, đã bỏ ở spec 28); chỉ `127.0.0.1`, kiểm Host, không log text, lỗi không trả lại input.
 - DB: migration `0015_embeddings_ai`: `message_chunks` (vị trí đoạn trên `body_clean` + `halfvec(1024)`, index HNSW cosine, RLS, `app_api` chỉ đọc, cascade khi xóa mail), `user_ai_settings`, `ai_calls` (model, token, thời gian; không có nội dung).
 - Worker: `embed_sweep` mỗi phút + `embed_user` (job ≤ 10 giây, tự đẩy tiếp; mail mới nhất trước); làm sạch xong mail mới thì embed ngay. CLI `embed-mail`; `mail-stats` có số mail đã/chờ embed.
 - Tìm kiếm: `GET /api/v1/search?mode=hybrid` (nhánh vector + nhánh từ khóa cùng cú pháp ô tìm kiếm, gộp RRF k=60, tối đa 200 kết quả, nhãn khớp từ khóa/ngữ nghĩa, số mail chưa embed). Web: nút "Từ khóa / Ngữ nghĩa" trên trang kết quả.
 - Đánh giá (`eval/retrieval_eval.py`, `eval/questions-sample.jsonl`, kết quả `eval/results-sample.md`): 1.050 mail giả embed bằng bge-m3 thật, 28 câu hỏi Việt/Nhật/Anh. Vector/hybrid: hit@1 0,89, hit@5 0,96, MRR 0,92; từ khóa AND: hit@1 0,18. Chi tiết spec 19 mục 10.
 - Thread liên quan: `GET /api/v1/threads/{id}/similar` (cosine ≥ 0,80, tối đa 5), khối "Thread có thể liên quan" trên trang thread, gộp bằng sửa tay có sẵn.
-- Che thông tin (`app/ai/masking.py`): mẫu regex + từ điển người gửi/nhận của chính người hỏi + tên công ty học từ toàn văn (cả chữ ký) + NER; nhãn nhất quán trong một lần hỏi (`[PERSON_1]`…), lan sang mọi đoạn, che cả câu hỏi; lỗi thì không gửi; thay ngược trên server.
-- Hỏi đáp: `POST /api/v1/ask`: che câu hỏi → Claude phân tích (từ khóa, câu tìm tiếng Nhật, người gửi, khoảng ngày) → tìm 20 đoạn trong phạm vi RLS → che nguồn → Claude trả lời tiếng Việt kèm `[n]` → thay nhãn. Structured outputs; fallback phía server cho Sonnet/Opus; mỗi lần gọi ghi `ai_calls`. Không lưu câu hỏi/câu trả lời. Web: trang "Hỏi AI" (câu trả lời, nguồn, khối "Nội dung đã gửi Claude" để tự kiểm tra việc che, model và token).
-- Cài đặt AI: `GET/PUT /api/v1/ai/settings`, `GET /api/v1/ai/usage`; web: trang "Cài đặt AI" (cấp model từng tác vụ, giá, nhóm thông tin bị che, thống kê tháng).
-- Kiểm thử: backend 517 test (thêm embedding, hybrid, thread liên quan, che thông tin, hỏi đáp với Claude/ml-service giả, client SDK với transport giả, worker embed); ml-service 27 test (API với model giả, NER GiNZA/spaCy thật); web 17 test Vitest; ruff, pyright, ESLint, Prettier, `tsc` sạch.
+- Hỏi đáp: `POST /api/v1/ask`: AI phân tích câu hỏi (từ khóa, câu tìm tiếng Nhật, người gửi, khoảng ngày) → tìm 20 đoạn trong phạm vi RLS → AI trả lời tiếng Việt kèm `[n]`. Structured outputs; mỗi lần gọi ghi `ai_calls`. Không lưu câu hỏi/câu trả lời. Web: trang "Hỏi AI" (câu trả lời, nguồn, khối "Nội dung đã gửi cho AI", model và token).
+- Cài đặt AI: `GET/PUT /api/v1/ai/settings`, `GET /api/v1/ai/usage`; web: trang "Cài đặt AI" (model từng tác vụ, thống kê tháng).
+- Kiểm thử: backend 517 test (thêm embedding, hybrid, thread liên quan, hỏi đáp với AI/ml-service giả, worker embed); ml-service 27 test (API với model giả); web 17 test Vitest; ruff, pyright, ESLint, Prettier, `tsc` sạch.
 
 ### Quyết định của người viết spec (người dùng có thể đổi)
-- NER chạy trong ml-service (không nạp model trong backend). Không làm reranker (CPU quá chậm).
-- Che cả câu hỏi của người dùng (có thể chứa tên khách), không chỉ đoạn mail.
+- Không làm reranker (CPU quá chậm).
 - Không lưu lịch sử hỏi đáp; mỗi câu hỏi độc lập, không stream.
-- Cài đặt model theo từng người dùng; mặc định phân tích = Haiku, trả lời = Sonnet.
+- Cài đặt model theo từng người dùng.
 - Lớp 4 gom thread: gợi ý tính lúc xem trang thread, không có danh sách gợi ý toàn cục.
 - Embed toàn bộ mail (self-host, không tốn tiền); quyết định "phạm vi xử lý AI lần đầu" vẫn để mở cho giai đoạn 6.
 - Nhánh từ khóa của tìm kiếm ngữ nghĩa dùng AND (cú pháp ô tìm kiếm), không dùng "một trong các từ": đo trên bộ giả, OR kéo về mail nhiễu làm MRR giảm từ 0,92 xuống 0,71 (RRF ngang nhau) hay 0,77 (trọng số 0,3); AND giữ nguyên chất lượng của vector và vẫn đẩy mã/cụm chính xác lên đầu.
 - Ngưỡng thread liên quan cosine ≥ 0,80: cần chỉnh trên mail thật (dữ liệu giả sinh hàng loạt nên điểm cao 0,93–0,97).
 
 ### Đã đo (máy dev, CPU, dữ liệu giả)
-- bge-m3 trên CPU i5-1235U: khoảng 0,3 đoạn/giây (đoạn 800 ký tự), câu tìm kiếm 0,4 giây; int8 động không nhanh hơn. Embed lần đầu vài nghìn mail mất vài giờ chạy nền. NER 7–11 giây cho 21 đoạn. Chi tiết spec 17 mục 8.
+- bge-m3 trên CPU i5-1235U: khoảng 0,3 đoạn/giây (đoạn 800 ký tự), câu tìm kiếm 0,4 giây; int8 động không nhanh hơn. Embed lần đầu vài nghìn mail mất vài giờ chạy nền. Chi tiết spec 17 mục 8.
 
 ### Chạy thử (E2E, DB test, dữ liệu giả)
-- Edge headless + backend trên DB test + ml-service thật + Claude **giả** ghi lại request: đăng nhập, tìm ngữ nghĩa câu tiếng Việt ra mail tiếng Nhật (100 kết quả, nhãn "ngữ nghĩa"), trang thread có 5 thread liên quan, Hỏi AI (20 nguồn, `[n]` thành link, khối "Nội dung đã gửi Claude"), lưu cài đặt AI; không có lỗi console/CSP ngoài 401 kiểm tra phiên ở trang đăng nhập.
-- Quét request gửi Claude giả: lần đầu thấy che thừa (`仕様書`, `在庫管理システム`, `From`/`To`) và lọt `Trầnです`; sau khi sửa không còn tên, công ty, tên miền, điện thoại nào của dữ liệu giả.
+- Edge headless + backend trên DB test + ml-service thật + AI **giả** ghi lại request: đăng nhập, tìm ngữ nghĩa câu tiếng Việt ra mail tiếng Nhật (100 kết quả, nhãn "ngữ nghĩa"), trang thread có 5 thread liên quan, Hỏi AI (20 nguồn, `[n]` thành link, khối "Nội dung đã gửi cho AI"), lưu cài đặt AI; không có lỗi console/CSP ngoài 401 kiểm tra phiên ở trang đăng nhập.
 
 ### Đã xử lý sau security review (2026-10-21)
-- **Nghiêm trọng: tên người lọt** qua lời chào + danh xưng (`Chào Anh Tuấn`, `Dear Mr. Tanaka`), `-sama`, `a/c` + tên, tên trong từ điển viết hoa/thường khác, full-width, katakana half-width. Sửa: mẫu lời chào/danh xưng mới, biến thể Title/UPPER, mẫu và từ điển chạy trên bản NFKC (ánh xạ vị trí về text gốc).
-- **Nghiêm trọng: điện thoại, email lọt** (`0912345678`, `+84…`, `03(1234)5678`, dấu `−`, `＠` full-width). Sửa: thêm mẫu, NFKC.
-- Mẫu tiền (`500万`, số sau `金額`/`giá`, `nghìn`, `trăm triệu`, `15k USD`), số hợp đồng (thêm nhãn, mã sau "hợp đồng"), địa chỉ (Việt Nam, Nhật không có tỉnh), tên miền (thêm đuôi, nuốt path).
-- **Regex chạy theo bình phương** (subject 10.000 chữ số: 13 giây, chặn cả API): mọi lượng từ có giới hạn, che chạy ở thread riêng; test 9 chuỗi cố tình dựng (≤ 0,2 giây).
-- NER chọn model theo từng dòng; kiểm nhãn model lúc khởi động; backend coi kết quả NER sai dạng là lỗi. Làm sạch kết quả NER (kính ngữ, "tên" trộn Hán + katakana, từ header).
-- Client Claude ghim `https://api.anthropic.com` (bỏ qua `ANTHROPIC_BASE_URL`/profile), tắt OpenTelemetry của SDK, log SDK ở mức WARNING. ml-service tắt telemetry của FastAPI, bắt lỗi trong endpoint (không để uvicorn log traceback có text), tự offline khi model đã có trong cache.
-- Subject cắt 300 ký tự, To/Cc tối đa 10 người khi embed/che/gửi (mail độc không làm kẹt embedding hay làm `/ask` lỗi). Header của nguồn che từng giá trị riêng.
-- `ML_SERVICE_URL` chỉ nhận loopback hoặc https; embed câu tìm kiếm trước khi mở phiên DB; cache từ điển xóa mục hết hạn; eval đọc mbox chỉ đọc; lời nhắc về prompt injection trên trang Hỏi AI; test CSRF `/ask` và từ điển theo người dùng.
-- **Vòng 2 (rà lại lượt sửa)**: Nghiêm trọng: số điện thoại cuối câu / sau `Tel.` vẫn lọt → sửa ranh giới. Lỗi do lượt sửa trước: lọt `健一様`, `本多様` (lọc `仕様` quá rộng), bỏ hẳn tên NER dài / Hán + katakana, chữ Việt NFD lọt, ngưỡng tiếng Việt theo dòng quá chặt, tự offline Hugging Face không có tác dụng → đã sửa. Thêm: không lan số ngắn (năm/ngày không bị che theo), `ASP.NET` không bị coi là tên miền, `TANAKA-san`, `4丁目2番8号`, `(+84)`, `鈴木エリカ様`.
+- Client AI tắt telemetry, log thư viện HTTP ở mức WARNING. ml-service tắt telemetry của FastAPI, bắt lỗi trong endpoint (không để uvicorn log traceback có text), tự offline khi model đã có trong cache.
+- Subject cắt 300 ký tự, To/Cc tối đa 10 người khi embed/gửi (mail độc không làm kẹt embedding hay làm `/ask` lỗi).
+- `ML_SERVICE_URL` chỉ nhận loopback hoặc https; embed câu tìm kiếm trước khi mở phiên DB; eval đọc mbox chỉ đọc; lời nhắc về prompt injection trên trang Hỏi AI; test CSRF `/ask`.
 
 ### Còn để sau
-- Chưa gọi thử Claude thật: máy dev chưa có `ANTHROPIC_API_KEY`. Đã kiểm request/response của SDK bằng transport giả và cả luồng bằng Claude giả; cần chạy thử một câu hỏi trên dữ liệu giả khi có khóa.
-- Che thông tin còn giới hạn (spec 20 mục 8): tên viết toàn chữ thường, địa chỉ tiếng Anh không có nhãn, tên không có trong header/kính ngữ mà NER bỏ sót.
+- Chưa gọi thử AI thật. Đã kiểm cả luồng bằng AI giả; cần chạy thử một câu hỏi trên dữ liệu giả khi có gateway.
 - Tiêu chí giai đoạn 5 (30 câu hỏi do PM soạn, ≥ 80% đúng có nguồn): PM tự chấm trên dữ liệu thật.
 - Embed nhanh hơn: máy có GPU, hoặc đổi model nhỏ hơn (phải hỏi người dùng: đổi model là embed lại toàn bộ).
 - Index vector riêng theo người dùng trước khi nhiều người dùng (spec 19 mục 9).

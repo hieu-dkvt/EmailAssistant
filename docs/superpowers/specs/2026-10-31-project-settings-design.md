@@ -199,7 +199,7 @@ Trang `ProjectsPage` ở `/settings/projects`, mục menu "Dự án" đặt trư
 
 `ThreadListPage`: mỗi dòng hiện tên dự án bằng `Badge` (outline) trước số mail, tối đa 2 tên, phần còn lại ghi `+n`, đủ tên nằm trong `title`.
 
-## 8. Phân quyền và dữ liệu (NDA, RLS, log)
+## 8. Phân quyền và dữ liệu (RLS, log)
 
 - Bộ lọc và tên dự án có thể chứa tên, địa chỉ khách: không ghi log, không đưa vào thông báo lỗi, không gửi cho AI, không in ở `mail-stats`. Log của gán dự án chỉ có `user`, số mail, số dự án, thời gian.
 - Claude Code không đọc `projects` trên DB dev `mailassist`, và mockup, test chỉ dùng dữ liệu giả `*.example.*`.

@@ -306,7 +306,7 @@ async def test_clearing_model_deletes_row(
 
 
 async def test_settings_rejects_tiers(client: AsyncClient) -> None:
-    r = await client.put("/api/v1/ai/settings", json={"tiers": {"answer": "opus"}}, headers=CSRF)
+    r = await client.put("/api/v1/ai/settings", json={"tiers": {"answer": "large"}}, headers=CSRF)
     assert r.status_code == 422
 
 
@@ -378,7 +378,7 @@ async def test_refusal_and_api_errors(
     llm.responses = [
         LlmResponse(
             text=None,
-            model="claude-haiku-5-5",
+            model="local/qwen3-8b",
             stop_reason="refusal",
             usage=LlmUsage(input_tokens=5),
         ),
@@ -390,7 +390,7 @@ async def test_refusal_and_api_errors(
     assert (r.status_code, r.json()["code"]) == (503, "ai_unavailable")
     llm.responses = [
         LlmResponse(
-            text='{"oops": 1}', model="claude-haiku-5-5", stop_reason="end_turn", usage=LlmUsage()
+            text='{"oops": 1}', model="local/qwen3-8b", stop_reason="end_turn", usage=LlmUsage()
         ),
     ]
     r = await ask(client)
@@ -429,13 +429,10 @@ async def no_llm_client(
         yield c
 
 
-async def test_env_key_ignored_without_provider(
-    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+async def test_ask_without_provider_is_not_configured(
+    api: AsyncEngine, ml: FakeMl, world: SimpleNamespace
 ) -> None:
-    """Đặt biến trước create_app: chặn cả code đọc môi trường lúc dựng app, không chỉ lúc gọi."""
-    for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
-        monkeypatch.setenv(name, "x")
-    monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://env.example")
+    """Không có client AI mặc định: chưa lưu nhà cung cấp thì 503 trước bước tìm kiếm."""
     app = create_app(api, ml=ml, web_dist=None)
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
         await login(c, "a@example.com")

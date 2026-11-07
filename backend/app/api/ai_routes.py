@@ -561,7 +561,6 @@ async def test_provider(
                 user=TEST_USER,
                 schema=TEST_SCHEMA,
                 max_tokens=50,
-                effort="low",
             )
             status_ = "ok"
         finally:

@@ -21,7 +21,7 @@
 - Không gọi URL, không đọc đường dẫn local, không gọi AI, không lưu API key.
 - Web: không viết tay kiểu API, không thêm màu hay font, không lưu dữ liệu vào storage trình duyệt.
 - Ruff, pyright, ESLint không báo lỗi. Đổi code thì cập nhật tài liệu cùng lượt.
-- Không làm trên `master`: dùng nhánh `feature/project-settings`. Commit message kết thúc bằng `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Không đưa `backend/Mail automation spec.md` vào commit.
+- Không làm trên `master`: dùng nhánh `feature/project-settings`. Không đưa `backend/Mail automation spec.md` vào commit.
 
 Lệnh dùng chung, cần DB đang chạy (`docker compose up -d`):
 

@@ -78,7 +78,7 @@
 | Vector | **pgvector** (kiểu `halfvec` để giảm dung lượng) | |
 | Queue | Redis + BullMQ | Xử lý nền: thread, embedding, AI |
 | Embedding | `bge-m3` self-host | Self-host để không đưa dữ liệu ra ngoài |
-| LLM | Model nội bộ của công ty qua gateway kiểu 9router, nhập ở Cài đặt AI, theo từng tác vụ (gợi ý: model nhỏ cho phân loại và phân tích câu hỏi, model vừa cho tóm tắt, trả lời, soạn reply; code không đặt sẵn tên model nào) | Quyết định của người dùng 2026-11-01: không dùng API ngoài, không cần che thông tin. Đã làm ở spec 28 (2026-11-02): tên model do người dùng nhập, không còn ba cấp |
+| LLM | Model nội bộ của công ty qua gateway kiểu 9router (giao thức tương thích OpenAI), nhập ở Cài đặt AI, theo từng tác vụ (gợi ý: model nhỏ cho phân loại và phân tích câu hỏi, model vừa cho tóm tắt, trả lời, soạn reply; code không đặt sẵn tên model nào) | Quyết định của người dùng 2026-11-01: không dùng API ngoài, không cần che thông tin. Đã làm ở spec 28 (2026-11-02): tên model do người dùng nhập, không còn ba cấp |
 | Web | Next.js | |
 | Xác thực | SSO công ty (Microsoft Entra / Google) hoặc LDAP | Áp dụng từ giai đoạn nhiều người dùng |
 | Triển khai | Docker Compose → server nội bộ / VPC riêng | |
@@ -151,7 +151,7 @@ audit_log            (user_id, action, target, at)
 - [ ] Liệt kê cấu trúc profile Thunderbird: danh sách folder, kích thước từng file mbox, folder con (`*.sbd`).
 - [ ] Lấy mẫu khoảng 50 mail đại diện: ISO-2022-JP, Shift_JIS, UTF-8, HTML-only, mail từ Outlook, mail forward, mail có quote dài.
 - [ ] Đếm tổng số mail và tỷ lệ dung lượng của file đính kèm để ước lượng dung lượng DB.
-- [x] **Xác nhận chính sách bảo mật:** khách có cho phép gửi nội dung mail qua AI cloud (Claude API) không? Có cần che thông tin nhạy cảm không? *(Kết quả 2026-10-19: được gửi qua Claude API, **bắt buộc che** email/điện thoại/URL/địa chỉ, tên người, tên công ty/tổ chức, số tiền/số hợp đồng. Đổi ngày 2026-11-01: không dùng API ngoài, dùng model nội bộ, không cần che.)*
+- [x] **Xác nhận nơi chạy AI:** *(Kết quả 2026-11-01: dùng model nội bộ, không gửi mail tới API AI bên ngoài, nên không cần che thông tin trước khi gửi AI.)*
 - [ ] Chốt nơi đặt server (máy cá nhân, server nội bộ hay cloud riêng).
 
 **Đầu ra:** báo cáo khảo sát, bộ mail mẫu dùng làm test, quyết định về bảo mật.
@@ -239,9 +239,8 @@ audit_log            (user_id, action, target, at)
   1. Model cấp nhỏ phân tích câu hỏi thành bộ lọc (dự án, ngày, người gửi) và từ khóa, đồng thời tự dịch Việt sang Nhật.
   2. Hybrid search, **lọc theo quyền của người hỏi**, lấy khoảng 20 đoạn liên quan nhất.
   3. Model cấp vừa trả lời bằng tiếng Việt, **kèm link tới mail/thread gốc**.
-- [ ] Che thông tin nhạy cảm trước khi gửi AI *(đã làm ở spec 20; từ 2026-11-01 không còn là yêu cầu vì dùng model nội bộ, code đã xóa ở spec 28, 2026-11-02)*.
 - [ ] Lớp 4 của gom thread: gợi ý gộp thread bằng embedding.
-- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: 3 cấp Haiku / Sonnet / Opus, chọn theo từng tác vụ (phân tích câu hỏi, trả lời; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token và chi phí ước tính. *(Từ 2026-11-01 model nội bộ chọn bằng tên model do người dùng nhập; ba cấp và chi phí ước tính đã bỏ ở spec 28, còn thống kê token.)*
+- [ ] *(Yêu cầu thêm 2026-10-19)* Màn hình cài đặt model AI: nhập tên model theo từng tác vụ (phân tích câu hỏi, trả lời, dịch; giai đoạn 6 thêm phân loại, tóm tắt, soạn reply), kèm thống kê token *(spec 22, 28)*.
 
 **Tiêu chí hoàn thành:** bộ 30 câu hỏi mẫu do PM soạn, ≥ 80% câu trả lời đúng và có trích dẫn nguồn.
 

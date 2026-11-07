@@ -1,10 +1,10 @@
-"""Nhà cung cấp AI tùy chỉnh theo người dùng: OpenRouter, 9router…
+"""Nhà cung cấp AI theo người dùng: gateway model nội bộ kiểu 9router (giao thức OpenAI).
 
 Spec 2026-10-25-ai-provider-design.
 
 - validate_base_url: http/https tới mọi địa chỉ, chỉ chặn URL sai dạng và link-local
   (spec 28 mục 3). is_public_host báo địa chỉ công cộng để web cảnh báo.
-- OpenAiLlm: client chat/completions tương thích OpenAI (mục 3).
+- OpenAiLlm: client chat/completions tương thích OpenAI, giao thức duy nhất (mục 3).
 - load/save/delete_provider và LlmResolver: cấu hình lưu DB (RLS), key mã hóa (mục 4, 5).
 - Text gửi đi là text gốc, không che (spec 28). Log chỉ có host/giao thức, không có key, URL đầy
   đủ hay body phản hồi.
@@ -21,7 +21,6 @@ from typing import Any, Literal
 from urllib.parse import SplitResult, urlsplit
 
 import httpx
-import httpx2
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -35,13 +34,12 @@ from app.ai.client import (
     LlmUsage,
     served_model,
 )
-from app.ai.models import Effort
 from app.db.session import user_session
 
 log = logging.getLogger("app.ai")
 
-type Protocol = Literal["anthropic", "openai"]
-PROTOCOLS: tuple[Protocol, ...] = ("anthropic", "openai")
+type Protocol = Literal["openai"]
+PROTOCOLS: tuple[Protocol, ...] = ("openai",)
 MAX_RETRIES = 2
 MAX_RESPONSE_BYTES = 4 * 1024 * 1024
 
@@ -198,7 +196,6 @@ class OpenAiLlm:
         user: str,
         schema: dict[str, object],
         max_tokens: int,
-        effort: Effort,  # noqa: ARG002 (gateway không có tham số tương đương)
     ) -> LlmResponse:
         strict: dict[str, Any] = {
             "type": "json_schema",
@@ -310,35 +307,7 @@ class OpenAiLlm:
 
 def build_llm(config: ProviderConfig) -> LlmClient:
     log.info("ai provider host=%s protocol=%s", config.host, config.protocol)
-    if config.protocol == "openai":
-        return OpenAiLlm(base_url=config.base_url, api_key=config.api_key)
-    return _anthropic_llm(config)
-
-
-def _anthropic_llm(config: ProviderConfig) -> LlmClient:
-    from anthropic import AsyncAnthropic
-
-    from app.ai.client import AnthropicLlm, _quiet_sdk_logs, no_retry_on_read_timeout
-
-    _quiet_sdk_logs()
-    client = AsyncAnthropic(
-        api_key=config.api_key,
-        base_url=config.base_url,
-        timeout=TIMEOUT_SECONDS,
-        max_retries=MAX_RETRIES,
-        open_telemetry=False,
-        middleware=[no_retry_on_read_timeout],
-        # SDK mặc định theo redirect: header x-api-key và mail gốc sẽ bị gửi tới host khác.
-        # Không dùng DefaultAsyncHttpxClient: lớp đó luôn gắn proxy của môi trường, kể cả khi
-        # trust_env=False.
-        http_client=httpx2.AsyncClient(
-            trust_env=False, follow_redirects=False, timeout=TIMEOUT_SECONDS
-        ),
-    )
-    # Hàm dựng luôn trộn ANTHROPIC_CUSTOM_HEADERS, không có tham số tắt: header từ môi trường không
-    # được gửi tới URL người dùng nhập. Có test canh khi nâng SDK.
-    client._custom_headers = {}
-    return AnthropicLlm(client)
+    return OpenAiLlm(base_url=config.base_url, api_key=config.api_key)
 
 
 # --- DB (RLS, và tự lọc user_id: truyền nhầm engine không được lấy gateway của người khác) ---
@@ -396,8 +365,7 @@ def key_hint(key: str | None) -> str | None:
 
 def _close_later(client: LlmClient) -> None:
     """Đóng kết nối của client bị thay thế (nếu có)."""
-    inner = getattr(client, "_client", None)
-    closer = getattr(client, "aclose", None) or getattr(inner, "close", None)
+    closer = getattr(client, "aclose", None)
     if closer is None:
         return
     result = closer()

@@ -296,7 +296,7 @@ class AiSettingsUpdate(StrictModel):
 
 
 class AiProviderCustom(BaseModel):
-    protocol: Literal["anthropic", "openai"]
+    protocol: Literal["openai"]  # giao thức duy nhất; giữ trường để thêm giao thức sau
     base_url: str
     api_key_set: bool  # false khi key không giải mã được (đổi PMM_SECRET_KEY)
     api_key_hint: str | None  # 4 ký tự cuối, không bao giờ trả key đầy đủ
@@ -309,7 +309,7 @@ class AiProvider(BaseModel):
 
 
 class AiProviderUpdate(StrictModel):
-    protocol: Literal["anthropic", "openai"]
+    protocol: Literal["openai"]
     base_url: str
     api_key: str | None = None  # bỏ trống = giữ key đã lưu
 

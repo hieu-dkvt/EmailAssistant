@@ -176,8 +176,8 @@ Collector chỉ đọc file mbox, không ghi gì vào Thunderbird hay mail serve
 ## 9. Dùng hệ thống
 
 1. Mở `http://127.0.0.1:8000`, đăng nhập bằng email và mật khẩu ở mục 5.
-2. Vào **Cài đặt AI**: nhập URL gateway nội bộ, API key và tên model cho từng tác vụ (phân tích câu hỏi, trả lời, dịch). Chưa nhập thì hỏi đáp và dịch báo `ai_not_configured`.
-   - **Chỉ nhập gateway nội bộ.** Mail được gửi tới URL này ở dạng gốc; không dùng API bên ngoài (Anthropic, OpenRouter…). Màn hình cảnh báo khi URL là địa chỉ công cộng nhưng không chặn.
+2. Vào **Cài đặt AI**: nhập URL gateway nội bộ tương thích OpenAI (kiểu 9router, thường kết thúc bằng `/v1`), API key và tên model cho từng tác vụ (phân tích câu hỏi, trả lời, dịch). Chưa nhập thì hỏi đáp và dịch báo `ai_not_configured`.
+   - **Chỉ nhập gateway nội bộ.** Mail được gửi tới URL này ở dạng gốc; không dùng API AI bên ngoài. Màn hình cảnh báo khi URL là địa chỉ công cộng nhưng không chặn.
 3. Vào **Dự án**: khai báo dự án và bộ lọc From, To, CC, Subject. Dịch tự động chỉ chạy cho dự án có domain khách, với mail từ mốc (lần đầu nhập domain khách lùi lại 14 ngày, cố định); mail cũ hơn dịch tay được. Chọn folder đích cho mail đã dịch ở cấu hình dự án (folder phải đã đồng bộ).
 
 Xem số liệu tổng hợp: `uv run --directory backend python -m app.cli mail-stats`.

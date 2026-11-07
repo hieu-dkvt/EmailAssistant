@@ -1,12 +1,10 @@
 # Cải thiện truy xuất cho hỏi đáp: kế hoạch triển khai
 
-> **Cập nhật 2026-11-02:** spec 28 đã xóa `Masker`, `learn_rows`, `FakeMl.ner_names`, `people`: mọi yêu cầu che trong tài liệu này không còn áp dụng.
-
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `/ask` hỏi được trong phạm vi một dự án, không mất kết quả khi lọc hẹp, gửi AI đủ ngữ cảnh hội thoại, và có sẵn reranker tắt mặc định để đo.
 
-**Architecture:** `MessageFilters` có thêm `project_id`; `vector_chunks` quét chính xác khi phạm vi nhỏ. Việc chia ngân sách ngữ cảnh là hàm thuần trong file mới `app/ai/context.py`; `ask.py` chỉ đọc DB, che và gọi AI. ml-service thêm `/rerank` nạp theo cấu hình; backend gọi khi `PMM_RERANK=1`, lỗi thì dùng thứ tự RRF.
+**Architecture:** `MessageFilters` có thêm `project_id`; `vector_chunks` quét chính xác khi phạm vi nhỏ. Việc chia ngân sách ngữ cảnh là hàm thuần trong file mới `app/ai/context.py`; `ask.py` chỉ đọc DB và gọi AI. ml-service thêm `/rerank` nạp theo cấu hình; backend gọi khi `PMM_RERANK=1`, lỗi thì dùng thứ tự RRF.
 
 **Tech Stack:** Python 3.12, FastAPI, SQLAlchemy 2.0 async + psycopg 3, Alembic, pgvector 0.8, sentence-transformers 6.1 (`CrossEncoder`), React 19, TanStack Query 5, Vitest.
 
@@ -17,14 +15,14 @@
 - Chỉ dữ liệu giả `*.example.*`. Không gọi API đọc mail, không mở web trên DB dev `mailassist`. Eval và bench chỉ chạy trên `mailassist_test`.
 - Không log câu hỏi, text mail, tên dự án, điểm từng đoạn. Log chỉ có `user`, số lượng, cờ, thời gian.
 - Mọi đọc mail phục vụ `/ask` chạy trong `user_session` (role `app_api`, RLS).
-- Kế hoạch này làm sau spec 28 (không còn `Masker`, `learn_rows`, NER): bỏ mọi yêu cầu và test về che ở Task 6, giữ test RLS và test nội dung gửi đi.
+- Kế hoạch này làm sau spec 28 (không còn che thông tin, NER): Task 6 giữ test RLS và test nội dung gửi đi.
 - Hằng số (spec mục 13): `CONTEXT_MAX_CHARS = 24_000`, `SOURCE_MAX_CHARS = 3_000`, `PREVIOUS_MAX_CHARS = 1_200`, `MIN_EXPANSION_CHARS = 200`, `EXACT_SCAN_MAX_CHUNKS = 20_000`, `RERANK_CANDIDATES = 40`, `RERANK_TIMEOUT_SECONDS = 30`, `m = 16`, `ef_construction = 128`.
 - Regex chạy trên nội dung mail: lượng từ có giới hạn.
 - Không đổi model embedding, không embed lại, không đổi `CHUNKER_VERSION`.
 - Reranker mặc định tắt. Không bật thay người dùng.
 - Web: không viết tay kiểu API, không lưu dữ liệu vào storage trình duyệt.
 - Ruff, pyright, ESLint không báo lỗi. Đổi code thì cập nhật tài liệu cùng lượt.
-- Commit message kết thúc bằng `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Không đưa `backend/Mail automation spec.md` vào commit.
+- Không đưa `backend/Mail automation spec.md` vào commit.
 
 Lệnh dùng chung (cần `docker compose up -d`):
 

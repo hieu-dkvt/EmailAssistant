@@ -77,13 +77,12 @@ function hostOf(url: string): string {
   }
 }
 
-/** Nhà cung cấp AI: gateway model nội bộ kiểu 9router (spec 24, 28). API key chỉ đi một chiều. */
+/** Nhà cung cấp AI: gateway model nội bộ kiểu 9router, giao thức OpenAI (spec 24, 28). API key chỉ đi một chiều. */
 function ProviderForm() {
   const provider = useAiProvider();
   const save = useSaveAiProvider();
   const remove = useDeleteAiProvider();
   const test = useTestAiProvider();
-  const [protocol, setProtocol] = useState<"anthropic" | "openai" | null>(null);
   const [baseUrl, setBaseUrl] = useState<string | null>(null);
   const [apiKey, setApiKey] = useState("");
 
@@ -96,7 +95,6 @@ function ProviderForm() {
     );
   }
   const p = provider.data;
-  const shownProtocol = protocol ?? p.custom?.protocol ?? "openai";
   const shownUrl = baseUrl ?? p.custom?.base_url ?? "";
   const host = hostOf(shownUrl);
   // public_host do backend tính cho địa chỉ đã lưu: sửa URL trong ô thì chưa biết, bỏ cảnh báo.
@@ -106,11 +104,10 @@ function ProviderForm() {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     save.mutate(
-      { protocol: shownProtocol, base_url: shownUrl.trim(), api_key: apiKey.trim() || null },
+      { protocol: "openai", base_url: shownUrl.trim(), api_key: apiKey.trim() || null },
       {
         onSuccess: () => {
           setApiKey("");
-          setProtocol(null);
           setBaseUrl(null);
         },
       },
@@ -129,18 +126,6 @@ function ProviderForm() {
         </Alert>
       )}
       <div className="grid gap-1">
-        <Label htmlFor="provider-protocol">Giao thức</Label>
-        <select
-          id="provider-protocol"
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
-          value={shownProtocol}
-          onChange={(e) => setProtocol(e.target.value as "anthropic" | "openai")}
-        >
-          <option value="openai">Tương thích OpenAI (9router…)</option>
-          <option value="anthropic">Anthropic (Messages API)</option>
-        </select>
-      </div>
-      <div className="grid gap-1">
         <Label htmlFor="provider-url">URL gốc</Label>
         <Input
           id="provider-url"
@@ -150,7 +135,8 @@ function ProviderForm() {
           onChange={(e) => setBaseUrl(e.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          Địa chỉ gateway model nội bộ, <code>http://</code> hoặc <code>https://</code>.
+          Địa chỉ gateway model nội bộ tương thích OpenAI (9router…), <code>http://</code> hoặc{" "}
+          <code>https://</code>, thường kết thúc bằng <code>/v1</code>.
         </p>
       </div>
       <div className="grid gap-1">

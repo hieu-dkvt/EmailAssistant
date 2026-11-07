@@ -50,7 +50,7 @@ const RESULT: AskResult = {
   calls: [
     {
       task: "question_analysis",
-      model: "claude-haiku-5-5",
+      model: "local/qwen3-8b",
       status: "ok",
       input_tokens: 120,
       output_tokens: 30,

@@ -2024,10 +2024,7 @@
                 "properties": {
                   "protocol": {
                     "type": "string",
-                    "enum": [
-                      "anthropic",
-                      "openai"
-                    ],
+                    "const": "openai",
                     "title": "Protocol"
                   },
                   "base_url": {
@@ -3462,10 +3459,7 @@
         "properties": {
           "protocol": {
             "type": "string",
-            "enum": [
-              "anthropic",
-              "openai"
-            ],
+            "const": "openai",
             "title": "Protocol"
           },
           "base_url": {

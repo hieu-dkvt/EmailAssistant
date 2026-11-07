@@ -4,7 +4,7 @@ API (FastAPI) và worker xử lý nền (Procrastinate) dùng chung một codeba
 
 ## Công nghệ
 
-Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2.0 + psycopg 3, `pgvector` (kiểu `HALFVEC` cho model), Alembic, Procrastinate, SDK `anthropic` 1.x (dùng `httpx2`), `httpx` (gọi ml-service, và gọi gateway giao thức `openai`). Model embedding (bge-m3) chạy ở `ml-service/`, backend không nạp model.
+Python 3.12+, uv, FastAPI, Pydantic v2, SQLAlchemy 2.0 + psycopg 3, `pgvector` (kiểu `HALFVEC` cho model), Alembic, Procrastinate, `httpx` (gọi ml-service và gateway AI tương thích OpenAI). Model embedding (bge-m3) chạy ở `ml-service/`, backend không nạp model.
 
 ## Cấu trúc
 
@@ -66,8 +66,8 @@ app/auto_translate.py    # job dịch tự động: tiêu chí (ELIGIBLE_SQL), t
 app/mail/domains.py      # normalize_domain, domain_matches, is_inbox_path, inbox_path_sql
 seed/glossary-it-ja-vi.csv # 151 thuật ngữ IT/outsource công khai, nạp bằng chức năng nhập của web
 seed/glossary-programming-ja-vi.csv # 153 thuật ngữ lập trình, không trùng file trên (test_seed_files_do_not_overlap)
-app/ai/client.py         # AnthropicLlm (structured output, cho giao thức anthropic), call_task ghi ai_calls, LlmError,
-                         #   served_model, no_retry_on_read_timeout (middleware SDK)
+app/ai/client.py         # kiểu chung LlmClient/LlmResponse, strict_schema (JSON schema từ Pydantic), call_task ghi ai_calls, LlmError,
+                         #   served_model
 app/ai/ask.py            # RAG: phân tích → tìm cục bộ (_candidates → rerank tùy chọn `_rerank_head` → pick) → đọc nguồn và mail trước
                          #   (_fetch_context, user_session thứ hai) → trả lời (text gốc, không che); AskGuard
 app/ai/context.py        # hàm thuần dựng ngữ cảnh gửi AI (spec 27 mục 6): gộp đoạn theo mail (group_sources), mở rộng
@@ -105,6 +105,7 @@ migrations/versions/     # 0001_tables … 0005_api_tokens_ingest_grants, 0006_c
                          #   0018_translation (cột mới của projects, glossary_terms, message_translations,
                          #   message_auto_runs, spec 26), 0019_drop_ai_tier (bỏ cột tier, model NOT NULL, spec 28),
                          #   0020_chunks_hnsw_params (build lại index HNSW m=16, ef_construction=128, CONCURRENTLY, spec 27)
+                         #   0021_openai_protocol_only (chỉ còn giao thức openai, đổi dòng giao thức cũ, spec 28 mục 14)
 tests/                   # pytest trên database mailassist_test; tests/dbutil.py: helper tạo dữ liệu, as_user;
                          #   tests/webutil.py: client web, người dùng có mật khẩu, đăng nhập;
                          #   tests/mlfake.py: FakeMl (vector theo "khái niệm"), FakeLlm
@@ -205,28 +206,26 @@ Spec 18, 19, 23 (`docs/superpowers/specs/2026-10-19-*`); spec 27 (`2026-11-01-as
 
 ## Gọi AI (nhà cung cấp và model bất kỳ)
 
-Spec 20, 21, 22, 24, 28.
+Spec 21, 22, 24, 28.
 
-**Chỉ model nội bộ (quyết định của người dùng 2026-11-01, đã làm ở spec 28):** AI chạy trên model nội bộ qua gateway kiểu 9router, không dùng API ngoài. Text gửi AI là text gốc, không che. Ô URL ở Cài đặt AI nhận mọi địa chỉ nên **code không ngăn mail ra ngoài**: chỉ có cảnh báo trên màn hình khi host là địa chỉ công cộng (`is_public_host`, `AiProviderCustom.public_host`). Code mới không thêm đường gọi AI ngoài cấu hình của người dùng.
+**Chỉ model nội bộ (quyết định của người dùng 2026-11-01, đã làm ở spec 28):** AI chạy trên model nội bộ qua gateway kiểu 9router, giao thức tương thích OpenAI (`OpenAiLlm`, `provider.py`), giao thức duy nhất từ 2026-11-05 (migration 0021). Text gửi AI là text gốc, không che. Ô URL ở Cài đặt AI nhận mọi địa chỉ nên **code không ngăn mail ra ngoài**: chỉ có cảnh báo trên màn hình khi host là địa chỉ công cộng (`is_public_host`, `AiProviderCustom.public_host`). Code mới không thêm đường gọi AI ngoài cấu hình của người dùng.
 
-- Trước khi viết code gọi SDK `anthropic`, dùng skill `claude-api` để lấy cách dùng SDK hiện hành. Không viết theo trí nhớ.
-- **Không có khóa mặc định.** Backend không đọc `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_CUSTOM_HEADERS`, `PMM_ANTHROPIC_BASE_URL`, `PMM_AI_FALLBACKS`, `PMM_MODEL_HAIKU/SONNET/OPUS`, kể cả khi còn đặt trong môi trường. Nhà cung cấp của người dùng nằm ở bảng `user_ai_provider` (key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24). `LlmResolver.for_user` trả `LlmClient | None`: `None` khi chưa nhập nhà cung cấp, `/ask` và dịch tay trả 503 `ai_not_configured`, job dịch dừng. `LlmResolver(default=…)` và `create_app(llm=…)` chỉ để test truyền client giả.
-- **Tên model do người dùng nhập theo tác vụ** (bảng `user_ai_settings`, cột `model` NOT NULL, xóa tên = xóa dòng; không còn cấp Haiku/Sonnet/Opus, giá ước tính, `PMM_MODEL_*`). `call_task(model=…)` nhận chuỗi này. Thiếu tên model → 503 `ai_model_missing`: route kiểm trước, `ask()` và `produce_translation` tự kiểm lại vì job dịch và `ask()` không đi qua route. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS` (`app/ai/models.py`), gọi qua `call_task`.
+- **Không có khóa mặc định.** Backend không đọc khóa, URL hay tên model AI từ biến môi trường. Nhà cung cấp của người dùng nằm ở bảng `user_ai_provider` (key mã hóa Fernet bằng `PMM_SECRET_KEY`, spec 24). `LlmResolver.for_user` trả `LlmClient | None`: `None` khi chưa nhập nhà cung cấp, `/ask` và dịch tay trả 503 `ai_not_configured`, job dịch dừng. `LlmResolver(default=…)` và `create_app(llm=…)` chỉ để test truyền client giả.
+- **Tên model do người dùng nhập theo tác vụ** (bảng `user_ai_settings`, cột `model` NOT NULL, xóa tên = xóa dòng; không còn ba cấp model và giá ước tính). `call_task(model=…)` nhận chuỗi này. Thiếu tên model → 503 `ai_model_missing`: route kiểm trước, `ask()` và `produce_translation` tự kiểm lại vì job dịch và `ask()` không đi qua route. Thêm tác vụ mới (giai đoạn 6): thêm vào `TASKS` (`app/ai/models.py`), gọi qua `call_task`.
 - URL: `validate_base_url` nhận `http` và `https` tới mọi địa chỉ (LAN, localhost, công cộng); từ chối URL sai dạng, IP viết tắt (`2130706433`, `0x7f.1`), link-local (`169.254.0.0/16`, `fe80::/10`), ký tự điều khiển và khoảng trắng; dấu chấm cuối của host được bỏ trước khi xét. `reject_link_local` phân giải host khi lưu (`PUT /ai/provider`) và khi `LlmResolver` dựng client mới; cache trúng thì không kiểm lại, nên DNS đổi sau đó không chặn được cho tới khi client được dựng lại. Không log key, URL đầy đủ hay body phản hồi; thông điệp lỗi của gateway không được chép vào response. `/ai/provider/test` chạy với URL người dùng nhập (SSRF, đã giảm: chỉ phiên web, không theo redirect, không trả body, chặn link-local).
 - Giới hạn độ dài là giới hạn chi phí, không phụ thuộc việc che: subject 300 ký tự, To/Cc 10 người, tên và địa chỉ 100 ký tự, thân mail trong `/ask` tối đa `SOURCE_MAX_CHARS` = 3.000 ký tự mỗi nguồn và `CONTEXT_MAX_CHARS` = 24.000 tổng (spec 27; trước đó chỉ đoạn ≤ 800 ký tự `CHUNK_CHARS`); mail dịch `MAX_BODY_CHARS` = 12.000, ngữ cảnh `MAX_CONTEXT_CHARS` = 1.500. Cắt bằng `cut_text` (`app/ai/text.py`): ranh giới đoạn, rồi cuối dòng, trong nửa sau giới hạn.
-- **`trust_env=False` là bắt buộc ở cả hai client** (`OpenAiLlm` và `_anthropic_llm`), như `ml_client.py`: có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail gốc và API key sẽ đi qua proxy, kể cả tới địa chỉ LAN. Giao thức `anthropic` dùng `httpx2.AsyncClient(trust_env=False, …)`, không dùng `DefaultAsyncHttpxClient`: lớp đó gọi `get_environment_proxies()` vô điều kiện (`anthropic/_base_client.py:1770`), `trust_env=False` không tắt được. Tác dụng phụ: `SSL_CERT_FILE`, `SSL_CERT_DIR` cũng bị bỏ qua (spec 28 mục 8).
+- **`trust_env=False` là bắt buộc** ở `OpenAiLlm`, như `ml_client.py`: có `HTTP_PROXY` hoặc proxy hệ thống Windows thì mail gốc và API key sẽ đi qua proxy, kể cả tới địa chỉ LAN. Client cũng đặt `follow_redirects=False` (redirect sẽ mang key và mail gốc sang host khác). Tác dụng phụ: `SSL_CERT_FILE`, `SSL_CERT_DIR` cũng bị bỏ qua (spec 28 mục 8).
 - `PUT /ai/provider` với ô key trống chỉ giữ key đã lưu khi URL không đổi; đổi URL thì 422 `api_key`, key cũ không bao giờ đi theo sang địa chỉ khác (quyết định của người dùng 2026-11-02, spec 28 mục 13).
-- Client SDK `anthropic` chỉ dùng cho giao thức `anthropic`: luôn do `_anthropic_llm` (`provider.py`) dựng với `base_url` và key của người dùng, `follow_redirects=False`, `open_telemetry=False`, `client._custom_headers = {}` (hàm dựng luôn trộn `ANTHROPIC_CUSTOM_HEADERS`, `anthropic/_client.py:703`, không có tham số tắt; `tests/test_ai_client.py::test_sdk_env_is_ignored` canh khi nâng SDK; không gọi `with_options`/`copy` vì chúng dựng lại client và đọc lại biến này). Không bật `ANTHROPIC_LOG=debug` cho backend (code đã giữ logger SDK ở WARNING).
 - `ML_SERVICE_URL` chỉ nhận `http://` loopback hoặc `https://` (ml-service nhận text mail gốc).
-- Output có cấu trúc: `output_config.format` với schema từ Pydantic (`anthropic.transform_schema`), rồi tự `model_validate_json`. Không dùng `messages.parse`: nó ném lỗi khi model từ chối hay hết token, mất `stop_reason` và `usage`. Giao thức `openai` gửi `response_format` kiểu `json_schema`, gateway trả 400 thì hỏi lại bằng `json_object` kèm schema trong prompt.
+- Output có cấu trúc: `response_format` kiểu `json_schema` (`strict`) với schema từ `strict_schema` (`model_json_schema()` của Pydantic, mọi object `additionalProperties: false`), rồi tự `model_validate_json` để luôn đọc được `stop_reason` và `usage`. Gateway trả 400 thì hỏi lại bằng `json_object` kèm schema trong prompt. Output model mới chỉ dùng kiểu đơn giản và mọi trường bắt buộc (`strict_schema` không chuyển ràng buộc như `minLength`).
 - Mỗi lần gọi ghi một dòng `ai_calls` (tác vụ, model thực sự trả lời, status, token, thời gian), kể cả khi lỗi. Tên model do gateway trả đi qua `served_model`: chỉ nhận chuỗi in được, tối đa 200 ký tự, sai thì dùng tên đã yêu cầu. Cột dự án thêm khi có gán dự án. `/ai/usage` chỉ thống kê token, không có giá.
-- Lỗi SDK → `LlmError(code, http_status)`; log chỉ tên lớp lỗi và `request_id`, không log thông điệp.
-- **Hết giờ:** `ReadTimeout` (gateway nhận request, không trả lời xong trong `TIMEOUT_SECONDS` = 120 giây) → `ai_timeout`, 503, thông điệp cố định `TIMEOUT_MESSAGE`, **không thử lại** ở cả hai giao thức (mỗi lần thử tốn tới 120 giây tải của gateway). SDK thử lại mọi `APITimeoutError` nên `_anthropic_llm` gắn middleware `no_retry_on_read_timeout`: lỗi gốc nằm ở `__cause__`, đổi sang `ReadTimedOut` `from None` để `_should_retry_exception` không thử lại. `ConnectTimeout`, `ConnectError`, `PoolTimeout` vẫn là `ai_unavailable`, vẫn thử lại.
-- Quy tắc tên riêng của prompt dịch (`TRANSLATE_SYSTEM`): giữ nguyên hoặc phiên âm, trừ khi có trong `<glossary>`, viết 様 thành -sama, さん thành -san. Đổi prompt dịch thì tăng `TRANSLATE_PROMPT_VERSION` (hiện 2: bỏ quy tắc nhãn che); bản dịch cũ hiện nhãn "cũ", chỉ dịch lại khi người dùng bấm "Dịch lại".
-- Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) chạy bằng worker qua gateway nội bộ, giới hạn đồng thời theo khả năng của model. Không dùng Message Batches API (API ngoài).
-- Không dùng LangChain / LlamaIndex. Search kiểu agent (nếu làm) không dựa vào tool runner của SDK `anthropic`: model nội bộ đi qua giao thức `openai` và có thể không hỗ trợ tool.
+- Lỗi gọi gateway → `LlmError(code, http_status)`; log chỉ tên lớp lỗi, không log thông điệp hay body phản hồi.
+- **Hết giờ:** `ReadTimeout` (gateway nhận request, không trả lời xong trong `TIMEOUT_SECONDS` = 120 giây) → `ai_timeout`, 503, thông điệp cố định `TIMEOUT_MESSAGE`, **không thử lại** (mỗi lần thử tốn tới 120 giây tải của gateway). Lỗi mạng khác, 429 và 5xx vẫn là `ai_unavailable`, thử lại tối đa `MAX_RETRIES` = 2 lần.
+- Quy tắc tên riêng của prompt dịch (`TRANSLATE_SYSTEM`): giữ nguyên hoặc phiên âm, trừ khi có trong `<glossary>`, viết 様 thành -sama, さん thành -san. Đổi prompt dịch thì tăng `TRANSLATE_PROMPT_VERSION` (hiện 2); bản dịch cũ hiện nhãn "cũ", chỉ dịch lại khi người dùng bấm "Dịch lại".
+- Xử lý dữ liệu cũ hàng loạt (giai đoạn 6) chạy bằng worker qua gateway nội bộ, giới hạn đồng thời theo khả năng của model.
+- Không dùng LangChain / LlamaIndex. Search kiểu agent (nếu làm) không dựa vào tool calling: model nội bộ có thể không hỗ trợ tool.
 - Câu trả lời luôn kèm link tới mail/thread gốc.
-- Test không gọi AI thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_client.py` dựng `AsyncAnthropic` với `httpx2.MockTransport` để kiểm request/response của SDK.
+- Test không gọi AI thật: `tests/mlfake.FakeLlm` cho luồng hỏi đáp; `tests/test_ai_provider.py` dựng `OpenAiLlm` với `httpx.MockTransport` để kiểm request/response gửi gateway; `tests/test_ai_client.py` kiểm `strict_schema`, `served_model`.
 
 ## Dịch mail tự động, glossary, chuyển folder
 

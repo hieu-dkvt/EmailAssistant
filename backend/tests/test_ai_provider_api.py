@@ -43,7 +43,7 @@ from tests.webutil import CSRF, login
 
 KEY = "sk-or-v1-abcdefghijklmnop1234"
 BODY = {"protocol": "openai", "base_url": "https://openrouter.ai/api/v1", "api_key": KEY}
-MODELS = {"question_analysis": "google/gemini-flash", "answer": "anthropic/claude-sonnet-5-5"}
+MODELS = {"question_analysis": "google/gemini-flash", "answer": "local/qwen3-32b"}
 OK_JSON = LlmResponse('{"ok": true}', "m", "end_turn", LlmUsage(5, 2))
 
 
@@ -168,6 +168,7 @@ async def test_changing_url_requires_new_key(
         ("api_key", "has space"),
         ("api_key", "x" * 501),
         ("protocol", "gemini"),
+        ("protocol", "anthropic"),  # giao thức đã bỏ (migration 0021)
     ],
 )
 async def test_invalid_provider_is_422_without_echo(
@@ -334,7 +335,7 @@ async def reached(llm: LlmClient | None) -> tuple[str, str]:
         return httpx.Response(200, json={"choices": [message]})
 
     llm._http._transport = httpx.MockTransport(handle)
-    await llm.create(model="m", system="s", user="u", schema={}, max_tokens=5, effort="low")
+    await llm.create(model="m", system="s", user="u", schema={}, max_tokens=5)
     return str(seen[0].url), seen[0].headers["authorization"]
 
 
